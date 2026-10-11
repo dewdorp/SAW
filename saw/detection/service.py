@@ -6,9 +6,10 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+from time import monotonic
 
 import yaml
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, select
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from saw import container
@@ -19,7 +20,14 @@ from saw.core.application.investigations import Forbidden, NotFound, list_for, r
 from saw.core.schemas.query import Filter
 from saw.core.security.authz import Principal, can
 from saw.detection.sigma_eval import (
-    SigmaError, attack_tags, compile_rule, evaluate, to_opensearch_lucene, validate_with_pysigma,
+    SigmaError,
+    apply_threshold,
+    attack_tags,
+    compile_rule,
+    evaluate,
+    to_opensearch_lucene,
+    validate_threshold,
+    validate_with_pysigma,
 )
 from saw.storage.db import Base, new_id, utcnow
 from saw.storage.models import Finding, Investigation
@@ -139,7 +147,7 @@ def candidate_from_finding(f: Finding) -> dict:
 # ------------------------------------------------------------------ CRUD / workflow
 def _latest(s: Session, det_id: str) -> DetectionVersion:
     v = s.execute(select(DetectionVersion).where(DetectionVersion.detection_id == det_id)
-                  .order_by(DetectionVersion.version.desc())).scalars().first()
+                  .order_by(DetectionVersion.version.desc()).limit(1)).scalars().first()
     if v is None:
         raise NotFound("detection version not found")
     return v
@@ -188,6 +196,7 @@ def create(s: Session, p: Principal, data: dict, source: dict | None = None) -> 
 
 
 def _version_from(det_id: str, ver: int, data: dict, actor: str) -> DetectionVersion:
+    validate_threshold(data.get("threshold") or {})
     tags = data.get("attack") or []
     if data.get("format", "sigma") == "sigma":
         try:
@@ -235,30 +244,7 @@ def update(s: Session, p: Principal, det_id: str, data: dict) -> Detection:
 
 # ------------------------------------------------------------------ historical testing
 def _in_threshold(hits: list[dict], th: dict) -> list[dict]:
-    if not th or not th.get("count_gte"):
-        return hits
-    span = int(th.get("timespan_sec") or 600)
-    groups: dict[tuple, list[dict]] = {}
-    for e in hits:
-        groups.setdefault(tuple(str(e.get(g)) for g in th.get("group_by") or []), []).append(e)
-    out = []
-    for evs in groups.values():
-        evs.sort(key=lambda e: e.get("timestamp") or "")
-        ts = [datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).timestamp() if e.get("timestamp") else 0 for e in evs]
-        j = 0
-        keep = set()
-        for i in range(len(evs)):
-            while ts[i] - ts[j] > span:
-                j += 1
-            window = evs[j:i + 1]
-            if th.get("distinct_field"):
-                n = len({str(e.get(th["distinct_field"])) for e in window})
-            else:
-                n = len(window)
-            if n >= th["count_gte"]:
-                keep.update(range(j, i + 1))
-        out += [evs[k] for k in sorted(keep)]
-    return out
+    return apply_threshold(hits, th)
 
 
 def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str] | None = None, max_events: int = 500_000) -> TestRun:
@@ -269,33 +255,53 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
     if v.format != "sigma":
         raise ValueError(f"local historical testing supports sigma only ({v.format}: test on the target engine, ENV-06/ENV-11)")
     rule = compile_rule(v.logic)
+    validate_threshold(v.threshold)
     readable = {i.id: i for i in list_for(s, p, 500)}
     scope = [i for i in (investigation_ids or list(readable)) if i in readable]
     es = container.get().events
     exc = [Filter(**x) for x in v.exceptions]
     pre = [Filter(field="data_source", op="in", value=rule.data_sources)] if rule.data_sources else []
     hits_all, scanned = [], 0
+    truncated = False
+    evaluation_errors = 0
+    deadline = monotonic() + 30
     per_inv: Counter = Counter()
     for inv_id in scope:
         matched = []
         for ev in es.iterate(inv_id, pre):
-            scanned += 1
-            if scanned > max_events:
+            if scanned >= max_events or monotonic() >= deadline:
+                truncated = True
                 break
-            if evaluate(rule, ev):
-                matched.append(ev)
+            scanned += 1
+            try:
+                if evaluate(rule, ev):
+                    matched.append(ev)
+            except SigmaError:
+                evaluation_errors += 1
+                break
         if exc and matched:
-            excluded = {e["event_id"] for e in es.iterate(inv_id, exc + pre, fields=["event_id"])}
+            excluded = set()
+            for event in es.iterate(inv_id, exc + pre, fields=["event_id"]):
+                if len(excluded) >= max_events or monotonic() >= deadline:
+                    truncated = True
+                    break
+                excluded.add(event["event_id"])
             matched = [e for e in matched if e["event_id"] not in excluded]
-        matched = _in_threshold(matched, v.threshold)
+        try:
+            matched = _in_threshold(matched, v.threshold)
+        except SigmaError:
+            evaluation_errors += 1
+            matched = []
         per_inv[inv_id] = len(matched)
         hits_all += [(inv_id, e) for e in matched]
+        if truncated or evaluation_errors:
+            break
     verdict = {i: readable[i].verdict for i in scope}
     tp = sum(n for i, n in per_inv.items() if verdict.get(i) == "attack")
     fp = sum(n for i, n in per_inv.items() if verdict.get(i) in ("normal", "false_positive"))
     unl = sum(per_inv.values()) - tp - fp
     tss = sorted(e.get("timestamp") for _, e in hits_all if e.get("timestamp"))
-    days = max(1.0, (datetime.fromisoformat(tss[-1].replace("Z", "+00:00")) - datetime.fromisoformat(tss[0].replace("Z", "+00:00"))).total_seconds() / 86400) if tss else 1.0
+    days = max(1.0, (datetime.fromisoformat(tss[-1]) - datetime.fromisoformat(tss[0])).total_seconds() / 86400) if tss else 1.0
     unit = []
     for t in v.test_events:
         try:
@@ -306,7 +312,8 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
     fp_groups = Counter(str(e.get("src_ip")) for i, e in hits_all if verdict.get(i) in ("normal", "false_positive")).most_common(3)
     attack_invs = [i for i in scope if verdict.get(i) == "attack"]
     recall_ok = all(per_inv[i] > 0 for i in attack_invs) if attack_invs else None
-    result = {"hits": len(hits_all), "scanned": scanned, "truncated": scanned > max_events, "investigations": len(scope),
+    result = {"hits": len(hits_all), "scanned": scanned, "truncated": truncated, "evaluation_errors": evaluation_errors,
+              "execution": "partial" if truncated or evaluation_errors else "complete", "investigations": len(scope),
               "tp": tp, "fp": fp, "unlabeled": unl, "days": round(days, 2), "est_daily_alerts": round(len(hits_all) / days, 2),
               "per_investigation": [{"id": i, "display_id": readable[i].display_id, "verdict": verdict.get(i), "hits": n}
                                     for i, n in per_inv.most_common() if n],
@@ -315,7 +322,8 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
               "histogram": Counter((e.get("timestamp") or "")[:13] for _, e in hits_all).most_common(48),
               "samples": [{"investigation_id": i, "event_id": e["event_id"], "timestamp": e.get("timestamp"), "src_ip": e.get("src_ip"),
                            "uri": e.get("uri")} for i, e in hits_all[:20]]}
-    passed = all(u["ok"] for u in unit) and (recall_ok is not False) and len(hits_all) > 0
+    passed = (not truncated and not evaluation_errors and all(u["ok"] for u in unit)
+              and (recall_ok is not False) and len(hits_all) > 0)
     tr = TestRun(detection_id=det_id, version=v.version, scope={"investigations": scope}, result=result, passed=passed, ran_by=p.username)
     s.add(tr)
     if d.status == "draft":
@@ -327,6 +335,16 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
     return tr
 
 
+def has_passing_test(s: Session, det_id: str, version: int) -> bool:
+    """Legacy passed flags cannot authorize rules whose scan was incomplete."""
+    return s.execute(select(TestRun.id).where(
+        TestRun.detection_id == det_id, TestRun.version == version, TestRun.passed.is_(True),
+        func.coalesce(TestRun.result["truncated"].as_boolean(), False).is_(False),
+        func.coalesce(TestRun.result["evaluation_errors"].as_integer(), 0) == 0,
+        func.coalesce(TestRun.result["execution"].as_string(), "complete") == "complete",
+    ).limit(1)).first() is not None
+
+
 def approve(s: Session, p: Principal, det_id: str) -> Detection:
     d = s.get(Detection, det_id)
     if d is None:
@@ -336,8 +354,7 @@ def approve(s: Session, p: Principal, det_id: str) -> Detection:
     v = _latest(s, det_id)
     if v.created_by == p.username or d.created_by == p.user_id:
         raise Forbidden("reviewer must differ from the creator (4-eyes)")
-    tr = s.execute(select(TestRun).where(TestRun.detection_id == det_id, TestRun.version == v.version, TestRun.passed.is_(True))).first()
-    if tr is None and v.format == "sigma":
+    if v.format == "sigma" and not has_passing_test(s, det_id, v.version):
         raise ValueError("a passing historical test run of the current version is required before approval")
     d.status, v.status_at_version, v.reviewed_by = "approved", "approved", p.username
     audit.record(s, "detection.approve", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id,
