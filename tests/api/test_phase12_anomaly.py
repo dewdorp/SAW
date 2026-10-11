@@ -77,3 +77,36 @@ def test_attack_investigations_never_become_baseline(analyst):
     _ingest(analyst, new["id"], _normal_web(rnd, base, 40, ua="EvilBot/9.9"))
     fs = analyst.get(f"/investigations/{new['id']}/findings").json()
     assert any(f["category"] == "anomaly.rare" and "EvilBot" in " ".join(f["entities"]) for f in fs)
+
+
+def test_sequence_source_positions_survive_adapter_projection_and_changed_ids(analyst):
+    from saw import container
+    from saw.detectors.anomaly import SequenceAnomaly
+    from saw.detectors.base import DetectorContext
+
+    expected = ["/z-start", "/export", "/admin/users", "/export", "/admin/delete", "/export"]
+    content = []
+    for session in range(3):
+        for step, path in enumerate(("/login", "/search", "/detail", "/logout")):
+            content.append({"session_id": f"normal-{session}", "timestamp": f"2026-10-11T00:00:0{step}Z",
+                            "url_path": path})
+    for step, path in enumerate(expected):
+        content.append({"session_id": "suspect", "timestamp": "2026-10-11T00:00:10Z",
+                        "url_path": path, "raw_ref": {"offset": step * 100, "line_no": step + 1}})
+    results = []
+    for run in range(2):
+        inv = analyst.post("/investigations", json={"title": f"Synthetic stable sequence {run}"}).json()
+        events = []
+        for index, row in enumerate(content):
+            event = {**row, "data_source": "web", "investigation_id": inv["id"],
+                     "event_id": f"sequence-{run}-{index if run == 0 else len(content) - index:04d}"}
+            if "raw_ref" in event:
+                event["raw_ref"] = {**event["raw_ref"], "object_key": f"synthetic/source-{run}.log"}
+            events.append(event)
+        store = container.get().events
+        assert store.index(events) == len(events)
+        finding, = SequenceAnomaly().run(DetectorContext(inv["id"], store, params={"min_sessions": 3}))
+        assert finding.category == "anomaly.sequence"
+        assert next(m["observed_path"] for m in finding.metrics if m["name"] == "sequence") == expected
+        results.append((finding.dedup_key, finding.metrics, finding.checks))
+    assert results[0] == results[1]

@@ -115,26 +115,95 @@ class RareValue:
 class SequenceAnomaly:
     """1st-order Markov model of per-session URI sequences; flags sessions with very low per-step log-likelihood."""
 
-    id, version, category, stage = "anomaly.sequence", "1.0.0", "anomaly.sequence", "DATA_ACCESS"
+    id, version, category, stage = "anomaly.sequence", "1.0.1", "anomaly.sequence", "DATA_ACCESS"
     data_sources = {"web", "waf"}
 
     def run(self, ctx: DetectorContext) -> list[FindingDraft]:
         p = {"min_len": 5, "min_sessions": 30, **ctx.params}
         inv = ctx.investigation_id
         seqs: dict[str, list[str]] = defaultdict(list)
-        n = 0
+        pending: dict[str, list[tuple]] = defaultdict(list)
+        excluded: set[str] = set()
+        record_ordered: Counter = Counter()
+        bucket = None
+        n, truncated = 0, False
+
+        def exclude(key):
+            excluded.add(key)
+            seqs.pop(key, None)
+
+        def flush():
+            for key, actions in pending.items():
+                if key in excluded:
+                    continue
+                if len({row[0] for row in actions}) > 1:
+                    # File positions establish record order only within the same source.
+                    source = actions[0][1]
+                    positions = None
+                    if source and all(row[1] == source for row in actions):
+                        if all(type(row[2]) is int and row[2] >= 0 for row in actions):
+                            positions = [row[2] for row in actions]
+                        elif all(row[2] is None and type(row[3]) is int and row[3] > 0 for row in actions):
+                            positions = [row[3] for row in actions]
+                    if positions is None or len(set(positions)) != len(actions):
+                        exclude(key)
+                        continue
+                    actions = [row for _, row in sorted(zip(positions, actions), key=lambda item: item[0])]
+                    record_ordered[key] += 1
+                for step, _source, _offset, _line in actions:
+                    if not seqs[key] or seqs[key][-1] != step:
+                        seqs[key].append(step)
+            pending.clear()
+
         for e in ctx.events.iterate(inv, [WEB, Filter(field="url_path", op="exists")],
-                                    fields=["session_id", "src_ip", "user_agent", "url_path", "uri_template"]):
-            key = e.get("session_id") or f"{e.get('src_ip')}|{e.get('user_agent')}"
-            step = (e.get("uri_template") or e.get("url_path") or "").split("?")[0]
-            if not seqs[key] or seqs[key][-1] != step:  # collapse repeats into one action
-                seqs[key].append(step)
-            n += 1
-            if n > 300_000:
+                                    fields=["session_id", "src_ip", "user_agent", "url_path", "uri_template",
+                                            "timestamp", "raw_ref"]):
+            if n >= 300_000:
+                truncated = True
+                # A limit inside an equal-time batch must not choose a random ID-ordered prefix.
+                for key in pending:
+                    exclude(key)
+                pending.clear()
                 break
+            n += 1
+            key = e.get("session_id") or f"{e.get('src_ip')}|{e.get('user_agent')}"
+            try:
+                dt = datetime.fromisoformat(e.get("timestamp") or "")
+                timestamp = dt.timestamp() if dt.tzinfo is not None else None
+                if timestamp is None or not math.isfinite(timestamp):
+                    raise ValueError
+            except (TypeError, ValueError, OverflowError, OSError):
+                exclude(key)
+                continue
+            if timestamp != bucket:
+                flush()
+                bucket = timestamp
+            if key in excluded:
+                continue
+            step = (e.get("uri_template") or e.get("url_path") or "").split("?")[0]
+            ref = e.get("raw_ref")
+            ref = ref if isinstance(ref, dict) else {}
+            source = ref.get("object_key")
+            pending[key].append((step, source if isinstance(source, str) else None,
+                                 ref.get("offset"), ref.get("line_no")))
+        flush()
+        coverage = []
+        if excluded or truncated:
+            coverage.append(FindingDraft(
+                self.id, self.version, "행동 순서 분석 범위 확인 필요", "anomaly.sequence.coverage", self.stage,
+                0.1, "low",
+                [metric("excluded_sessions", len(excluded), label="순서 평가에서 제외한 세션"),
+                 metric("scanned_events", n, label="읽은 기록")],
+                [check("행동 순서 평가 범위", False, len(excluded),
+                       f"시각·같은 원문의 고유 위치 확인 불가 또는 입력 상한 도달={truncated}")],
+                [], _q([WEB]), None, None, self.id + ":coverage", success_signal=False,
+                attack_unmapped_reason="순서 평가 범위 안내",
+                explanation=("시각이나 같은 시각의 기록 순서를 확인할 수 없는 세션은 순서 모델에서 제외했습니다. "
+                             "제외는 정상 판정이 아니며 해당 세션의 순서 이상을 놓칠 수 있습니다. "
+                             "원문 위치·시각 정밀도와 처리 범위를 확인하세요.")))
         sessions = [s for s in seqs.values() if len(s) >= 2]
         if len(sessions) < p["min_sessions"]:
-            return []
+            return coverage
         trans: dict[str, Counter] = defaultdict(Counter)
         starts = Counter()
         for s in sessions:
@@ -149,12 +218,12 @@ class SequenceAnomaly:
                 v += math.log((trans[a][b] + 1) / (sum(trans[a].values()) + vocab))
             return v / len(s)
 
-        scored = sorted(((ll(s), k, s) for k, s in seqs.items() if len(s) >= p["min_len"]), key=lambda x: x[0])
+        scored = sorted(((ll(s), k, s) for k, s in seqs.items() if len(s) >= p["min_len"]), key=lambda x: (x[0], x[1]))
         if not scored:
-            return []
+            return coverage
         all_scores = sorted(ll(s) for s in sessions)
         thr = all_scores[max(0, int(len(all_scores) * 0.001))]
-        common = Counter(tuple(s[:3]) for s in sessions if len(s) >= 3).most_common(1)
+        common = sorted(Counter(tuple(s[:3]) for s in sessions if len(s) >= 3).items(), key=lambda item: (-item[1], item[0]))[:1]
         out = []
         for score, key, s in scored[:3]:
             if score > thr:
@@ -170,12 +239,17 @@ class SequenceAnomaly:
                                      {"name": "sequence", "label": "Sequence", "observed": None, "observed_path": s[:12],
                                       "normal_path": list(common[0][0]) if common else []}],
                                     [check("Below 0.1% likelihood threshold", True, f"{score:.2f} ≤ {thr:.2f}"),
-                                     check("Long enough to judge", True, f"{len(s)} actions")],
+                                     check("Long enough to judge", True, f"{len(s)} actions"),
+                                     check("동일 시각의 원문 기록 순서", None, record_ordered[key],
+                                           "같은 원문의 고유 위치로 복구한 기록 순서이며 실제 실행 순서·인과관계의 확정은 아닙니다.")],
                                     [f"ip:{src}"] if "|" in key else [f"session:{key}"], _q(flt), None, None,
                                     f"{self.id}:{key}"[:250], attack_unmapped_reason="sequence rarity is behavioural context",
                                     explanation=f"세션 행동 순서 {' → '.join(s[:6])} … 가 다른 세션 대비 매우 드묾 (하위 {rarity:.3%}).",
                                     total_events=len(s)))
-        return out
+        if coverage:
+            for finding in out:
+                finding.checks.append(check("전체 세션 평가", False, len(excluded), "일부 세션 제외 또는 처리 상한"))
+        return out + coverage
 
 
 class EntityPeerOutlier:
