@@ -17,3 +17,6 @@ samples/
 
 # air-gapped install bundle (large binaries; built by deploy/windows/build-bundle.ps1)
 offline-bundle/
+
+# TypeScript incremental build metadata
+*.tsbuildinfo
