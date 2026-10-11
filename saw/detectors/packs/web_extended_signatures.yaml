@@ -1,0 +1,188 @@
+# Independently authored request signatures. Sources and limitations: docs/detection-rule-sources.md.
+# Inputs are compared as text; examples are synthetic and are never executed.
+version: 1
+groups:
+  - id: webext
+    title: 공개 취약점 관련 요청 가능성
+    stage: EXPLOITATION
+    severity: 0.7
+    confidence: medium
+    attack: [T1190]
+    where: path
+    explain: 공개 보안 권고의 요청 형태와 일치합니다. 제품·버전·인증 상태와 응답 본문을 추가로 확인해야 하며 2xx만으로 공격 성공을 확정하지 않습니다.
+    checks:
+      - 대상 제품과 패치 상태, 승인된 점검 출발지인지 확인
+      - 인증·감사 기록과 응답 본문으로 실제 변경이나 정보 반환 여부 확인
+      - WAF 허용·차단 기록을 별도로 확인하고 응답 코드만으로 차단을 확정하지 않기
+    rules:
+      - id: teamcity_rpc2
+        title: TeamCity RPC2 토큰 우회 요청 가능성 (Possible)
+        cve: CVE-2023-42793
+        method: [POST, DELETE]
+        regex: '^/(?:teamcity/)?app/rest/users/id:\d{1,12}/tokens/rpc2/?$'
+        explain: CISA·FBI 권고에 나온 RPC2 이름의 사용자 토큰 경로를 생성·삭제하는 요청입니다. 정상 토큰 이름과 우연히 같을 수 있으며 TeamCity 버전·인증 기록 없이 우회 여부를 확정할 수 없습니다. 2xx도 공격 성공의 확정 근거는 아닙니다.
+        examples: [{path: '/app/rest/users/id:7/tokens/RPC2', method: POST}, {path: '/teamcity/app/rest/users/id:2/tokens/%52%50%43%32', method: DELETE}]
+        benign: [{path: '/app/rest/users/id:7/tokens/RPC2', method: GET}, {path: '/app/rest/users/id:7/tokens/deploy', method: POST}, {path: '/app/rest/users/id:7/tokens/RPC2-guide', method: POST}]
+      - id: ivanti_epmm_users
+        title: Ivanti EPMM 취약 경로의 사용자 조회 가능성 (Possible)
+        cve: CVE-2023-35078
+        stage: DISCOVERY
+        method: [GET]
+        regex: '^/mifs/aad/api/v2/authorized/users/?$'
+        explain: CISA·NCSC-NO가 CVE-2023-35078 악용에서 관찰한 사용자 목록 경로입니다. 정상 제품 기능·보안 점검과 구별하려면 EPMM 버전과 인증·응답 내용을 확인해야 합니다. 경로 일치나 2xx만으로 인증 우회·자료 유출을 확정하지 않습니다.
+        examples: [{path: '/mifs/aad/api/v2/authorized/users', method: GET}, {path: '/mifs/aad/api/v2/authorized/users/', query: 'rows=10', method: GET}]
+        benign: [{path: '/mifs/api/v2/authorized/users', method: GET}, {path: '/mifs/aad/api/v2/ping', method: GET}, {path: '/mifs/aad/api/v2/authorized/users-guide', method: GET}]
+
+  - id: apiuse
+    title: 민감한 관리 API 오용 가능성
+    stage: DISCOVERY
+    severity: 0.45
+    confidence: low
+    attack: [T1078]
+    where: path
+    explain: 민감한 관리 API의 경로와 메서드가 일치합니다. 정상 운영에서도 쓰이므로 승인된 계정·출발지·작업인지 확인해야 합니다. 인증 우회나 특정 CVE를 뜻하지 않으며 2xx만으로 명령 실행·자료 유출·설정 변경을 확정하지 않습니다.
+    checks:
+      - 자산 목록으로 대상 제품을 확인하고 승인된 운영 계정·자동화 출발지·변경 일정과 비교
+      - 요청 본문·권한·제품 감사 기록으로 실제 대상과 수행 결과 확인
+      - 2xx 응답도 오류·중계 화면일 수 있으므로 본문 확인 전 공격 성공으로 판단하지 않기
+      - 4xx·5xx·응답 누락은 WAF 차단의 확정 근거가 아니므로 차단 기록을 별도로 확인
+    rules:
+      - id: teamcity_process
+        title: TeamCity 프로세스 실행 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/(?:teamcity/)?app/rest/debug/processes/?$'
+        severity: 0.55
+        explain: TeamCity 디버그 프로세스 API 호출입니다. 정상 관리자 작업일 수 있으므로 요청 인자와 서버 프로세스·감사 기록을 대조해야 합니다. CVE-2023-42793 우회는 이 경로만으로 판정하지 않으며 2xx도 실행 성공의 확정 근거는 아닙니다.
+        examples: [{path: '/app/rest/debug/processes', query: 'exePath=echo', method: POST}, {path: '/teamcity/app/rest/debug/processes', method: POST}]
+        benign: [{path: '/app/rest/debug/processes', method: GET}, {path: '/app/rest/debug/processes-guide', method: POST}, {path: '/app/rest/builds', method: POST}]
+      - id: docker_create
+        title: Docker 컨테이너 생성 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/(?:v1\.\d{2}/)?containers/create/?$'
+        examples: [{path: '/v1.45/containers/create', query: 'name=lab', method: POST}, {path: '/containers/create', method: POST}]
+        benign: [{path: '/v1.45/containers/create', method: GET}, {path: '/v1.45/containers/create-guide', method: POST}, {path: '/api/containers/create', method: POST}]
+      - id: docker_exec
+        title: Docker 컨테이너 명령 준비 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/(?:v1\.\d{2}/)?containers/[a-z0-9][a-z0-9_.-]{0,127}/exec/?$'
+        severity: 0.55
+        explain: Docker 컨테이너의 실행 인스턴스를 만드는 API 호출입니다. 정상 관리에도 쓰이며 실제 시작은 별도 요청이 필요합니다. 본문의 명령과 exec 시작·프로세스 기록을 확인해야 하고 2xx만으로 명령 실행을 확정하지 않습니다.
+        examples: [{path: '/v1.45/containers/lab/exec', method: POST}, {path: '/containers/abc123/exec', method: POST}]
+        benign: [{path: '/containers/lab/exec', method: GET}, {path: '/containers/lab/exec-guide', method: POST}, {path: '/containers/lab/json', method: POST}]
+      - id: docker_archive_read
+        title: Docker 민감 경로 파일 읽기 가능성 (Possible)
+        where: uri
+        method: [GET]
+        regex: '^/(?:v1\.\d{2}/)?containers/[a-z0-9][a-z0-9_.-]{0,127}/archive\?(?:[^&\r\n]*&)*path=/(?:etc/(?:shadow|passwd)|root/\.ssh(?:/[^&\r\n]*)?|proc/(?:self|\d{1,10})/environ)(?:&|$)'
+        severity: 0.6
+        attack: [T1005]
+        explain: Docker archive API에 계정·개인키·프로세스 환경과 관련된 경로가 지정됐습니다. 정상 점검도 가능하며 본문과 감사 기록으로 실제 파일 반환을 확인해야 합니다. 2xx만으로 민감 자료 유출을 확정하지 않습니다.
+        examples: [{path: '/v1.45/containers/lab/archive', query: 'path=/etc/shadow', method: GET}, {path: '/containers/lab/archive', query: 'path=%2Fproc%2Fself%2Fenviron', method: GET}]
+        benign: [{path: '/containers/lab/archive', query: 'path=/docs/readme.txt', method: GET}, {path: '/containers/lab/archive', query: 'path=/etc/passwd-guide', method: GET}, {path: '/containers/lab/archive', query: 'path=/etc/shadow', method: HEAD}]
+      - id: docker_archive_write
+        title: Docker 파일 쓰기 API 오용 가능성 (Possible)
+        method: [PUT]
+        regex: '^/(?:v1\.\d{2}/)?containers/[a-z0-9][a-z0-9_.-]{0,127}/archive/?$'
+        explain: Docker 컨테이너에 묶음 파일을 풀어 쓰는 API 호출입니다. 정상 배포·파일 복사에도 사용됩니다. 대상 경로와 파일 목록·변경 기록을 확인해야 하며 2xx만으로 악성 파일 설치를 확정하지 않습니다.
+        examples: [{path: '/v1.45/containers/lab/archive', query: 'path=/tmp', method: PUT}, {path: '/containers/lab/archive', query: 'path=/app', method: PUT}]
+        benign: [{path: '/containers/lab/archive', method: GET}, {path: '/containers/lab/archive-guide', method: PUT}, {path: '/archives/lab', method: PUT}]
+      - id: etcd_range
+        title: etcd 키 조회 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/v3/kv/range/?$'
+        attack: [T1005]
+        explain: etcd HTTP 게이트웨이의 키 조회 호출입니다. 정상 서비스 읽기도 같은 경로를 사용하고 조회 범위는 본문에 있으므로 이 규칙은 대량 조회를 판정하지 않습니다. 승인된 클라이언트인지와 반환 내용을 확인해야 하며 2xx만으로 자료 유출을 확정하지 않습니다.
+        examples: [{path: '/v3/kv/range', method: POST}, {path: '/v3/kv/range/', method: POST}]
+        benign: [{path: '/v3/kv/range', method: GET}, {path: '/v3/kv/range-guide', method: POST}, {path: '/v3/kv/put', method: POST}]
+      - id: etcd_auth_disable
+        title: etcd 인증 해제 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/v3/auth/disable/?$'
+        severity: 0.6
+        attack: [T1562.001]
+        explain: etcd 인증 기능을 끄는 API 호출입니다. 정상 유지보수일 수 있으므로 작업 승인과 변경 전후 인증 설정을 확인해야 합니다. 2xx만으로 인증 해제나 침해를 확정하지 않습니다.
+        examples: [{path: '/v3/auth/disable', method: POST}, {path: '/v3/auth/disable/', method: POST}]
+        benign: [{path: '/v3/auth/disable', method: GET}, {path: '/v3/auth/disable-guide', method: POST}, {path: '/v3/auth/enable', method: POST}]
+      - id: consul_service_register
+        title: Consul 서비스 등록 API 오용 가능성 (Possible)
+        method: [PUT]
+        regex: '^/v1/agent/service/register/?$'
+        explain: Consul 서비스 등록 API 호출입니다. 정상 서비스 등록도 같은 요청을 사용하며 경로만으로 위험한 상태 점검 명령의 존재를 알 수 없습니다. 본문의 서비스·점검 설정과 운영 변경을 확인해야 하고 2xx만으로 명령 실행을 확정하지 않습니다.
+        examples: [{path: '/v1/agent/service/register', method: PUT}, {path: '/v1/agent/service/register', query: 'replace-existing-checks=true', method: PUT}]
+        benign: [{path: '/v1/agent/service/register', method: GET}, {path: '/v1/agent/service/register-guide', method: PUT}, {path: '/v1/agent/services', method: GET}]
+      - id: consul_acl_bootstrap
+        title: Consul 초기 관리자 토큰 생성 가능성 (Possible)
+        method: [PUT]
+        regex: '^/v1/acl/bootstrap/?$'
+        severity: 0.55
+        explain: Consul ACL 초기 관리자 토큰 생성 API 호출입니다. 정상 최초 설치·복구 과정인지 확인해야 합니다. 응답 본문과 ACL 감사 기록을 확인하기 전 2xx만으로 권한 획득을 확정하지 않습니다.
+        examples: [{path: '/v1/acl/bootstrap', method: PUT}, {path: '/v1/acl/bootstrap/', method: PUT}]
+        benign: [{path: '/v1/acl/bootstrap', method: GET}, {path: '/v1/acl/bootstrap-guide', method: PUT}, {path: '/v1/acl/replication', method: GET}]
+      - id: nomad_exec
+        title: Nomad 작업 내 명령 실행 요청 가능성 (Possible)
+        where: uri
+        method: [GET]
+        regex: '^/v1/client/allocation/[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}/exec\?(?:[^&\r\n]*&)*command=\[[^\r\n&]+\](?:&|$)'
+        severity: 0.55
+        explain: Nomad 실행 중 작업에 명령을 전달하는 WebSocket 연결 요청입니다. 정상 운영 쉘과 구별하려면 작업·계정·명령·감사 기록을 확인해야 합니다. 101 전환 응답이나 2xx 응답만으로 명령 실행·침해를 확정하지 않습니다.
+        examples: [{path: '/v1/client/allocation/00000000-1111-2222-3333-444444444444/exec', query: 'task=lab&command=["echo","test"]', method: GET}, {path: '/v1/client/allocation/11111111-2222-3333-4444-555555555555/exec', query: 'command=%5B%22echo%22%5D&task=lab', method: GET}]
+        benign: [{path: '/v1/client/allocation/00000000-1111-2222-3333-444444444444/exec', query: 'task=lab', method: GET}, {path: '/v1/client/allocation/not-a-uuid/exec', query: 'command=["echo"]', method: GET}, {path: '/v1/client/allocation/00000000-1111-2222-3333-444444444444/stats', method: GET}]
+      - id: vault_raw_read
+        title: Vault 내부 저장소 직접 읽기 가능성 (Possible)
+        method: [GET]
+        regex: '^/v1/sys/raw/[^/?\r\n]+(?:/[^/?\r\n]+)*/?$'
+        severity: 0.6
+        attack: [T1005]
+        explain: Vault 내부 저장소를 직접 읽는 raw API 호출입니다. 기본 비활성 기능이며 정상 관리·복구 작업인지 확인해야 합니다. 권한과 반환된 자료를 확인해야 하고 2xx만으로 비밀값 유출을 확정하지 않습니다.
+        examples: [{path: '/v1/sys/raw/secret/lab', method: GET}, {path: '/v1/sys/raw/logical/lab/config', method: GET}]
+        benign: [{path: '/v1/sys/raw/secret/lab', method: POST}, {path: '/v1/sys/raw-guide/secret/lab', method: GET}, {path: '/v1/sys/health', method: GET}]
+      - id: vault_root_generate
+        title: Vault 최상위 토큰 생성 요청 가능성 (Possible)
+        method: [POST]
+        regex: '^/v1/sys/generate-root/(?:attempt|update)/?$'
+        severity: 0.55
+        explain: Vault 최상위 토큰 생성 절차를 시작하거나 키 조각을 제출하는 API 호출입니다. 정상 복구 절차일 수 있고 여러 승인 조각이 필요할 수 있습니다. 완료 상태와 감사 기록을 확인하기 전 2xx만으로 토큰 발급·권한 획득을 확정하지 않습니다.
+        examples: [{path: '/v1/sys/generate-root/attempt', method: POST}, {path: '/v1/sys/generate-root/update', method: POST}]
+        benign: [{path: '/v1/sys/generate-root/attempt', method: GET}, {path: '/v1/sys/generate-root/attempt-guide', method: POST}, {path: '/v1/sys/generate-root/update', method: DELETE}]
+      - id: webhdfs_privileged_read
+        title: WebHDFS 관리자 이름 지정 파일 읽기 가능성 (Possible)
+        where: uri
+        method: [GET]
+        regex: '^/webhdfs/v1/[^?\r\n]*\?(?=(?:[^&\r\n]*&)*user\.name=(?:hdfs|root)(?:&|$))(?=(?:[^&\r\n]*&)*op=open(?:&|$))'
+        severity: 0.55
+        attack: [T1005]
+        explain: WebHDFS 파일 읽기에 hdfs 또는 root 이름이 직접 지정됐습니다. 보안 기능이 꺼진 환경에서는 이 값이 사용자 식별에 쓰이지만 정상 관리자 작업도 가능합니다. Kerberos·프록시 사용자 설정과 실제 반환 내용을 확인해야 하고 2xx만으로 사용자 사칭·유출을 확정하지 않습니다.
+        examples: [{path: '/webhdfs/v1/user/lab/report.csv', query: 'user.name=hdfs&op=OPEN', method: GET}, {path: '/webhdfs/v1/user/lab/report.csv', query: 'op=OPEN&user.name=root', method: GET}]
+        benign: [{path: '/webhdfs/v1/user/lab/report.csv', query: 'user.name=analyst&op=OPEN', method: GET}, {path: '/webhdfs/v1/user/lab/report.csv', query: 'user.name=hdfs&op=GETFILESTATUS', method: GET}, {path: '/webhdfs/v1/user/lab/report.csv', query: 'user.name=hdfs-team&op=OPEN', method: GET}]
+      - id: yarn_submit
+        title: Hadoop YARN 작업 제출 API 오용 가능성 (Possible)
+        method: [POST]
+        regex: '^/ws/v1/cluster/apps/?$'
+        explain: Hadoop YARN ResourceManager에 작업을 제출하는 API 호출입니다. 정상 배치 처리와 같은 경로이므로 요청 본문의 작업 명령·사용자·운영 일정과 비교해야 합니다. 202를 포함한 2xx도 작업 실행이나 침해의 확정 근거는 아닙니다.
+        examples: [{path: '/ws/v1/cluster/apps', method: POST}, {path: '/ws/v1/cluster/apps/', method: POST}]
+        benign: [{path: '/ws/v1/cluster/apps', method: GET}, {path: '/ws/v1/cluster/apps/new-application', method: POST}, {path: '/ws/v1/cluster/apps-guide', method: POST}]
+
+  - id: wrapper
+    title: 파일 입력의 PHP 래퍼 주입 가능성
+    stage: EXPLOITATION
+    severity: 0.7
+    confidence: medium
+    attack: [T1190]
+    where: query
+    explain: 파일·페이지 입력값에 PHP 스트림 래퍼 구문이 들어 있습니다. 입력을 서버가 실제 파일 처리에 사용하는지 확인해야 하며 2xx만으로 파일 노출이나 명령 실행을 확정하지 않습니다.
+    checks:
+      - 요청 매개변수가 PHP 파일 열기·포함 함수로 전달되는지 개발 담당과 확인
+      - 승인된 점검·교육 요청인지 확인하고 응답 본문·프로세스 기록으로 영향 확인
+      - WAF 차단 여부는 장비의 별도 판정 기록으로 확인
+    rules:
+      - id: php_filter
+        title: PHP 필터를 통한 파일 내용 읽기 가능성 (Possible)
+        regex: '(?:^|&)(?:file|filename|page|template|path|include|inc|view)=php://filter/(?:read=)?convert\.base64-encode/resource=[^&\s]+'
+        examples: ['file=php://filter/convert.base64-encode/resource=index.php', 'page=php%3A%2F%2Ffilter%2Fread%3Dconvert.base64-encode%2Fresource%3Dconfig.php']
+        benign: ['q=php://filter/convert.base64-encode/resource=index.php', 'example=php://filter/convert.base64-encode/resource=index.php', 'file=php://memory']
+      - id: php_expect
+        title: PHP expect 래퍼를 통한 명령 실행 가능성 (Possible)
+        regex: '(?:^|&)(?:file|filename|page|template|path|include|inc|view)=expect://[^&\s]+'
+        explain: 파일·페이지 입력값이 expect 프로세스 래퍼를 가리킵니다. Expect 확장과 취약한 입력 처리가 있어야 실행되며 기본 PHP에는 이 래퍼가 활성화돼 있지 않습니다. 2xx만으로 명령 실행을 확정하지 않습니다.
+        examples: ['file=expect://id', 'template=expect%3A%2F%2Fecho%20test']
+        benign: ['q=expect://id', 'example=expect://echo', 'file=expected-report.pdf']

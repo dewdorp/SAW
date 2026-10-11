@@ -110,11 +110,19 @@ groups:
         match: ['class.module.classloader', 'class[module][classloader]']
         examples: ['/app?class.module.classLoader.resources.context.parent.pipeline.first.pattern=x']
       - id: spring_cloud_function
-        title: Spring Cloud Function SpEL 주입 (CVE-2022-22963)
-        cve: CVE-2022-22963
+        title: Spring Cloud Function 라우터 접근 가능성 (Possible)
         where: path
-        match: ['/functionrouter']
-        examples: ['/functionRouter']
+        stage: DISCOVERY
+        severity: 0.35
+        confidence: low
+        regex: '^/functionrouter/?$'
+        explain: Spring Cloud Function 라우터 경로 요청입니다. 정상 함수 호출도 같은 경로를 쓰며 CVE-2022-22963의 악성 라우팅 표현식은 보통 헤더에 있습니다. 이 규칙은 헤더를 검사하지 않으므로 경로·2xx만으로 취약점 악용이나 명령 실행을 확정하지 않습니다.
+        checks:
+          - 정상 함수 호출·승인된 점검인지 서비스 담당과 확인
+          - 원본 요청의 spring.cloud.function.routing-expression 헤더와 제품 버전·서버 실행 기록을 추가로 확인
+          - 응답 코드와 별도로 WAF 차단·제품 오류 기록을 확인
+        examples: ['/functionRouter', '/functionRouter/']
+        benign: ['/functionRouter-guide', '/docs/functionRouter', '/functionRouter.json']
       - id: spring_gateway
         title: Spring Cloud Gateway 경로 조작 (CVE-2022-22947)
         cve: CVE-2022-22947
@@ -169,22 +177,38 @@ groups:
         regex: '/tmui/login\.jsp/\.\.;/|/hsqldb;|/tmui/locallb/workspace/'
         examples: ['/tmui/login.jsp/..;/tmui/locallb/workspace/fileRead.jsp?fileName=/etc/passwd']
       - id: f5_icontrol
-        title: F5 BIG-IP iControl 인증 우회 (CVE-2022-1388)
-        cve: CVE-2022-1388
+        title: F5 BIG-IP iControl 관리 API 접근 가능성 (Possible)
         where: path
-        match: ['/mgmt/tm/util/bash', '/mgmt/shared/authn/login', '/mgmt/tm/access/bundle-install-tasks']
-        examples: ['/mgmt/tm/util/bash']
+        stage: DISCOVERY
+        severity: 0.45
+        confidence: low
+        regex: '^/mgmt/(?:tm/util/bash|shared/authn/login|tm/access/bundle-install-tasks)(?:/[a-z0-9_-]{1,80})?/?$'
+        explain: F5 iControl 관리 API 경로 요청입니다. 정상 인증·관리 호출도 같은 경로를 쓰며 CVE-2022-1388 관련 요청은 헤더·인증 상태·본문을 함께 확인해야 합니다. 경로와 2xx만으로 인증 우회·명령 실행을 확정하지 않습니다.
+        checks:
+          - 승인된 관리자·자동화 출발지인지와 대상 BIG-IP 버전·패치 상태 확인
+          - 원본 인증·연결 헤더와 요청 본문의 command·utilCmdArgs, 장비 감사 기록을 추가 확인
+          - 실행 결과·설정 변경 및 장비 차단 기록을 별도로 대조
+        examples: ['/mgmt/tm/util/bash', '/mgmt/shared/authn/login']
+        benign: ['/mgmt/tm/util/bash-guide', '/docs/mgmt/tm/util/bash', '/mgmt/shared/authn/login.bak']
       - id: fortinet_lang
         title: FortiOS SSL VPN 파일 읽기 (CVE-2018-13379)
         cve: CVE-2018-13379
         regex: '/remote/fgt_lang\?lang=.{0,40}\.\./'
         examples: ['/remote/fgt_lang?lang=/../../../..//////////dev/cmdb/sslvpn_websession']
       - id: fortinet_auth_bypass
-        title: FortiOS 관리 인증 우회 (CVE-2022-40684)
-        cve: CVE-2022-40684
+        title: FortiOS 관리자 API 접근 가능성 (Possible)
         where: path
-        match: ['/api/v2/cmdb/system/admin']
-        examples: ['/api/v2/cmdb/system/admin/admin']
+        stage: DISCOVERY
+        severity: 0.4
+        confidence: low
+        regex: '^/api/v2/cmdb/system/admin(?:/[a-z0-9_.@-]{1,80})?/?$'
+        explain: FortiOS 관리자 설정 API 경로 요청입니다. 정상 계정 조회·설정도 같은 경로를 사용합니다. CVE-2022-40684 관련 여부는 제품 버전·인증과 전달 헤더·관리 감사 기록을 추가로 확인해야 하며 경로 또는 2xx만으로 인증 우회나 계정 변경을 확정하지 않습니다.
+        checks:
+          - 정상 관리 계정·자동화 작업인지와 FortiOS 버전·패치 상태 확인
+          - 원본 인증·전달 헤더와 요청 본문을 제품 관리 감사 기록과 비교
+          - 관리자 생성·권한 변경 여부와 WAF 차단 기록을 별도로 확인
+        examples: ['/api/v2/cmdb/system/admin/admin', '/api/v2/cmdb/system/admin']
+        benign: ['/api/v2/cmdb/system/admin-guide', '/docs/api/v2/cmdb/system/admin', '/api/v2/cmdb/system/admin/admin/profile']
       - id: fortinet_sslvpn
         title: FortiOS SSL VPN 취약 경로 탐색
         where: path
@@ -204,11 +228,19 @@ groups:
         regex: '/api/v1/totp/user-backup-code/\.\./|/api/v1/license/keys-status/|/api/v1/system/maintenance/archiving/cloud-server-test-connection'
         examples: ['/api/v1/totp/user-backup-code/../../license/keys-status/;curl x']
       - id: panos_2024_3400
-        title: PAN-OS GlobalProtect 명령 주입 (CVE-2024-3400)
-        cve: CVE-2024-3400
+        title: PAN-OS GlobalProtect HIP 보고 경로 접근 가능성 (Possible)
         where: path
-        match: ['/ssl-vpn/hipreport.esp']
-        examples: ['/ssl-vpn/hipreport.esp']
+        stage: DISCOVERY
+        severity: 0.35
+        confidence: low
+        regex: '^/ssl-vpn/hipreport\.esp$'
+        explain: GlobalProtect HIP 보고 경로 요청입니다. 정상 VPN 클라이언트도 쓰는 경로이며 CVE-2024-3400의 비정상 세션 값은 이 규칙이 검사하지 않는 헤더에 있을 수 있습니다. 경로·2xx만으로 파일 생성이나 명령 실행을 확정하지 않습니다.
+        checks:
+          - 정상 GlobalProtect 클라이언트인지와 PAN-OS 버전·패치 상태 확인
+          - 원본 세션 값과 gpsvc 로그의 비정상 파일 경로·내장 명령, 장비 파일·프로세스 기록을 추가 확인
+          - 응답 코드와 별도로 보안 정책·WAF의 허용 또는 차단 기록을 대조
+        examples: ['/ssl-vpn/hipreport.esp', '/ssl-vpn/hipreport.esp?client=lab']
+        benign: ['/ssl-vpn/hipreport.esp.bak', '/docs/ssl-vpn/hipreport.esp', '/ssl-vpn/hipreport.esp-guide']
       - id: vcenter_upload
         title: VMware vCenter 파일 올리기 (CVE-2021-21972 · CVE-2021-22005)
         cve: CVE-2021-21972

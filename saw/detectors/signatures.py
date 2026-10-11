@@ -190,6 +190,8 @@ def _required(src: str) -> set[str] | None:
 def _gate_words(s: Signature) -> set[str] | None:
     if s.methods:
         return None
+    if s.rx is not None and (s.rx.flags != re.UNICODE or re.search(r"\(\?[aiLmsux-]+:", s.regex)):
+        return None  # scoped/global flags can match text without the literal word (notably Unicode casefolding)
     parts: list[set[str] | None] = [_required(re.escape(n)) for n in s.needles]
     if s.regex:
         parts.append(_required(s.regex))
@@ -244,7 +246,14 @@ def _always_prefilter() -> dict[str, re.Pattern | None]:
     """The signatures without a gate word, combined per field: one search tells whether any of them needs a look."""
     out: dict[str, list[str]] = {f: [] for f in FIELDS}
     for s in _gate()[2]:
-        out[s.where] += [re.escape(n) for n in s.needles] + ([f"(?:{s.regex})"] if s.regex else [])
+        parts = [re.escape(n) for n in s.needles]
+        if s.rx is not None:
+            # Combining captures changes numeric backreferences, can collide named groups, and moves global
+            # flags away from the expression start. Such rules bypass the prefilter and keep their own regex.
+            parts.append("" if s.rx.groups or s.rx.flags != re.UNICODE else f"(?:{s.regex})")
+        if s.all_needles and not s.needles and s.rx is None:
+            parts.append(re.escape(s.all_needles[0]))  # one required symbol is sufficient to open the gate
+        out[s.where] += parts
     return {f: (re.compile("|".join(parts)) if parts else None) for f, parts in out.items()}
 
 
@@ -309,8 +318,8 @@ def sig_ids(ev: dict) -> list[str]:
     gate, family, always = _gate()
     out: set[str] = set()
     if gate is not None:
-        blob = "\n".join([d for k, (d, _r) in tx.items() if k != "any"]
-                         + [r for k, (d, r) in tx.items() if r != d and k in ("path", "query")])
+        blob = "\n".join(dict.fromkeys([d for k, (d, _r) in tx.items() if k != "any"]
+                                     + [r for k, (d, r) in tx.items() if r != d and k != "any"]))
         for word in set(gate.findall(blob)):
             out.update(s.id for s in family[word] if _fits(s, tx))
     pre = _always_prefilter()
@@ -335,8 +344,8 @@ def _advice(lines: tuple[str, ...]) -> str:
 
 class SignatureMatch:
     """One finding per signature that got a successful answer; attempts that were all refused are folded into one
-    finding per group, so a scanner that tries two hundred known paths shows up as one line, not two hundred."""
-    id, version, category, stage = "sig.match", "1.0.0", "sig", "EXPLOITATION"
+    finding per group and stage, so a scanner that tries two hundred known paths shows up as one line, not two hundred."""
+    id, version, category, stage = "sig.match", "1.1.0", "sig", "EXPLOITATION"
     data_sources = {"web", "waf", "zeek_http"}
 
     def _counts(self, ctx: DetectorContext) -> dict[str, int]:
@@ -365,16 +374,16 @@ class SignatureMatch:
             srcs = [r["key"]["src_ip"] for r in es.group_by(inv, flt, ["src_ip"], [], size=10) if r["key"].get("src_ip")]
             stats[sid] = {"n": n, "ok": ok, "lo": lo, "hi": hi, "srcs": srcs, "flt": flt}
         out: list[FindingDraft] = []
-        folded: dict[str, list[Signature]] = {}
+        folded: dict[tuple[str, str], list[Signature]] = {}
         for sid, st in stats.items():
             s = known[sid]
             if s.success == "only" and not st["ok"]:
                 continue
             if s.success == "ignore" or not st["ok"]:
-                folded.setdefault(s.group, []).append(s)
+                folded.setdefault((s.group, s.stage), []).append(s)
             else:
                 out.append(self._single(ctx, s, st))
-        for group, sigs in folded.items():
+        for sigs in folded.values():
             out.append(self._single(ctx, sigs[0], stats[sigs[0].id]) if len(sigs) == 1 and sigs[0].success != "ignore"
                        else self._folded(ctx, sigs, stats))
         return out
@@ -403,6 +412,9 @@ class SignatureMatch:
     def _folded(self, ctx: DetectorContext, sigs: list[Signature], stats: dict) -> FindingDraft:
         sigs = sorted(sigs, key=lambda s: -stats[s.id]["n"])
         head = sigs[0]
+        # Base keys on the full pack, so absent stage matches cannot change a finding identity.
+        mixed_stage = any(s.group == head.group and s.stage != head.stage for s in load_pack())
+        dedup_key = f"sig-group:{head.group}" + (f":{head.stage}" if mixed_stage else "")
         n = sum(stats[s.id]["n"] for s in sigs)
         srcs = list(dict.fromkeys(x for s in sigs for x in stats[s.id]["srcs"]))[:10]
         los = [stats[s.id]["lo"] for s in sigs if stats[s.id]["lo"]]
@@ -420,7 +432,7 @@ class SignatureMatch:
             [check("알려진 흔적과 일치", True, f"{len(sigs)}종 {n:,}건"),
              check("성공 응답(2xx) 있음", False if refused else None, "0건" if refused else "응답과 무관한 종류")],
             [f"ip:{x}" for x in srcs], {"filters": [f.model_dump() for f in flt], "time": None},
-            min(los) if los else None, max(his) if his else None, f"sig-group:{head.group}",
+            min(los) if los else None, max(his) if his else None, dedup_key,
             attack=[AttackMap(t, "medium", "알려진 흔적과 일치(성공 응답 없음)" if refused else "알려진 도구·수집 서비스",
                               condition_met=not refused) for t in dict.fromkeys(t for s in sigs for t in s.attack)][:6],
             success_signal=False, explanation=explain, sample_event_ids=self._samples(ctx, flt), total_events=n)
