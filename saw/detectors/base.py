@@ -72,7 +72,7 @@ class FindingDraft:
             {"name": "behavior_severity", "value": self.severity},
             {"name": "confidence", "value": self.confidence, "factor": cf},
             {"name": "asset_criticality", "value": self.asset_criticality or "unknown", "factor": af},
-            {"name": "outcome", "value": "success signal" if self.success_signal else "blocked/failed only",
+            {"name": "outcome", "value": "success signal" if self.success_signal else "success not verified",
              "factor": of},
         ]
         return round(score, 1), str(risk_level_for(score)), factors

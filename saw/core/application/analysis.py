@@ -1,7 +1,7 @@
 """Investigation analysis run: detectors -> findings, patterns, parameters, relations, story (docs/10 §3)."""
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from saw import container
@@ -33,8 +33,22 @@ def all_detectors():
     from saw.detectors.web import WEB_DETECTORS
 
     from saw.detectors.signatures import SignatureMatch
+    from saw.detectors.ndr_policy import NdrPolicy
 
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy()]
+
+
+def _flow_roles(finding: Finding) -> dict[str, list[str]]:
+    """Use explicit roles or exact structured evidence filters, never entity-list position."""
+    query = (finding.evidence_refs or {}).get("query") or {}
+    roles = dict(query.get("entity_roles") or {})
+    for condition in query.get("filters") or []:
+        role = {"src_ip": "source", "dst_ip": "destination"}.get(condition.get("field"))
+        if role and role not in roles and condition.get("op", "is") in ("is", "in"):
+            value = condition.get("value")
+            values = value if isinstance(value, list) else [value]
+            roles[role] = [str(v) for v in values if v]
+    return roles
 
 
 def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
@@ -44,6 +58,7 @@ def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
 
     rows = [{"id": f.id, "display_id": f.display_id, "title": f.title, "category": f.category, "stage": f.stage,
              "risk_level": f.risk_level, "success": _succeeded(f), "entities": f.entities or [],
+             "entity_roles": _flow_roles(f),
              "time_start": f.time_start, "time_end": f.time_end}
             for f in s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars()
             if f.detector_id != scenarios.DETECTOR_ID and f.status not in ("false_positive", "duplicate", "benign")]
@@ -52,9 +67,12 @@ def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
     for d in drafts:  # evidence: what this address did, whichever side of the connection it was on
         ip = d.entities[0][3:]
         side = "src_ip" if es.count(inv_id, [Filter(field="src_ip", value=ip)]) else "dst_ip"
-        d.evidence_query = {"filters": [{"field": side, "op": "is", "value": ip}], "time": None,
+        d.evidence_query = {"filters": [{"field": side, "op": "is", "value": ip}],
+                            "time": {"start": d.time_start, "end": d.time_end},
                             "finding_ids": d.evidence_query.get("finding_ids", [])}
-        d.total_events = es.count(inv_id, [Filter(field=side, value=ip)])
+        from saw.core.schemas.query import TimeRange
+
+        d.total_events = es.count(inv_id, [Filter(field=side, value=ip)], time=TimeRange(start=d.time_start, end=d.time_end))
     return drafts
 
 
@@ -100,10 +118,11 @@ def _finding_from_draft(s: Session, inv_id: str, d: FindingDraft) -> Finding:
     f.attack = [a.to_dict() for a in d.attack]
     f.attack_unmapped_reason = d.attack_unmapped_reason
     f.explanation_md = d.explanation
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     def dt(x):
-        return datetime.fromisoformat(x.replace("Z", "+00:00")) if isinstance(x, str) else x
+        value = datetime.fromisoformat(x.replace("Z", "+00:00")) if isinstance(x, str) else x
+        return value.astimezone(timezone.utc) if value and value.tzinfo is not None else value
 
     f.time_start, f.time_end = dt(d.time_start), dt(d.time_end)
     return f
@@ -158,7 +177,15 @@ def run_detectors(s: Session, inv_id: str, progress=None) -> list[Finding]:
             progress((i + 1) / max(1, len(dets)))
     s.flush()
     from saw.detectors import scenarios
+    from saw.detection.auto import run_approved
 
+    sigma_drafts, sigma_settled = run_approved(s, ctx)
+    settled.update(sigma_settled)
+    out.extend(_finding_from_draft(s, inv_id, draft) for draft in sigma_drafts)
+    s.flush()
+
+    # Retire unsupported untouched findings before they can become evidence for a fresh flow.
+    _drop_unsupported(s, inv_id, settled, {f.id for f in out})
     try:
         out += [_finding_from_draft(s, inv_id, d) for d in _flows(s, inv_id)]
         settled.add(scenarios.DETECTOR_ID)

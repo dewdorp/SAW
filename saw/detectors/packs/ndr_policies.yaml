@@ -1,0 +1,101 @@
+# Site-specific policies. Review the site values before enabling a rule.
+# Windows are fixed UTC time buckets, not sliding windows. Restart after edits.
+version: 1
+site:
+  internal_cidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+  home_countries: [KR]
+  allowed_ports: [53, 80, 123, 443]
+# Set an approved service inventory and review date before enabling unexpected_port.
+  baseline_note: ""
+  admin_ports: [22, 23, 3389, 445, 5985, 5986]
+  timezone: Asia/Seoul
+  work_start_hour: 9
+  work_end_hour: 18
+  work_days: [0, 1, 2, 3, 4]
+limits:
+  max_events: 250000
+  max_groups: 10000
+  max_findings: 50
+  max_samples: 20
+rules:
+  - id: large_outbound
+    kind: large_outbound
+    enabled: false
+    title: 내부 출발지의 대량 송신 가능성
+    stage: OUTBOUND
+    severity: 0.65
+    attack: [T1041]
+    window_seconds: 3600
+    min_connections: 1
+    min_bytes: 1073741824
+    explain: 설정된 내부 출발지가 한 시간 구간에 내부망 목록 밖으로 기준 이상의 바이트를 보냈습니다. 백업·동기화일 수 있으며 유출을 확정하지 않습니다.
+    checks: [자산과 승인된 백업 일정을 확인, 송신 방향과 중복 수집 여부를 확인, 관련 파일·프로세스 기록을 확인]
+    examples:
+      - [{event_id: v1, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, dst_port: 443, bytes_out: 2147483648, bytes_in: 100}]
+    benign:
+      - [{event_id: v2, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, dst_port: 443, bytes_out: 100, bytes_in: 2147483648}]
+      - [{event_id: v3, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 443, bytes_out: 2147483648}]
+  - id: unexpected_port
+    kind: unexpected_port
+    enabled: false
+    title: 승인된 포트 기준 밖의 연결 가능성
+    stage: DISCOVERY
+    severity: 0.35
+    attack: [T1571]
+    window_seconds: 3600
+    min_connections: 1
+    explain: 내부 출발지가 설정한 정상 서비스 포트 목록에 없는 포트로 접속했습니다. 과거 미관측 또는 악성을 뜻하지 않으며 기준 목록의 완전성을 먼저 확인해야 합니다.
+    checks: [정상 서비스 목록과 기준일을 확인, 임시 업무·유지보수 승인을 확인, 실제 프로토콜과 실행 프로그램을 확인]
+    examples:
+      - [{event_id: p1, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, dst_port: 4444}]
+    benign:
+      - [{event_id: p2, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, dst_port: 443}]
+      - [{event_id: p3, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8}]
+  - id: foreign_destination
+    kind: foreign_destination
+    enabled: false
+    title: 기준 국가 밖 목적지로의 연결
+    stage: OUTBOUND
+    severity: 0.3
+    attack: []
+    window_seconds: 3600
+    min_connections: 1
+    explain: 수집 자료의 목적지 국가 값이 설정한 허용 국가 목록에 없습니다. 해외 연결 자체는 공격이 아니며 국가 정보의 정확성과 업무 목적을 확인해야 합니다.
+    checks: [국가 정보의 출처와 갱신 시점을 확인, CDN·클라우드·해외 업무 여부 확인]
+    examples:
+      - [{event_id: c1, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, ext: {ndr: {dst_country: US}}}]
+    benign:
+      - [{event_id: c2, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, ext: {ndr: {dst_country: KR}}}]
+      - [{event_id: c3, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8}]
+  - id: off_hours_admin
+    kind: off_hours_admin
+    enabled: false
+    title: 업무시간 밖 관리 포트 접속 가능성
+    stage: LATERAL
+    severity: 0.55
+    attack: [T1021]
+    window_seconds: 3600
+    min_connections: 1
+    explain: 내부 출발지의 관리 포트 연결 시각이 설정한 업무요일·시간 밖입니다. 접속 시도이며 인증 성공·명령 실행 여부는 별도 기록으로 확인해야 합니다.
+    checks: [점검·당직·비상 작업 승인을 확인, 대상 서버의 인증과 세션 기록을 확인]
+    examples:
+      - [{event_id: h1, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 3389}]
+    benign:
+      - [{event_id: h2, data_source: zeek_conn, timestamp: "2026-10-12T01:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 3389}]
+      - [{event_id: h3, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 443}]
+  - id: internal_admin
+    kind: internal_admin
+    enabled: false
+    title: 내부 시스템 사이의 관리 포트 접속 가능성
+    stage: LATERAL
+    severity: 0.55
+    attack: [T1021]
+    window_seconds: 3600
+    min_connections: 1
+    explain: 설정된 내부망의 서로 다른 시스템 사이에 관리 포트 연결이 관측됐습니다. 관리 업무일 수 있으며 내부 확산이나 원격 실행의 확정 근거는 아닙니다.
+    checks: [출발지가 승인된 관리 단말인지 확인, 대상의 로그인·서비스·예약 작업 기록을 확인]
+    examples:
+      - [{event_id: i1, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 445}]
+    benign:
+      - [{event_id: i2, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 198.51.100.8, dst_port: 445}]
+      - [{event_id: i3, data_source: zeek_conn, timestamp: "2026-10-10T15:00:00Z", src_ip: 10.2.0.5, dst_ip: 10.2.0.8, dst_port: 443}]

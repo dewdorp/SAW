@@ -139,7 +139,7 @@ def detection_catalog(ctx: AuthContext = Depends(auth), s: Session = Depends(db,
 
     from saw.core.application.analysis import all_detectors
     from saw.core.application.briefing import CATEGORY_KO
-    from saw.detectors import scenarios, signatures
+    from saw.detectors import ndr_policy, scenarios, signatures
     from saw.storage.models import SignatureSetting
 
     sw = {r.sig_id: r for r in s.execute(select(SignatureSetting)).scalars()}
@@ -150,7 +150,7 @@ def detection_catalog(ctx: AuthContext = Depends(auth), s: Session = Depends(db,
                          "updated_by": r.updated_by if r else "", "updated_at": r.updated_at if r else None})
     dets = [{"id": d.id, "title": CATEGORY_KO.get(d.category, d.category), "stage": d.stage, "data_sources": sorted(d.data_sources)}
             for d in all_detectors() if d.id != "sig.match"]
-    return {"detectors": dets, "signatures": sigs, "scenarios": scenarios.catalog(),
+    return {"detectors": dets, "signatures": sigs, "scenarios": scenarios.catalog(), "network_rules": ndr_policy.catalog(),
             "can_switch": "detection.approve" in permissions_for(ctx.principal.roles)}
 
 
