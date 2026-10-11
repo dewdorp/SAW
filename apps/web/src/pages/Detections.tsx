@@ -6,6 +6,7 @@ import { useMe } from "../App";
 import { ErrorBox, Loading, Panel, Sev } from "../components/common";
 import { api } from "../lib/api";
 import { fmtNum, fmtTime } from "../lib/format";
+import { DetectionCatalog } from "./DetectionCatalog";
 
 const STEPS = ["draft", "test", "approved", "deployed", "deprecated"];
 
@@ -13,13 +14,15 @@ export function Detections() {
   const loc = useLocation();
   return (
     <div className="page col">
-      <PageHeader eyebrow="탐지 엔지니어링" title="탐지 룰" desc="Sigma 룰을 작성·시험·승인합니다. 실제 배포는 SAW 밖에서 사람이 수행합니다." />
+      <PageHeader eyebrow="탐지 엔지니어링" title="탐지 룰" desc="기본 탐지 목록을 확인하고 Sigma 룰을 작성·시험·승인합니다. 외부 배포는 사람이 수행합니다." />
       <div className="tabs">
         <Link to="/detections"><button className={loc.pathname === "/detections" ? "active" : ""}>탐지 룰 후보</button></Link>
+        <Link to="/detections/catalog"><button className={loc.pathname === "/detections/catalog" ? "active" : ""}>기본 탐지 목록</button></Link>
         <Link to="/detections/coverage"><button className={loc.pathname === "/detections/coverage" ? "active" : ""}>ATT&amp;CK 커버리지</button></Link>
       </div>
       <Routes>
         <Route index element={<DetList />} />
+        <Route path="catalog" element={<DetectionCatalog />} />
         <Route path="coverage" element={<Coverage />} />
         <Route path=":id" element={<DetEditor />} />
       </Routes>
