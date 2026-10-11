@@ -20,3 +20,6 @@ offline-bundle/
 
 # TypeScript incremental build metadata
 *.tsbuildinfo
+
+# Isolated synthetic validation stores and temporary credentials
+.qa/
