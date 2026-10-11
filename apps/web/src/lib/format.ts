@@ -10,15 +10,25 @@ export function escapeHtml(v: unknown): string {
 
 const KST = "Asia/Seoul";
 let tzMode: "KST" | "UTC" = (localStorage.getItem("saw.tz") as "KST" | "UTC") || "KST";
+const tzListeners = new Set<() => void>();
 export function setTz(m: "KST" | "UTC") {
   tzMode = m;
   try { localStorage.setItem("saw.tz", m); } catch { /* ignore */ }
+  tzListeners.forEach((listener) => listener());
 }
 export function getTz() { return tzMode; }
+export function subscribeTz(listener: () => void) {
+  tzListeners.add(listener);
+  return () => { tzListeners.delete(listener); };
+}
 
 export function fmtTime(ts?: string | number | null, withDate = true): string {
   if (ts === null || ts === undefined || ts === "") return "–";
-  const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
+  // API datetimes are stored in UTC; SQLite may return them without an offset.
+  const value = typeof ts === "string" && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(ts)
+    ? ts.replace(" ", "T") + "Z"
+    : ts;
+  const d = typeof value === "number" ? new Date(value * 1000) : new Date(value);
   if (isNaN(d.getTime())) return String(ts);
   const opts: Intl.DateTimeFormatOptions = {
     timeZone: tzMode === "KST" ? KST : "UTC", hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",

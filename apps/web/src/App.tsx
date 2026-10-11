@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useSyncExternalStore } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./components/Shell";
 import { Loading } from "./components/common";
 import { api } from "./lib/api";
+import { getTz, subscribeTz } from "./lib/format";
 import { Admin } from "./pages/Admin";
 import { CaseDetail, Cases } from "./pages/Cases";
 import { Home } from "./pages/Home";
@@ -32,6 +33,7 @@ export function useMe() {
 }
 
 export function App() {
+  useSyncExternalStore(subscribeTz, getTz);
   const me = useMe();
   const qc = useQueryClient();
   useEffect(() => {
