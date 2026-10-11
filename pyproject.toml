@@ -1,0 +1,42 @@
+[project]
+name = "saw"
+version = "0.1.0"
+description = "SOC Analysis Workbench - On-Premise SOC Analyst & Threat Hunting Platform"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]",
+  "pydantic>=2.8",
+  "pydantic-settings",
+  "sqlalchemy>=2.0",
+  "argon2-cffi",
+  "pyotp",
+  "python-multipart",
+  "orjson",
+  "drain3",
+  "itsdangerous",
+  "tldextract",
+  "defusedxml",
+  "regex",
+  "cryptography",
+  "pysigma",
+  "pysigma-backend-opensearch",
+  "pyyaml",
+  "alembic>=1.17,<2",
+]
+
+[project.optional-dependencies]
+infra = ["boto3", "opensearch-py", "celery", "redis", "psycopg[binary]", "pgvector"]
+windows = ["opensearch-py", "psycopg[binary]"]  # ADR-0016 Windows air-gapped profile
+dev = ["pytest", "pytest-cov", "httpx", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["saw*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

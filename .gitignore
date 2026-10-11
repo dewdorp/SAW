@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+var/
+node_modules/
+dist/
+*.db
+.env
+.saw-work.lock
+apps/web/dist/
+
+# exported demo samples (python -m saw.devtools.export_samples)
+samples/
+
+# air-gapped install bundle (large binaries; built by deploy/windows/build-bundle.ps1)
+offline-bundle/

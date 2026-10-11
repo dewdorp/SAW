@@ -1,0 +1,24 @@
+<!-- WinSW v2 service definition for SAW. {{ROOT}}/{{PORT}}/{{HOST}} are filled in by install.ps1 ({{ROOT}} XML-escaped). -->
+<service>
+  <id>saw</id>
+  <name>SAW - SOC Analysis Workbench</name>
+  <description>SAW API and web UI (HTTPS). Depends on saw-postgresql and saw-opensearch.</description>
+  <executable>{{ROOT}}\venv\Scripts\python.exe</executable>
+  <arguments>-m saw.cli serve --host {{HOST}} --port {{PORT}} --cert "{{ROOT}}\tls\saw.crt" --key "{{ROOT}}\tls\saw.key"</arguments>
+  <workingdirectory>{{ROOT}}\app</workingdirectory>
+  <depend>saw-postgresql</depend>
+  <depend>saw-opensearch</depend>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="120 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>30 sec</stoptimeout>
+  <env name="PYTHONUTF8" value="1"/>
+  <logpath>{{ROOT}}\logs\saw</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+</service>
