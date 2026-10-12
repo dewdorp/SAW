@@ -141,7 +141,7 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
     # Release the read transaction during bounded native execution.
     s.commit()
     t0 = time.perf_counter()
-    from saw.llm.cpu_provider import CPUExecutionError
+    from saw.llm.cpu_provider import CPUExecutionError, sanitize_diagnostics
     try:
         resp = prov.generate(LLMRequest(system, user, json_mode=True))
     except CPUExecutionError as exc:
@@ -149,7 +149,7 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
         audit.record(s, "ai.failure", actor_id=p.user_id, actor_name=p.username, target_type="llm",
                      investigation_id=inv_id, outcome="failure",
                      detail={"action": action, "provider": prov.name, "code": str(exc),
-                             "actual_inference": exc.actual_inference})
+                             "actual_inference": exc.actual_inference, **sanitize_diagnostics(exc.diagnostics)})
         s.commit()
         raise ValueError(str(exc)) from None
     latency = int((time.perf_counter() - t0) * 1000)

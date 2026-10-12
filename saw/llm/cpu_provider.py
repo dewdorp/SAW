@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -21,10 +22,45 @@ from saw.llm.windows_runtime import (
 _LOCK = threading.Lock()
 
 
+def sanitize_diagnostics(value):
+    """Retain only fixed enums and bounded numbers; never native output or paths."""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    enums = {"native_status": {"SUCCEEDED", "FAILED", "TIMEOUT", "OUTPUT_LIMIT", "CANCELLED"},
+             "native_stage": {"tokenizer", "completion"}}
+    for key, allowed in enums.items():
+        item = value.get(key)
+        if isinstance(item, str) and item in allowed:
+            result[key] = item
+    for key, maximum in (("native_returncode", 2**32 - 1), ("input_tokens", 16384)):
+        item = value.get(key)
+        if type(item) is int and 0 <= item <= maximum:
+            result[key] = item
+    for key in ("native_elapsed_seconds", "process_cpu_seconds"):
+        item = value.get(key)
+        if type(item) in (int, float) and 0 <= item <= 3600 and math.isfinite(item):
+            result[key] = item
+    return result
+
+
+def native_failure_code(value):
+    if not isinstance(value, dict):
+        return "cpu_native_failed"
+    status = value.get("status")
+    specific = {"TIMEOUT": "cpu_wall_budget", "OUTPUT_LIMIT": "cpu_output_limit", "CANCELLED": "cpu_cancelled"}
+    if isinstance(status, str) and status in specific:
+        return specific[status]
+    if status == "SUCCEEDED" and type(value.get("returncode")) is int and value["returncode"] == 0:
+        return None
+    return "cpu_native_failed"
+
+
 class CPUExecutionError(ValueError):
-    def __init__(self, code, *, actual_inference="NOT_RUN"):
+    def __init__(self, code, *, actual_inference="NOT_RUN", diagnostics=None):
         super().__init__(code)
         self.actual_inference = actual_inference
+        self.diagnostics = sanitize_diagnostics(diagnostics)
 
 
 def serialize_request(manifest, req):
@@ -136,6 +172,9 @@ class CPUProvider:
         started = time.monotonic()
         attempted = False
         native = None
+        observed = None
+        observed_stage = None
+        input_count = None
         consumed_cpu = 0.0
         if type(req.max_tokens) is not int or req.max_tokens < 1:
             raise CPUExecutionError("cpu_output_budget")
@@ -168,7 +207,7 @@ class CPUProvider:
                 prompt = serialize_request(pack["_manifest"], req)
                 with _sealed_runtime(spec, work, check) as (engine, cwd):
                     def run(exe, flags):
-                        nonlocal attempted, native, consumed_cpu
+                        nonlocal attempted, native, consumed_cpu, observed, observed_stage
                         check()
                         remaining = LIMITS["max_seconds"] - (time.monotonic() - started)
                         cpu_left = LIMITS["max_seconds"] * LIMITS["threads"] - consumed_cpu
@@ -178,11 +217,14 @@ class CPUProvider:
                                 "--prompt", prompt, "--no-escape", "--offline", *flags]
                         if exe == "llama-completion.exe":
                             attempted = True
+                        observed = None
+                        observed_stage = "completion" if exe == "llama-completion.exe" else "tokenizer"
                         value = launch_appcontainer(argv, engine_root=engine, cwd=cwd,
                             input_path=model_root / pack["_manifest"]["model_file"], max_seconds=remaining,
                             max_cpu_seconds=min(cpu_left, remaining * LIMITS["threads"]),
                             max_memory_bytes=LIMITS["max_memory_bytes"], max_output_bytes=LIMITS["max_output_bytes"],
                             collect_process_metrics=True, read_only_cwd=True)
+                        observed = value
                         if exe == "llama-completion.exe":
                             native = value
                         if (value.get("token_appcontainer") is not True
@@ -195,12 +237,14 @@ class CPUProvider:
                         if type(used) not in (int, float) or not 0 <= used <= cpu_left:
                             raise ValueError("cpu_total_budget")
                         consumed_cpu += used
-                        if value["status"] != "SUCCEEDED" or value["returncode"] != 0:
-                            raise ValueError("cpu_native_failed")
+                        failure = native_failure_code(value)
+                        if failure:
+                            raise ValueError(failure)
                         check()
                         return value
                     tokenized = run("llama-tokenize.exe", ["--ids"])
                     ids = token_ids(tokenized["stdout"], pack["_manifest"], pack["_config"]["vocab_size"])
+                    input_count = len(ids)
                     if len(ids) + maximum > LIMITS["context"] - 4:
                         raise ValueError("cpu_context_limit")
                     result = run("llama-completion.exe", ["--threads", str(LIMITS["threads"]),
@@ -218,5 +262,10 @@ class CPUProvider:
         except (ValueError, OSError, NativeError) as exc:
             actual = "EXECUTED_OUTPUT_UNVERIFIED" if native else "ATTEMPTED_NOT_CONFIRMED" if attempted else "NOT_RUN"
             code = str(exc) if isinstance(exc, ValueError) and str(exc).startswith(("cpu_", "model_", "foundation_")) else "cpu_native_failed"
-            self.last_receipt = {"actual_inference": actual, "error_code": code}
-            raise CPUExecutionError(code, actual_inference=actual) from None
+            source = observed if isinstance(observed, dict) else {}
+            diagnostics = sanitize_diagnostics({"native_status": source.get("status"),
+                "native_returncode": source.get("returncode"), "native_elapsed_seconds": source.get("elapsed_seconds"),
+                "process_cpu_seconds": source.get("process_cpu_seconds"), "native_stage": observed_stage,
+                "input_tokens": input_count})
+            self.last_receipt = {"actual_inference": actual, "error_code": code, **diagnostics}
+            raise CPUExecutionError(code, actual_inference=actual, diagnostics=diagnostics) from None

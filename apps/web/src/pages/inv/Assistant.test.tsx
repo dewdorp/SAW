@@ -60,6 +60,11 @@ it("distinguishes a deterministic template from actual model inference", async (
 
 it.each([
   ["cpu_context_limit", 400, "입력 크기가 CPU 모델의 한도를 넘었습니다"],
+  ["cpu_wall_budget", 400, "CPU 추론이 허용된 실행 시간을 넘겨 중지되었습니다"],
+  ["cpu_output_limit", 400, "CPU 실행기의 출력 크기가 허용 한도를 넘어 중지되었습니다"],
+  ["cpu_cancelled", 400, "CPU 추론 요청이 취소되어 답변을 표시하지 않습니다"],
+  ["cpu_native_failed", 400, "CPU 실행기가 정상적으로 종료되지 않았습니다"],
+  ["ai_session_changed", 403, "로그인 세션이 만료되거나 변경되어 답변을 표시하지 않습니다"],
   ["local_ai_synthetic_investigation_required", 403, "합성 시험용으로 허용된 조사에서만"],
   ["ai_context_authorization_changed", 403, "참조한 지식의 승인 또는 접근 권한이 바뀌었습니다"],
   ["ai_authorization_changed", 403, "사용 권한이 변경되어 답변을 표시하지 않습니다"],

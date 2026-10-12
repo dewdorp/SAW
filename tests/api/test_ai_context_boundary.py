@@ -184,7 +184,9 @@ def test_native_failure_records_execution_state_without_output(analyst, manager,
 
     class FailingProvider(CapturingProvider):
         def generate(self, req):
-            raise CPUExecutionError("cpu_output_integrity", actual_inference="EXECUTED_OUTPUT_UNVERIFIED")
+            raise CPUExecutionError("cpu_output_integrity", actual_inference="EXECUTED_OUTPUT_UNVERIFIED",
+                diagnostics={"native_status": "SUCCEEDED", "native_returncode": 0, "native_elapsed_seconds": 11.5,
+                             "input_tokens": 55, "native_stage": "completion", "stdout": "private output"})
 
     monkeypatch.setattr(service, "provider", lambda: FailingProvider())
     response = analyst.post("/ai/actions", json={"investigation_id": inv["id"], "action": "ask"})
@@ -194,6 +196,12 @@ def test_native_failure_records_execution_state_without_output(analyst, manager,
     assert rows[0]["detail"]["actual_inference"] == "EXECUTED_OUTPUT_UNVERIFIED"
     assert rows[0]["detail"]["code"] == "cpu_output_integrity"
     assert "prompt" not in rows[0]["detail"]
+    assert rows[0]["detail"]["native_status"] == "SUCCEEDED"
+    assert rows[0]["detail"]["native_returncode"] == 0
+    assert rows[0]["detail"]["native_elapsed_seconds"] == 11.5
+    assert rows[0]["detail"]["input_tokens"] == 55
+    assert rows[0]["detail"]["native_stage"] == "completion"
+    assert "stdout" not in rows[0]["detail"]
 
 @pytest.mark.parametrize("mutation", ["revoked", "expired", "mfa"])
 def test_session_revoked_during_generation_prevents_output_storage(analyst, monkeypatch, mutation):
