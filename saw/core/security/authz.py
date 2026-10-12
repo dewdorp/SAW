@@ -26,6 +26,7 @@ _PERMISSIONS: dict[str, set[Role]] = {
     "data.unmask": {Role.SOC_MANAGER, Role.SENIOR_ANALYST},
     "hunt.global": {Role.SOC_MANAGER, Role.SENIOR_ANALYST},
     "ai.use": {Role.SOC_MANAGER, Role.SENIOR_ANALYST, Role.ANALYST},
+    "ai.models.manage": {Role.ADMIN},
     "admin.users": {Role.ADMIN},
     "admin.connectors": {Role.ADMIN},
     "audit.read": {Role.ADMIN, Role.SOC_MANAGER},

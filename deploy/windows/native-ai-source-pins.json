@@ -1,0 +1,59 @@
+{
+  "schema": "saw.native-source-pins/1",
+  "version": "b11429",
+  "commit": "d81235049384534c167caea52b85a694f6103d14",
+  "downloads": [
+    {
+      "name": "winlibs-x86_64-posix-seh-gcc-14.2.0-mingw-w64ucrt-12.0.0-r3.zip",
+      "sha256": "88868d745b807f083a117ff69348d8bc021ad7389aa503379dbed1866efcaeb9",
+      "url": "https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-12.0.0-ucrt-r3/winlibs-x86_64-posix-seh-gcc-14.2.0-mingw-w64ucrt-12.0.0-r3.zip"
+    },
+    {
+      "name": "cmake.zip",
+      "sha256": "d163cd3ab4959b0a53fa8988f2ddbd2e6c501658201e6a154386bad9dbe4f836",
+      "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip"
+    },
+    {
+      "name": "llama-source.zip",
+      "sha256": "189091a7ca977fc2d4eb021c2f39a589011cd4bc96360291261569eb85c6dbaf",
+      "url": "https://codeload.github.com/ggml-org/llama.cpp/zip/d81235049384534c167caea52b85a694f6103d14"
+    }
+  ],
+  "licenses": [
+    {
+      "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.2.0/COPYING3",
+      "name": "GCC-COPYING3.txt",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.2.0/COPYING.RUNTIME",
+      "name": "GCC-RUNTIME-EXCEPTION.txt",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/AUTHORS",
+      "name": "MINGW-AUTHORS.txt",
+      "sha256": "8f308316e7a94b8410f871868bd3948f126526dc1775aeee97a0e365f9a0fd9f"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/COPYING",
+      "name": "MINGW-COPYING.txt",
+      "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/COPYING.MinGW-w64/COPYING.MinGW-w64.txt",
+      "name": "MINGW-DISTRIBUTION-COPYING.txt",
+      "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+      "name": "MINGW-RUNTIME-COPYING.txt",
+      "sha256": "e9b2dc02451ea29092a1f25fa0f3c07207ed421f1807dffb0c4e6dce69dee7bd"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/mingw-w64-libraries/winpthreads/COPYING",
+      "name": "WINPTHREADS-COPYING.txt",
+      "sha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177"
+    }
+  ]
+}

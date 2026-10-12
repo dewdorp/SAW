@@ -52,6 +52,7 @@ def load_models() -> None:
     from saw.knowledge import models as _km  # noqa: F401
     from saw.knowledge import similar as _ks  # noqa: F401
     from saw.llm import service as _llm  # noqa: F401
+    from saw.llm import model_packs as _lm  # noqa: F401
     from saw.parsers import library as _pl  # noqa: F401
     from saw.storage import models  # noqa: F401
 

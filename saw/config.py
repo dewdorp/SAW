@@ -77,7 +77,13 @@ class Settings(BaseSettings):
     # SOC Assistant (docs/29). template = offline deterministic renderer (not an LLM); ollama/openai_compat = ENV-08
     llm_provider: str = "template"  # none | template | ollama | openai_compat
     llm_url: str = "http://127.0.0.1:11434"
-    llm_model: str = "qwen2.5:14b-instruct"
+    llm_model: str = "fdtn-ai/Foundation-Sec-8B"
+    # Separately imported, synthetic-only local model packs; empty paths disable native inference.
+    llm_models_root: str = ""
+    llm_runtime_root: str = ""
+    llm_runtime_manifest_sha256: str = ""
+    llm_cpu_work_root: str = ""
+    llm_synthetic_investigation_ids: list[str] = []
 
 
 @lru_cache
