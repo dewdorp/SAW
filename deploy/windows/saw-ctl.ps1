@@ -34,13 +34,11 @@ function Stop-Tracked([string]$name) {
     if ($p) { & taskkill.exe /PID $p.Id /T /F | Out-Null; Remove-Item (Join-Path $run "$name.pid") -Force }
 }
 function Test-Up([string]$url) {
-    $args_ = @('--fail', '--silent', '-m', '3', $url)
-    if ($url.StartsWith('https://')) { $args_ += @('--cacert', (Join-Path $InstallRoot 'tls\saw.crt')) }
-    try { $r = & curl.exe @args_ 2>$null } catch { return $false }
-    if ($LASTEXITCODE -ne 0 -or -not $r) { return $false }
-    try { $body = ($r -join "`n") | ConvertFrom-Json } catch { return $false }
-    if ($url -like '*/api/v1/health') { return ($body.status -eq 'ok') }
-    return ($body.status -in @('green', 'yellow') -and $body.cluster_name -eq 'saw')
+    $uri = [Uri]$url
+    $kind = if ($uri.AbsolutePath -eq '/api/v1/health') { 'api' } else { 'opensearch' }
+    $args_ = @('-m', 'saw.devtools.runtime_health', '--kind', $kind, '--port', $uri.Port)
+    if ($kind -eq 'api') { $args_ += @('--ca', (Join-Path $InstallRoot 'tls\saw.crt')) }
+    try { & $vpy @args_ *> $null; return ($LASTEXITCODE -eq 0) } catch { return $false }
 }
 function Wait-Up([string]$url, [string]$what, [int]$seconds) {
     for ($i = 0; $i -lt $seconds; $i += 2) { if (Test-Up $url) { return } ; Start-Sleep -Seconds 2 }
@@ -91,10 +89,9 @@ function Stop-All {
     # Flush accepted writes before stopping the process tree. Failed flush leaves the store running.
     if ((Get-Tracked "opensearch") -or (Test-Up $osUrl)) {
         if (-not (Test-Up $osUrl)) { throw 'OpenSearch is unhealthy; storage was left running.' }
-        $flush = & curl.exe --fail --silent -m 60 -X POST "http://127.0.0.1:$($cfg.opensearchPort)/_flush?wait_if_ongoing=true" 2>$null
+        try { & $vpy -m saw.devtools.runtime_health --kind flush --port $cfg.opensearchPort *> $null }
+        catch { throw 'OpenSearch flush failed; storage was left running.' }
         if ($LASTEXITCODE -ne 0) { throw 'OpenSearch flush failed; storage was left running.' }
-        try { $result = ($flush -join "`n") | ConvertFrom-Json } catch { throw 'Invalid flush response; storage was left running.' }
-        if (-not $result._shards -or $result._shards.failed -ne 0) { throw 'OpenSearch shard flush failed; storage was left running.' }
     }
     Stop-Tracked "opensearch"
     if (Test-Pg) { & $pgCtl stop -D $pgData -m fast -w | Out-Null }

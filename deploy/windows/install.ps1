@@ -279,8 +279,7 @@ if (-not $NoServices -and -not $NoAdmin) {
     $ok = $false
     for ($i = 0; $i -lt 40 -and -not $ok; $i++) {
         Start-Sleep -Seconds 3
-        $r = & curl.exe -sk "https://localhost:$Port/api/v1/health"
-        if ($r -match '"status":"ok"') { $ok = $true }
+        try { $r = & $vpy -m saw.devtools.runtime_health --kind api --port $Port --tls-name $HostName --ca $crt 2>$null; $ok = ($LASTEXITCODE -eq 0) } catch { $ok = $false }
     }
     if (-not $ok) { throw "SAW did not become healthy; see $($dirs.logs) and $InstallRoot\logs\opensearch" }
     Write-Host $r

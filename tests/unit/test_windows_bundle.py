@@ -129,31 +129,32 @@ def test_shared_server_install_stores_every_batch_before_acknowledging():
     assert index_template(durability="async")["template"]["settings"]["translog"]["durability"] == "async"
 
 @WINDOWS_ONLY
-def test_user_mode_health_requires_success_status_and_expected_body(tmp_path):
+def test_user_mode_health_uses_bundled_python_and_preserves_failure(tmp_path):
     text = (ROOT / "deploy/windows/saw-ctl.ps1").read_text(encoding="utf-8-sig")
+    assert "curl.exe" not in text
     function = text[text.index("function Test-Up("):text.index("function Wait-Up(")]
-    body = "\n".join([
-        "$InstallRoot = 'C:\\synthetic'", function,
-        "function curl.exe { $global:LASTEXITCODE = $script:mockCode; return $script:mockBody }",
-        "$script:mockCode=22; $script:mockBody='{\"status\":\"ok\"}'; if (Test-Up 'https://localhost/api/v1/health') { throw 'HTTP failure accepted' }",
-        "$script:mockCode=0; $script:mockBody='{\"status\":\"error\"}'; if (Test-Up 'https://localhost/api/v1/health') { throw 'API error accepted' }",
-        "$script:mockBody='{\"status\":\"ok\"}'; if (-not (Test-Up 'https://localhost/api/v1/health')) { throw 'healthy API rejected' }",
-        "$script:mockBody='{\"status\":\"red\",\"cluster_name\":\"saw\"}'; if (Test-Up 'http://localhost/_cluster/health') { throw 'red cluster accepted' }",
-        "$script:mockBody='{\"status\":\"yellow\",\"cluster_name\":\"saw\"}'; if (-not (Test-Up 'http://localhost/_cluster/health')) { throw 'healthy cluster rejected' }",
-    ])
-    _run_ps(tmp_path, body)
+    _run_ps(tmp_path, "\n".join([
+        "$InstallRoot='C:\\synthetic'; $vpy='Invoke-MockRuntime'", function,
+        "function Invoke-MockRuntime { $script:called=@($args); $global:LASTEXITCODE=$script:mockCode }",
+        "$script:mockCode=1; if (Test-Up 'https://localhost:58443/api/v1/health') { throw 'failure accepted' }",
+        "$script:mockCode=0; if (-not (Test-Up 'https://localhost:58443/api/v1/health')) { throw 'success rejected' }",
+        "if ($script:called -notcontains 'api' -or $script:called -notcontains '--ca' -or $script:called -notcontains 58443) { throw 'TLS/port arguments lost' }",
+        "if (-not (Test-Up 'http://127.0.0.1:59200/_cluster/health')) { throw 'search health rejected' }",
+        "if ($script:called -notcontains 'opensearch' -or $script:called -contains '--ca') { throw 'search arguments wrong' }",
+        "$vpy='missing-saw-python-xyz.exe'; if (Test-Up 'http://127.0.0.1:59200/_cluster/health') { throw 'missing runtime accepted' }",
+    ]))
 
 @WINDOWS_ONLY
 def test_stop_keeps_store_running_if_flush_fails(tmp_path):
     text = (ROOT / "deploy/windows/saw-ctl.ps1").read_text(encoding="utf-8-sig")
     function = text[text.index("function Stop-All"):text.index("function Show-Status")]
     body = "\n".join([
-        "$cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
+        "$vpy='Invoke-MockRuntime'; $cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
         "function Stop-Tracked($name) { $script:stopped += $name }",
         "function Get-Tracked($name) { return @{Id=123} }",
         "function Test-Up($url) { return $true }",
         "function Test-Pg { return $false }",
-        "function curl.exe { $global:LASTEXITCODE=22; return '' }", function,
+        "function Invoke-MockRuntime { $global:LASTEXITCODE=1 }", function,
         "try { Stop-All; throw 'flush was not attempted' } catch { if ($_.Exception.Message -notmatch 'flush failed') { throw } }",
         "if ($script:stopped.Count -ne 1 -or $script:stopped[0] -ne 'saw') { throw 'store was stopped after failed flush' }",
     ])
@@ -178,9 +179,9 @@ def test_user_health_handles_unavailable_port_and_actual_http_503(tmp_path):
     function = text[text.index('function Test-Up('):text.index('function Wait-Up(')]
     try:
         _run_ps(tmp_path, '\n'.join([
-            f"$InstallRoot = '{tmp_path}'", function,
-            f"if (Test-Up 'http://127.0.0.1:{server.server_port}/api/v1/health') {{ throw '503 accepted' }}",
-            "if (Test-Up 'http://127.0.0.1:1/api/v1/health') { throw 'unavailable listener accepted' }",
+            f"$InstallRoot = '{tmp_path}'; $vpy = '{__import__('sys').executable}'", function,
+            f"if (Test-Up 'http://127.0.0.1:{server.server_port}/_cluster/health') {{ throw '503 accepted' }}",
+            "if (Test-Up 'http://127.0.0.1:1/_cluster/health') { throw 'unavailable listener accepted' }",
         ]))
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=3)
@@ -190,12 +191,12 @@ def test_stop_does_not_flush_or_kill_a_tracked_unhealthy_store(tmp_path):
     text = (ROOT / 'deploy/windows/saw-ctl.ps1').read_text(encoding='utf-8-sig')
     function = text[text.index('function Stop-All'):text.index('function Show-Status')]
     _run_ps(tmp_path, '\n'.join([
-        "$cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
+        "$vpy='Invoke-MockRuntime'; $cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
         "function Stop-Tracked($name) { $script:stopped += $name }",
         "function Get-Tracked($name) { return @{Id=123} }",
         "function Test-Up($url) { return $false }",
         "function Test-Pg { return $false }",
-        "function curl.exe { throw 'unhealthy store flush was attempted' }", function,
+        "function Invoke-MockRuntime { throw 'unhealthy store flush was attempted' }", function,
         "try { Stop-All; throw 'unhealthy store was stopped' } catch { if ($_.Exception.Message -notmatch 'OpenSearch is unhealthy') { throw } }",
         "if ($script:stopped.Count -ne 1 -or $script:stopped[0] -ne 'saw') { throw 'store was stopped' }",
     ]))
@@ -284,4 +285,19 @@ def test_postgresql_service_waits_for_database_readiness_after_scm_start(tmp_pat
         "if ($global:probeTries -ne 3) { throw 'startup returned before database readiness' }",
         '$global:probeTries=0',
         f"try {{ Wait-PostgresqlServiceReady '{ready}' 5432 2; throw 'accepted' }} catch {{ if ($_.Exception.Message -notmatch 'readiness deadline') {{ throw }} }}",
+    ]))
+
+
+@WINDOWS_ONLY
+def test_service_health_uses_verified_hostname_and_bundle_ca(tmp_path):
+    text = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8-sig")
+    assert "curl.exe" not in text
+    block = _ps_block("install.ps1", 'Step "Health check"', "Write-Host $r")
+    _run_ps(tmp_path, "\n".join([
+        "$vpy='Invoke-MockRuntime'; $Port=58443; $HostName='saw.example.invalid'; $crt='C:\\test.crt'; $dirs=@{logs='logs'}",
+        "function Step { }; function Start-Sleep { }",
+        "function Invoke-MockRuntime { $script:called=@($args); $global:LASTEXITCODE=0; return 'ok' }", block,
+        "if ($script:called -notcontains '--tls-name' -or $script:called -notcontains $HostName -or $script:called -notcontains '--ca' -or $script:called -notcontains $crt) { throw 'TLS identity lost' }",
+        "function Invoke-MockRuntime { $global:LASTEXITCODE=1; return 'failed' }",
+        "try { " + block + "; throw 'failed health accepted' } catch { if ($_.Exception.Message -notmatch 'did not become healthy') { throw } }",
     ]))
