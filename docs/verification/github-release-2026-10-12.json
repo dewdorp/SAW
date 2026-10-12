@@ -1,0 +1,62 @@
+{
+  "state": "PUBLISHED_PRERELEASE_ASSETS_VERIFIED",
+  "repo": "dewdorp/SAW",
+  "private": true,
+  "release_id": 410717722,
+  "tag": "v0.1.0-pilot.20261012",
+  "source_commit": "f10a375b653ba655628af01219aa5806092bde97",
+  "assets": [
+    {
+      "name": "SAW-0.1.0-pilot.20261012-model-free-win-x64.zip",
+      "bytes": 1441648065,
+      "sha256": "9e8cbacf7bee8862b5c5770d467df3f6bdc3eec5fce83a4152b3280864f67d5c",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 96799,
+      "sha256": "14142f0462b63d329bfa71a436a4b679c2761fb9539842cc272fc1d2e06a481c",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 57950,
+      "sha256": "da42a8e73626e9e31c79230fc4bd7829d93697114c9226cf4782defd1693f902",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "START-HERE.md",
+      "bytes": 7554,
+      "sha256": "dee124bf436ce6d937cd74e0e9fd300bc33ce3d922601491b9b60249e1e40d1d",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "LOCAL-MODEL-GUIDE.md",
+      "bytes": 6477,
+      "sha256": "2cf34f417758484b55be7e78065397072e43f24eee40f208f9ecf43b08fe1086",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "OFFLINE-RELEASE-VALIDATION-2026-10-12.md",
+      "bytes": 9001,
+      "sha256": "592d73e31396bff0b926915f36fcb2bd2e44a35ec22314d60e6bf6c2478ffb5d",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-verification.json",
+      "bytes": 555,
+      "sha256": "f9e7661b91e365f38d5ac11567a2f7ecbe60b1763a568f6efae8a54835acd386",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "RELEASE-SHA256SUMS.txt",
+      "bytes": 649,
+      "sha256": "45386ec1b0f861838c419bc2982471d9a463f2c06f16b217f27135af3f768c63",
+      "remote_digest_equal": true
+    }
+  ],
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261012",
+  "published_at": "2026-10-12T14:59:29Z",
+  "target_ltsc_verified": false,
+  "production_acceptance": false
+}

@@ -70,10 +70,10 @@
 
 ### Task5: Private GitHub distribution (root)
 
-- [ ] Inspect tracked files/history and release payload for private data/credentials/models. Keep only intended source/docs/binaries and notices.
-- [ ] Create private dewdorp/SAW (or collision-safe explicit new name), push the validated branch, create a versioned prerelease with notes.
-- [ ] Upload real archive(s), release manifest/checksums, install/model intake guide. Split large media with deterministic reassembly if GitHub limits require it.
-- [ ] Verify repository visibility, release assets size/digest and download location. Report links, local hashes and unresolved target/quality/approval gates.
+- [x] Inspect tracked files/history and release payload for private data/credentials/models. Keep only intended source/docs/binaries and notices.
+- [x] Create private dewdorp/SAW (or collision-safe explicit new name), push the validated branch, create a versioned prerelease with notes.
+- [x] Upload real archive(s), release manifest/checksums, install/model intake guide. Split large media with deterministic reassembly if GitHub limits require it.
+- [x] Verify repository visibility, release assets size/digest and download location. Report links, local hashes and unresolved target/quality/approval gates.
 ## Execution notes (2026-10-12)
 
 Task1–3 complete as implementation/contract/native/browser verification, with Foundation quality not adopted and the real Assistant investigation request failing safely (reason not retained). Actual short native generation succeeded. Follow-up fixed diagnostics are in progress. Task4 uncovered a real restart data-loss bug; release waits for request durability and explicit flush verification. Service runtime environment code was rejected by automatic approval review and awaits the user's specific approval. Source publication and remaining model-free media work continue independently.
@@ -81,3 +81,5 @@ Task1–3 complete as implementation/contract/native/browser verification, with 
 The user explicitly approved service code/configuration changes only. Resume the PostgreSQL WinSW/runtime environment implementation and synthetic tests; do not install/register/start Windows services or change the firewall on this host. Prior automatic-review rejection is resolved only for this code scope.
 
 Final development-host verification: backend743 passed/2 skipped in184.95s; UI115 passed plus tsc/build; separate PostgreSQL48 passed. Candidate4 standalone installation, strict TLS, synthetic log/PCAP, restart preservation and isolated restore passed. Final immutable archive and private prerelease publication remain the next steps. This does not certify clean LTSC or multi-user service deployment.
+
+Published private prerelease https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261012 from frozen commit f10a375. Eight remote asset sizes and SHA256 digests match local verified files; tag target verified. The archive remains immutable. Remaining target/operational/quality gates are recorded in STATE.md.

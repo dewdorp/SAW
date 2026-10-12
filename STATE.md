@@ -1,5 +1,14 @@
 # 현재 작업 상태
 
+## 2026-10-12 GitHub 사전 배포 게시 완료
+
+- 비공개 저장소의 실제 설치 매체: https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261012
+- ZIP `SAW-0.1.0-pilot.20261012-model-free-win-x64.zip`: **1,441,648,065 bytes**, SHA256 `9e8cbacf7bee8862b5c5770d467df3f6bdc3eec5fce83a4152b3280864f67d5c`.
+- 고정 배포 소스 `f10a375b653ba655628af01219aa5806092bde97`, manifest SHA256 `14142f0462b63d329bfa71a436a4b679c2761fb9539842cc272fc1d2e06a481c`. 실제 시험본과 실행 payload 해시 동등, ZIP521파일 개별 해시 검증 완료.
+- GitHub 첨부8개 모두 원격 크기/sha256 digest 일치 확인 후 prerelease 게시, tag가 고정 소스를 가리킴 확인. 공개 영수증: docs/verification/github-release-2026-10-12.json. 이 게시 기록은 설치 ZIP을 다시 변경하지 않는다.
+- 로컬 파일: .release/SAW-0.1.0-pilot.20261012-model-free-win-x64.zip. 설치는 첨부 START-HERE.md, 모델 반입은 LOCAL-MODEL-GUIDE.md, 실제 화면6장은 docs/DETECTION-LIVE-WALKTHROUGH.md를 따른다.
+- 다음은 깨끗한 LTSC17763 대상의 오프라인 설치/재시작, 16/32GB 무GPU 공동 접속, 승인된 서비스/TLS/방화벽 인수다. 실제 장비·승인 전에는 운영 완료로 전환하지 않는다. Foundation 한국어·인용 품질 미채택, 실제 Assistant 실패 원인 미확정, SFT/학습 미실행을 유지한다.
+
 ## 2026-10-12 최종 설치 매체 검증
 
 - 전체 서버 **743통과·2건너뜀, 184.95초, exit0**. 별도 PostgreSQL migration/API/권한 **48통과**, 화면 **115통과·TypeScript/build 성공**. Windows symlink 생성 권한과 기본 SQLite 실행의 별도 PG 환경은 건너뜀으로 남긴다.
