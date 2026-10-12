@@ -1,5 +1,23 @@
 # 환경 검증 항목 추적
 
+## 새 복사본의 최신 검증 (2026-10-12)
+
+수정 대상은 `F:\codex\SAW-Claude-main`이며 원본 `F:\claude\saw`는 보존했습니다. 아래 A/B/C 표는 원본에서 가져온 과거 이력이고 새 작업본의 실행 증거로 재사용하지 않습니다. 현재 결과는 [설치 검증](docs/OFFLINE-RELEASE-VALIDATION-2026-10-12.md)과 [AI 검증](docs/LOCAL-AI-VALIDATION-2026-10-12.md)을 우선합니다.
+
+| 항목 | 새 작업본에서 실제 수행한 범위 | 남은 조건 |
+|---|---|---|
+| 독립 설치 매체 | 포함 Python 3.12.10·62개 wheel·PostgreSQL16.15·OpenSearch2.19.6/nori·빌드 UI·내장 PCAP·CPU 실행기 | 깨끗한 LTSC17763, 물리적 인터넷 차단 시험 |
+| 저장·재시작 | 새 설치본의 HTTPS/MFA, 합성 로그·PCAP 분석, 9이벤트/8Finding/노트 보존 | 저사양 다중 분석가 동시 부하·장애/재부팅 인수 |
+| 합성 백업·분리 복원 | 실제 백업, 별도 PostgreSQL DB와 새 OpenSearch 색인 복원, 증거 파일 SHA 비교 | 운영 자료·장비 교체/전체 재해 복구 인수 |
+| Windows 서비스 | 사용자 승인 범위의 WinSW 코드·XML, NetworkService/경로/준비 대기 회귀 | 실제 관리자 등록·서비스 ACL·TLS·종료/자동 시작 미실행 |
+| Foundation-Sec-8B | 고정 revision/Q4_K_M의 실제 CPU 생성·선택·해제, 합성 전용 | 한국어/인용 품질 미채택, 실제 조사 화면 질문 실패 원인 미확정 |
+| 모델 반입·변경 | 별도 매체 검증/등록/명시 선택·해제 UI/API, 지원 형식 제한 | 다른 실제 모델의 품질·운영 채택 별도 검증 |
+| 학습 | 이번 작업에서 optimizer/SFT/adapter 학습·재로딩 실행 안 함 | 별도 학습 요구와 승인 경계 유지 |
+
+운영 데이터 반입·학습, 관리자 설치, 운영 배포와 모델 교체는 이번 개발 검증이 승인하지 않습니다. 본체 매체에 모델 가중치와 브라우저 설치 파일은 없으며 분석가 PC에는 조직이 승인한 호환 Chrome/Edge가 별도로 필요합니다.
+
+---
+
 운영 대상: **Windows 10 Enterprise LTSC 2019 x64, 폐쇄망** ([ADR-0016](docs/adr/0016-windows-airgapped-deployment-and-builtin-pcap.md)).
 아래 "검증"은 개발 PC(Windows 11, PowerShell 5.1)에서 **실제 프로그램을 띄워 자동 테스트·E2E로 확인**했다는 뜻이다.
 

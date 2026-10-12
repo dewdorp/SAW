@@ -8,9 +8,9 @@
 - BASE/Instruct 구분, 실제 GGUF 토크나이저 metadata·파일 해시 검사, 모델 폴더에 실행 코드/DLL·정션·미등록 파일 거부.
 - 합성 조사 allowlist, 현재 계정/세션/MFA/조사 권한, 승인 Experience 범위·만료, 생성 중 변경 재검사. CPU 합성 경로에는 외부 Experience/전역 플레이북을 제외.
 - 출력 형식·인용 범위를 검사하고 실패한 답변을 저장/노트로 채택하지 않음. 유효한 JSON도 사실 확인이나 품질 승인을 뜻하지 않음.
-- 전체 서버 677통과·2건너뜀(165.32초). PostgreSQL 미설정 migration은 아래 native 시험으로 보완. Windows symlink 생성 권한 부족 시험은 미실행이며, 관리자 권한 없는 directory junction 원본/반입목적지 차단은 실제 추가 시험으로 확인(9통과·symlink1건너뜀).
+- 최종 전체 서버 743통과·2건너뜀(184.95초). PostgreSQL 미설정 migration은 아래 native 시험으로 보완. Windows symlink 생성 권한 부족 시험은 미실행이며, 관리자 권한 없는 directory junction 원본/반입목적지 차단은 실제 추가 시험으로 확인(9통과·symlink1건너뜀).
 - 실제 PostgreSQL16.15 전용 인스턴스에서 migration0011·모델 API·문맥 권한 48통과(380.74초), 정상 종료·포트 닫힘 확인.
-- UI 전체110통과·TypeScript/build 성공. 최초 동시컴파일 중 기존 timezone시험 timeout1건 발생; 시간제한/테스트 코드 변경 없이 worker2 전체 재실행110통과. Vite의 큰 번들 경고는 남아 있음.
+- 최종 UI 전체115통과·TypeScript/build 성공. 최초 동시컴파일 중 기존 timezone시험 timeout1건 발생; 시간제한/테스트 코드 변경 없이 worker2 전체 재실행110통과. Vite의 큰 번들 경고는 남아 있음.
 
 ## 실제 지정 모델 실행
 
@@ -35,6 +35,10 @@ RAG 권한 계약은 시험했으나 CPU 합성 경로의 실제 조직 Experien
 ![최종 실제 모델 선택](assets/local-ai-2026-10-12/02-static-model-selected.jpg)
 
 ![실제 Assistant 실행 실패 안내](assets/local-ai-2026-10-12/03-assistant-runtime-limit.jpg)
+
+## 실패 진단 보완
+
+기존 Assistant 실패의 정확한 native 원인은 당시 기록 부족으로 확인할 수 없다. 이후 실행부터 시간 상한·출력 상한·취소·실행기 종료 실패를 구분하고, 감사 기록에는 허용된 상태·종료 코드·실행 시간·CPU 시간·입력 토큰 수·실행 단계만 남긴다. 원문·경로·stdout/stderr는 저장하지 않는다. 새 분기는 회귀 시험으로 확인했으며 실제 모델 실패를 다시 재현한 결과로 세지 않는다.
 
 ## 남은 인수 조건
 

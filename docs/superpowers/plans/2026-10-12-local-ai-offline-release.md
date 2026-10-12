@@ -63,10 +63,10 @@
 **Files:** deploy/windows build/install/verify scripts, dependency pins/notices/manifest, tests/unit/test_windows_bundle.py and new packaging tests, installation guide.
 **Interfaces:** release manifest lists all payload hashes/versions/size; model inbox optional at install. App functions without models.
 
-- [ ] Inventory only public runtime artifacts; verify official source/pins/redistribution terms. Resolve missing payloads within authorized scope.
-- [ ] Build immutable fresh output with built UI, actual Python/dependencies/PG/OS/PCAP/native AI runtime and no model weights/private state.
-- [ ] Tests reject missing/hash-invalid payload, unsafe paths, online install steps, absent built UI, accidental model/data inclusion.
-- [ ] Verify/extract/install to fresh path on development host, first account workflow, synthetic analysis/save/stop/restart; mark clean LTSC target test separately if unavailable.
+- [x] Inventory only public runtime artifacts; verify official source/pins/redistribution terms. Resolve missing payloads within authorized scope.
+- [x] Build immutable fresh output with built UI, actual Python/dependencies/PG/OS/PCAP/native AI runtime and no model weights/private state.
+- [x] Tests reject missing/hash-invalid payload, unsafe paths, online install steps, absent built UI, accidental model/data inclusion.
+- [x] Verify/extract/install to fresh path on development host, first account workflow, synthetic analysis/save/stop/restart; mark clean LTSC target test separately if unavailable.
 
 ### Task5: Private GitHub distribution (root)
 
@@ -77,3 +77,7 @@
 ## Execution notes (2026-10-12)
 
 Task1–3 complete as implementation/contract/native/browser verification, with Foundation quality not adopted and the real Assistant investigation request failing safely (reason not retained). Actual short native generation succeeded. Follow-up fixed diagnostics are in progress. Task4 uncovered a real restart data-loss bug; release waits for request durability and explicit flush verification. Service runtime environment code was rejected by automatic approval review and awaits the user's specific approval. Source publication and remaining model-free media work continue independently.
+
+The user explicitly approved service code/configuration changes only. Resume the PostgreSQL WinSW/runtime environment implementation and synthetic tests; do not install/register/start Windows services or change the firewall on this host. Prior automatic-review rejection is resolved only for this code scope.
+
+Final development-host verification: backend743 passed/2 skipped in184.95s; UI115 passed plus tsc/build; separate PostgreSQL48 passed. Candidate4 standalone installation, strict TLS, synthetic log/PCAP, restart preservation and isolated restore passed. Final immutable archive and private prerelease publication remain the next steps. This does not certify clean LTSC or multi-user service deployment.

@@ -57,3 +57,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\SAW-Pilot\saw-ctl.ps1
 - PostgreSQL의 C 런타임은 시스템 DLL을 수집하지 않고, 공식 OpenSearch 배포 ZIP의 JDK에 포함된 파일을 자식 프로세스 PATH에서 그대로 사용합니다. 공식 배포물과 고지를 보존하며 별도 권리 승인을 대신하지 않습니다. 개발 PC에는 시스템 C 런타임도 있으므로 개발기 실행만으로 깨끗한 LTSC의 DLL 로딩을 검증했다고 할 수 없습니다.
 - PostgreSQL 서비스의 번들 런타임 경로 구성은 사용자 승인을 받아 코드·구성 파일에 보완했습니다. 관리자 서비스 등록·실행과 방화벽 변경은 수행하지 않았으며 사용자 프로세스 검증을 서비스 인수로 세지 않습니다.
 - 신규 설치 전용입니다. 기존 설치에 대한 업그레이드·데이터 이관은 별도 검토 절차가 필요합니다.
+
+분석가 PC에는 조직에서 승인한 Chrome 또는 Edge가 별도로 필요합니다. LTSC 기본 Internet Explorer는 지원하지 않으며 이 매체에는 브라우저 설치 파일이 포함되지 않습니다.

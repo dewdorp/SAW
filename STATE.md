@@ -1,5 +1,15 @@
 # 현재 작업 상태
 
+## 2026-10-12 최종 설치 매체 검증
+
+- 전체 서버 **743통과·2건너뜀, 184.95초, exit0**. 별도 PostgreSQL migration/API/권한 **48통과**, 화면 **115통과·TypeScript/build 성공**. Windows symlink 생성 권한과 기본 SQLite 실행의 별도 PG 환경은 건너뜀으로 남긴다.
+- 최종 시험 매체를 새 폴더에 설치하고 내장 Python/62개 wheel·PostgreSQL·OpenSearch/nori·TLS·스키마0011·최초 관리자를 실제 확인했다. 합성 로그/PCAP 작업2개 완료 후 이벤트9개·Finding8개·노트1개가 전체 종료·재시작 뒤 유지됐다.
+- 실제 백업과 별도 복원: PostgreSQL 집계 일치, OpenSearch 신규5색인9이벤트/공유alias0, 증거6파일 SHA256 일치. 최초 재시작 자료유실·두 번째 cold-start 실패·세 번째 복원 alias 보완 기록은 삭제하지 않는다.
+- LTSC 기본 curl에 의존하지 않도록 내장 Python으로 TLS/상태/flush를 검사한다. 503·잘못된 인증서·느린 응답·flush 실패를 성공으로 넘기지 않는다. 서비스 코드·구성은 사용자 승인 범위에서 보완했으며 관리자 서비스 설치·방화벽 변경은 실행하지 않았다.
+- Foundation-Sec-8B 실제 짧은 CPU 생성은 성공했으나 영어 응답/잘못된 인용으로 **한국어·관제 품질 미채택**. 실제 조사 Assistant 실패 원인은 미확정이며 답변은 저장하지 않았다. 모델 변경 화면은 실제 브라우저에서 확인했다. SFT/optimizer/adapter 학습은 실행하지 않았다.
+- 새 설치는 개발 Windows11에서 검증했다. 깨끗한 LTSC17763·인터넷 차단 장비·16/32GB 다중 분석가·조직TLS/관리자서비스·운영 자료/배포 승인 게이트는 남는다. 모델 가중치와 브라우저 설치 파일은 본체 매체에서 제외한다.
+- 다음: 문서 확정 후 시험 매체와 실행 payload hash 동등 확인 → 실제 ZIP 및 checksum 생성 → 비공개 GitHub 사전 배포 게시·원격 무결성 확인. 원본 F:\claude\saw는 수정하지 않는다.
+
 - 기준: Claude 원본 e0a7af5에서 생성한 새 독립 소스 작업본.
 - 수정 대상: F:\codex\SAW-Claude-main
 - 원본 F:\claude\saw는 수정하지 않음. 완료 시 HEAD e0a7af55e762daf4a8067cebc76054633319bde4·git status 깨끗함 확인.
@@ -66,4 +76,13 @@
 - 실제 model-free 설치 매체 약1.34GB 조립 및 신규 폴더에 포함Python3.12.10/62의존성·PG·OpenSearch·TLS·schema0011/최초admin 생성 성공(개발Windows11). 최종runtime 포함봉인·HTTPS분석/재시작·GitHub게시 전 검증 진행 중.
 - 깨끗한 LTSC17763·16/32GB 무GPU 공동부하·서비스 설치/방화벽·조직TLS 신뢰·운영데이터/운영모델 승인은 미검증/별도승인 경계로 유지.
 
-설치 재시작 회귀에서 NoAdmin의 async durability와 Java 강제 종료로 이벤트가 사라지는 결함을 발견했다. request durability·종료 전 flush·503 상태검사·PS5.1 cold-start 실패 처리를 수정하며 새 설치본에서 재검증 중이다. 서비스 런타임 환경 구성 코드 변경은 자동 승인 검토가 거절하여 별도 명시 승인을 요청했고, 해당 경로는 보류했다.
+설치 재시작 회귀에서 NoAdmin의 async durability와 Java 강제 종료로 이벤트가 사라지는 결함을 발견했다. request durability·종료 전 flush·503 상태검사·PS5.1 cold-start 실패 처리를 수정하며 새 설치본에서 재검증 중이다. 서비스 런타임 환경 구성 코드 변경의 최초 자동 승인 거절은 이후 사용자의 코드·구성 파일 명시 승인으로 해소했다. 실제 서비스 등록은 실행하지 않았다.
+
+## 최종 시험과 게시 진행
+
+- 2026-10-12 진단 보완 후 전체 서버 691통과·2건너뜀(145.50초, exit0), 화면115통과·tsc/build 성공. 기존 UI timeout 기록과 실제 Assistant 원인 미확정 실패는 유지한다.
+- 실제 PostgreSQL16.15의 migration0011·모델 API·문맥 권한48통과, 전용 인스턴스 정상 종료.
+- GitHub https://github.com/dewdorp/SAW 비공개 저장소를 만들고 검사된 소스를 main에 게시했다. 모델/운영자료/자격증명은 제외했다. 설치 ZIP 게시와 최종 재시작 보존 확인은 아직 진행 중이다.
+- 다음: 수정된 매체 신규 설치 → HTTPS 합성 로그/PCAP/노트 → 종료/재시작 후 보존 → 문서만 최종 갱신하여 실행 파일 해시 동등 확인 → ZIP/checksum/manifest 사전 배포.
+
+사용자가 PostgreSQL 서비스의 **코드·구성 파일 수정만** 명시 승인했다. 패키지 런타임을 서비스가 찾도록 WinSW 구성/설치 코드와 가상 시험을 보완한다. 실제 관리자 설치·서비스 등록·방화벽 변경은 실행하지 않는다. 앞선 자동 승인 거절은 이 코드 범위 승인으로 해소되었으며 대상 서비스 실행 인수와는 구분한다.
