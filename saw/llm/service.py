@@ -4,23 +4,24 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import datetime
-from functools import lru_cache
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from saw import container
 from saw.core.application import audit
+from saw.core.application.identity import principal_of
 from saw.core.application.analysis import finding_dict
-from saw.core.application.investigations import require
+from saw.core.application.investigations import Forbidden, require
 from saw.core.schemas.query import Filter
-from saw.core.security.authz import Principal
+from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_event, mask_text
+from saw.llm.context_policy import allowed_experiences, knowledge_snapshot, knowledge_still_allowed, mask_context
 from saw.llm.prompt import build, injection_signals
 from saw.llm.providers import LLMRequest, OllamaProvider, OpenAICompatibleProvider, TemplateProvider
 from saw.storage.db import Base, new_id, utcnow
-from saw.storage.models import AttackStory, Finding, Investigation, Note
+from saw.storage.models import AttackStory, Finding, Investigation, Note, User, UserSession
 
 ACTIONS = {"explain_finding", "next_steps", "compare_cases", "ioc_summary", "hunting_query", "timeline_summary",
            "detection_idea", "report_draft", "summarize", "ask"}
@@ -48,9 +49,12 @@ class LlmInteraction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-@lru_cache
 def provider():
+    from saw.llm.model_packs import selected_provider
     s = container.get().settings
+    selected = selected_provider(s)
+    if selected is not None:
+        return selected
     kind = getattr(s, "llm_provider", "template")
     if kind == "ollama":  # ENV-08
         return OllamaProvider(s.llm_url, s.llm_model)
@@ -76,7 +80,8 @@ def _samples(inv_id: str, flt: list[Filter]) -> list[dict]:
     return out
 
 
-def build_context(s: Session, inv_id: str, action: str, finding_id: str | None) -> tuple[dict, list[dict], list[str]]:
+def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id: str | None, *,
+                  synthetic_only: bool = False) -> tuple[dict, list[dict], list[str]]:
     inv = s.get(Investigation, inv_id)
     q = select(Finding).where(Finding.investigation_id == inv_id).order_by(Finding.risk_score.desc())
     if finding_id:
@@ -92,12 +97,13 @@ def build_context(s: Session, inv_id: str, action: str, finding_id: str | None) 
     refs = [f["display_id"] for f in fs]
     ents = sorted({e for f in fs for e in f["entities"]})[:40]
     trusted["entities"] = ents
-    if action in ("next_steps", "compare_cases", "detection_idea"):
+    if action in ("next_steps", "compare_cases", "detection_idea") and not synthetic_only:
         from saw.knowledge import similar
         from saw.knowledge.fp import playbooks_for
 
         feats, text = similar.features_for_investigation(s, inv_id, finding_id)
-        sims = similar.search(s, feats, text, 5, exclude_ref=inv_id)
+        sims = similar.search(s, feats, text, 5, exclude_ref=inv_id, types=("experience",),
+                              allowed_ref_ids=allowed_experiences(s, p))
         trusted["similar"] = [{"display_id": x["display_id"], "score": x["score"], "same": x["same"], "different": x["different"],
                                "verdict": x["verdict"]} for x in sims]
         refs += [x["display_id"] for x in sims]
@@ -115,30 +121,84 @@ def build_context(s: Session, inv_id: str, action: str, finding_id: str | None) 
         flt = [Filter(**x) for x in (fs[0]["evidence_refs"].get("query") or {}).get("filters", [])]
     untrusted = _samples(inv_id, flt)
     refs += [f"evt:{e['event_id']}" for e in untrusted if e.get("event_id")]
-    return trusted, untrusted, refs
+    return mask_context(trusted), untrusted, refs
 
 
-def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", finding_id: str | None = None) -> dict:
+def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", finding_id: str | None = None, *, session_id: str | None = None) -> dict:
     require(s, p, "investigation.read", inv_id)
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action}")
     prov = provider()
     if prov is None:
         raise ValueError("SOC Assistant is disabled (no LLM provider configured)")
-    trusted, untrusted, refs = build_context(s, inv_id, action, finding_id)
+    synthetic_only = getattr(prov, "synthetic_only", False)
+    if synthetic_only and inv_id not in container.get().settings.llm_synthetic_investigation_ids:
+        raise Forbidden("local_ai_synthetic_investigation_required")
+    trusted, untrusted, refs = build_context(s, p, inv_id, action, finding_id, synthetic_only=synthetic_only)
     signals = injection_signals([json.dumps(untrusted, ensure_ascii=False), question])
     system, user = build(action, mask_text(question).text[:2000], trusted, untrusted)
+    knowledge_versions = knowledge_snapshot(s, [row["display_id"] for row in trusted.get("similar", [])])
+    # Release the read transaction during bounded native execution.
+    s.commit()
     t0 = time.perf_counter()
-    resp = prov.generate(LLMRequest(system, user, json_mode=True))
-    latency = int((time.perf_counter() - t0) * 1000)
+    from saw.llm.cpu_provider import CPUExecutionError
     try:
-        out = json.loads(resp.text)
-        answer = str(out.get("answer_md", ""))
-        cites = [str(c) for c in out.get("citations", [])][:50]
-    except (ValueError, AttributeError):
-        out, answer, cites = {}, resp.text[:4000], []
+        resp = prov.generate(LLMRequest(system, user, json_mode=True))
+    except CPUExecutionError as exc:
+        s.rollback()
+        audit.record(s, "ai.failure", actor_id=p.user_id, actor_name=p.username, target_type="llm",
+                     investigation_id=inv_id, outcome="failure",
+                     detail={"action": action, "provider": prov.name, "code": str(exc),
+                             "actual_inference": exc.actual_inference})
+        s.commit()
+        raise ValueError(str(exc)) from None
+    latency = int((time.perf_counter() - t0) * 1000)
+    s.expire_all()
+    current_user = s.get(User, p.user_id)
+    if current_user is None or current_user.status != "active":
+        raise Forbidden("ai_authorization_changed")
+    if session_id:
+        current_session = s.get(UserSession, session_id)
+        if (current_session is None or current_session.user_id != p.user_id
+                or current_session.revoked_at is not None or not current_session.mfa_passed
+                or current_session.expires_at.replace(tzinfo=UTC) <= utcnow()):
+            raise Forbidden("ai_session_changed")
+    current_principal = principal_of(current_user)
+    if not can(current_principal, "ai.use"):
+        raise Forbidden("ai_authorization_changed")
+    require(s, current_principal, "investigation.read", inv_id)
+    if not knowledge_still_allowed(s, current_principal, knowledge_versions):
+        raise Forbidden("ai_context_authorization_changed")
+    if synthetic_only and inv_id not in container.get().settings.llm_synthetic_investigation_ids:
+        raise Forbidden("local_ai_synthetic_investigation_required")
+    if getattr(prov, "pack_id", None):
+        from saw.llm.model_packs import LocalModelSelection
+        selection = s.get(LocalModelSelection, 1)
+        if (selection is None or selection.pack_id != prov.pack_id
+                or selection.epoch != getattr(prov, "selection_epoch", selection.epoch)):
+            raise ValueError("model_selection_changed_output_not_published")
+    output_reason = None
+    out, answer, cites = {}, "", []
+    try:
+        parsed = json.loads(resp.text)
+        if (not isinstance(parsed, dict) or not isinstance(parsed.get("answer_md"), str)
+                or not parsed["answer_md"].strip() or len(parsed["answer_md"]) > 16000
+                or not isinstance(parsed.get("citations"), list) or len(parsed["citations"]) > 50
+                or any(not isinstance(c, str) or not c or len(c) > 128 for c in parsed["citations"])):
+            raise ValueError("invalid generated response")
+        out, answer, cites = parsed, mask_text(parsed["answer_md"]).text, parsed["citations"]
+    except (ValueError, TypeError):
+        output_reason = "invalid_structure"
     ref_set = set(refs)
     invalid = [c for c in cites if c not in ref_set]
+    if output_reason is None and (invalid or (prov.is_llm and ref_set and not cites)):
+        output_reason = "invalid_citations"
+    if output_reason:
+        out, answer, cites = {}, "", []
+    citation_valid = output_reason is None
+    output_status = "rejected" if output_reason else ("validated_draft" if prov.is_llm else "template")
+    execution_status = "executed" if prov.is_llm else "not_applicable"
+    claim_support = "NOT_VALIDATED" if prov.is_llm else "DETERMINISTIC_TEMPLATE"
     query = None
     if action == "hunting_query" and isinstance(out.get("query"), dict):
         try:  # LLM output is data: validate against the SAW Query Model before showing
@@ -147,15 +207,20 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
             query = {"error": f"invalid query rejected: {e}"[:200]}
     rec = LlmInteraction(user_id=p.user_id, investigation_id=inv_id, action=action, provider=prov.name, model=resp.model,
                          prompt_hash=hashlib.sha256((system + user).encode()).hexdigest(), context_refs=refs,
-                         output_md=answer, citations=cites, citation_valid=not invalid, injection_signals=signals,
+                         output_md=answer, citations=cites, citation_valid=citation_valid, injection_signals=signals,
                          latency_ms=latency)
     s.add(rec)
     s.flush()
     audit.record(s, "ai.action", actor_id=p.user_id, actor_name=p.username, target_type="llm", target_id=rec.id,
                  investigation_id=inv_id, detail={"action": action, "provider": prov.name, "invalid_citations": len(invalid),
-                                                  "injection_signals": len(signals)})
+                                                  "injection_signals": len(signals), "output_status": output_status,
+                                                  "execution_status": execution_status, "output_reason": output_reason})
     return {"id": rec.id, "answer_md": answer, "citations": [{"id": c, "valid": c in ref_set} for c in cites],
-            "citation_valid": not invalid, "injection_signals": signals, "provider": prov.name, "model": resp.model,
-            "is_llm": prov.is_llm, "label": "AI 생성 · 검증 필요" if prov.is_llm else "오프라인 템플릿 (LLM 아님)",
+            "citation_valid": citation_valid, "injection_signals": signals, "provider": prov.name, "model": resp.model,
+            "is_llm": prov.is_llm, "label": ("AI 출력 검증 실패 · 답변 미채택" if output_reason else
+                                               "AI 생성 초안 · 사실 검토 필요" if prov.is_llm else "오프라인 템플릿 (LLM 아님)"),
+            "output_status": output_status, "output_reason": output_reason,
+            "execution_status": execution_status, "claim_support": claim_support,
+            "runtime_receipt": getattr(prov, "last_receipt", None),
             "query": query, "context_size": {"findings": len(trusted["findings"]), "samples": len(untrusted)},
             "latency_ms": latency}

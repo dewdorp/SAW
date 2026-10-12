@@ -29,7 +29,8 @@ def status(ctx: AuthContext = Depends(auth)):
 
 @router.post("/actions")
 def action(body: ActionIn, ctx: AuthContext = Depends(require_perm("ai.use")), s: Session = Depends(db, scope="function")):
-    return service.run(s, ctx.principal, body.investigation_id, body.action, body.question, body.finding_id)
+    return service.run(s, ctx.principal, body.investigation_id, body.action, body.question, body.finding_id,
+                       session_id=ctx.session.id)
 
 
 @router.post("/{rid}/feedback")

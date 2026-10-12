@@ -145,8 +145,12 @@ def _bm25(query: list[str], docs: list[list[str]], k1: float = 1.2, b: float = 0
 
 
 def search(s: Session, features: dict, text: str, k: int = 10, exclude_ref: str | None = None,
-           types: tuple[str, ...] = ("experience", "investigation")) -> list[dict]:
-    docs = [d for d in s.execute(select(KnowledgeDoc).where(KnowledgeDoc.ref_type.in_(types))).scalars()
+           types: tuple[str, ...] = ("experience", "investigation"),
+           allowed_ref_ids: frozenset[str] | None = None) -> list[dict]:
+    q = select(KnowledgeDoc).where(KnowledgeDoc.ref_type.in_(types))
+    if allowed_ref_ids is not None:
+        q = q.where(KnowledgeDoc.ref_id.in_(allowed_ref_ids))
+    docs = [d for d in s.execute(q).scalars()
             if d.ref_id != exclude_ref]
     if not docs:
         return []
