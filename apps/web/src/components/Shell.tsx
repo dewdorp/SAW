@@ -15,7 +15,7 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   ["지식·탐지", [["/knowledge", "SOC 지식", "book"], ["/detections", "탐지 룰", "shield"], ["/parsers", "파서 관리", "parser"]]],
 ];
 const SECTION: [string, string][] = [["/analyze", "빠른 분석"], ["/investigations", "조사 목록"], ["/board", "현황판"], ["/inv/", "조사 작업대"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"],
-  ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/admin", "관리"]];
+  ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
 const ROLE_KO: Record<string, string> = { analyst: "분석가", senior_analyst: "선임 분석가", soc_manager: "관제 매니저", viewer: "조회자", admin: "관리자" };
 
 /** null = no explicit choice: the sidebar then collapses itself on the (space-hungry) investigation workbench. */
@@ -58,7 +58,8 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
     try { localStorage.setItem("saw.sidebar", v ? "collapsed" : "open"); } catch { /* ignore */ }
   };
   const section = SECTION.find(([p]) => loc.pathname.startsWith(p))?.[1] || "홈";
-  const isAdmin = me.permissions.includes("admin.users") || me.permissions.includes("audit.read");
+  const canModels = me.permissions.includes("ai.models.manage");
+  const isAdmin = me.permissions.includes("admin.users") || me.permissions.includes("audit.read") || canModels;
   return (
     <div className={`app ${collapsed ? "collapsed" : ""}`}>
       <aside className="sidebar" aria-label="주 메뉴">
@@ -84,7 +85,8 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
           {isAdmin && (
             <div className="sb-group">
               <div className="sb-label">관리</div>
-              <NavLink to="/admin" title="관리" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">관리·감사</span></NavLink>
+              <NavLink to="/admin" end title="관리" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">관리·감사</span></NavLink>
+              {canModels && <NavLink to="/admin/local-models" title="로컬 모델" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">로컬 모델</span></NavLink>}
             </div>
           )}
         </nav>

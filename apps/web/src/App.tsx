@@ -11,6 +11,7 @@ import { Home } from "./pages/Home";
 import { Investigations } from "./pages/Investigations";
 import { JobDetail, Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
+import { LocalModels } from "./pages/LocalModels";
 import { HttpPage } from "./pages/analyze/HttpPage";
 import { IocPage } from "./pages/analyze/IocPage";
 import { LogPage } from "./pages/analyze/LogPage";
@@ -68,6 +69,7 @@ export function App() {
         <Route path="/provenance" element={<Provenance />} />
         <Route path="/hunting/*" element={<Hunting />} />
         <Route path="/admin" element={<Admin me={me.data} />} />
+        <Route path="/admin/local-models" element={<LocalModels me={me.data} />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
       </Suspense>
