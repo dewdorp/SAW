@@ -54,3 +54,16 @@
 5. 깨끗한 LTSC2019/16GB·32GB/무GPU 실검증 및 운영 데이터·배포·모델 교체 승인은 별도 유지.
 
 현재 개발 Python은 원본의 제3자 패키지를 읽기 전용 참조하므로 독립 오프라인 설치본이 아니다. 이를 배포 패키지에 그대로 복제하지 않는다.
+
+## 2026-10-12 로컬 모델·오프라인 설치 진행
+
+- 모델팩 검증/등록/선택/해제 API와 관리자 화면 구현. 별도 반입 도구 `python -m saw.devtools.model_pack` 및 `docs/LOCAL-MODEL-GUIDE.md` 추가.
+- Foundation-Sec-8B의 지정 revision/Q4_K_M 파일 전체 hash 재검증. 최종 MinGW 정적 llama.cpp b11429/d812350의 두 실행 파일 실제 LPAC `--help`와 CPU 추론 성공.
+- 최종 native API 검증·선택·해제 각각 HTTP200. 합성 한국어 요청은 입력88/출력62토큰 실제 생성·JSON구조 유효지만 영어응답/인용불일치로 품질 미채택. 시간187.297초는 포장/PG시험 병행 조건으로 성능 보장이 아님.
+- CPU실행은 합성 조사 allowlist 전용. 문맥 접근권한과 승인상태를 검사하고 생성 후 세션·권한·모델선택 변경을 재검사. 형식/인용 실패는 답변 저장을 거부.
+- 서버 전체677통과·2건너뜀(개발SQLite 기준). 건너뜀: 별도PG 미설정 migration, Windows symlink 생성권한. 실제 directory junction source/inbox 차단 추가9통과·symlink1건너뜀. PG실행 검증은 진행 중.
+- 화면110통과·tsc/build성공. 병렬컴파일과동시 최초실행에서 기존timezone시험1회timeout, 코드/시간제한 변경 없이 worker2 전체 재실행통과. 실제 브라우저 로그인/MFA·파일검증·선택·해제·재시작 상태복원 확인. 최종 static 모델도 브라우저에서 실제 선택·해제 성공. 조사 문맥 Assistant는 cpu_native_failed/EXECUTED_OUTPUT_UNVERIFIED로 실패·답변0건이며 과거실패원인은 기록부족으로 미확정. 시험계정비활성화·로그아웃·서버종료 완료.
+- 실제 model-free 설치 매체 약1.34GB 조립 및 신규 폴더에 포함Python3.12.10/62의존성·PG·OpenSearch·TLS·schema0011/최초admin 생성 성공(개발Windows11). 최종runtime 포함봉인·HTTPS분석/재시작·GitHub게시 전 검증 진행 중.
+- 깨끗한 LTSC17763·16/32GB 무GPU 공동부하·서비스 설치/방화벽·조직TLS 신뢰·운영데이터/운영모델 승인은 미검증/별도승인 경계로 유지.
+
+설치 재시작 회귀에서 NoAdmin의 async durability와 Java 강제 종료로 이벤트가 사라지는 결함을 발견했다. request durability·종료 전 flush·503 상태검사·PS5.1 cold-start 실패 처리를 수정하며 새 설치본에서 재검증 중이다. 서비스 런타임 환경 구성 코드 변경은 자동 승인 검토가 거절하여 별도 명시 승인을 요청했고, 해당 경로는 보류했다.
