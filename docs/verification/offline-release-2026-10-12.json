@@ -1,0 +1,7 @@
+{
+  "state": "PENDING_FRESH_INSTALL",
+  "scope": "synthetic developer-host verification",
+  "target_ltsc_verified": false,
+  "windows_service_install_executed": false,
+  "model_weights_included": false
+}

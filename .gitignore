@@ -23,3 +23,11 @@ offline-bundle/
 
 # Isolated synthetic validation stores and temporary credentials
 .qa/
+
+# Immutable model-free release staging and media
+.release/
+
+# Separate model media must never enter source history
+models/
+*.gguf
+*.safetensors

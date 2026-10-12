@@ -1,0 +1,24 @@
+<!-- WinSW v2.12.0: explicit service environment; no global PATH change. -->
+<service>
+  <id>{{NAME}}</id>
+  <name>SAW PostgreSQL</name>
+  <description>SAW local evidence database</description>
+  <executable>{{ROOT}}\pgsql\bin\postgres.exe</executable>
+  <startarguments>-D "{{ROOT}}\data\postgresql"</startarguments>
+  <stopexecutable>{{ROOT}}\pgsql\bin\pg_ctl.exe</stopexecutable>
+  <stoparguments>stop -D "{{ROOT}}\data\postgresql" -m fast -w -t 120</stoparguments>
+  <workingdirectory>{{ROOT}}\pgsql\bin</workingdirectory>
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>NetworkService</user>
+  </serviceaccount>
+  <env name="PATH" value="{{PATH}}"/>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="60 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <onfailure action="restart" delay="300 sec"/>
+  <resetfailure>1 day</resetfailure>
+  <stoptimeout>150 sec</stoptimeout>
+  <logpath>{{ROOT}}\logs\postgresql</logpath>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+</service>

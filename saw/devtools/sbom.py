@@ -19,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BINARIES = [  # (name, version, license, supplier, purpose)
+    ("Eclipse Temurin JDK", "21.0.11+10", "GPL-2.0-with-classpath-exception", "Eclipse Adoptium", "OpenSearch bundled Java runtime; corresponding source included"),
+    ("llama.cpp", "b11429-d812350", "MIT", "ggml-org contributors", "local CPU inference; model weights excluded; compiler runtime exception notices included"),
     ("OpenSearch", "2.19.6", "Apache-2.0", "OpenSearch Project", "event search engine"),
     ("analysis-nori (OpenSearch plugin)", "2.19.6", "Apache-2.0", "OpenSearch Project", "Korean analyzer"),
     ("PostgreSQL", "16.15", "PostgreSQL", "PostgreSQL Global Development Group (EDB binaries)", "database"),
@@ -67,7 +69,7 @@ def npm_components(npm_json: dict) -> list[dict]:
 
 def load_npm(npm_json_path: str | None) -> dict:
     if npm_json_path:
-        return json.loads(Path(npm_json_path).read_text(encoding="utf-8"))
+        return json.loads(Path(npm_json_path).read_text(encoding="utf-8-sig"))
     pnpm = shutil.which("pnpm") or shutil.which("pnpm.cmd")
     if not pnpm:
         return {}

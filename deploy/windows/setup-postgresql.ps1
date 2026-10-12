@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BundleDir,
     [string]$InstallRoot = "C:\SAW",
     [int]$Port = 5432,
+    [string]$RuntimeBin = "",
     [string]$ServiceName = "saw-postgresql",
     [string]$SecretsDir = "",                 # default: <InstallRoot>\secrets (ACL: Administrators + SYSTEM only)
     [string]$SharedBuffers = "256MB",         # small-server defaults; raise on larger hosts
@@ -14,6 +15,11 @@ param(
     [switch]$DevNoAcl                         # developer verification only: skip secrets ACL hardening
 )
 $ErrorActionPreference = "Stop"
+if (-not $RuntimeBin) { $RuntimeBin = Join-Path $InstallRoot 'opensearch-2.19.6\jdk\bin' }
+$expectedRuntime = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'opensearch-2.19.6\jdk\bin'))
+if ([IO.Path]::GetFullPath($RuntimeBin) -ne $expectedRuntime -or -not (Test-Path -LiteralPath (Join-Path $RuntimeBin 'vcruntime140.dll'))) { throw 'Bundled JDK C runtime missing' }
+$privatePath = $RuntimeBin + ';' + (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
+$env:PATH = $privatePath
 if (-not $SecretsDir) { $SecretsDir = Join-Path $InstallRoot "secrets" }
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 
@@ -30,11 +36,57 @@ function Protect-Dir([string]$path) {
     & icacls $path /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null
 }
 
+function Write-PostgresqlServiceXml([string]$Template, [string]$Destination, [string]$Root, [string]$Name, [string]$ChildPath) {
+    if ($Name -notmatch '^[A-Za-z0-9_.-]+$') { throw 'Invalid PostgreSQL service name' }
+    $xml = [IO.File]::ReadAllText($Template, [Text.Encoding]::UTF8)
+    $xml = $xml.Replace('{{ROOT}}', [Security.SecurityElement]::Escape($Root))
+    $xml = $xml.Replace('{{NAME}}', [Security.SecurityElement]::Escape($Name))
+    $xml = $xml.Replace('{{PATH}}', [Security.SecurityElement]::Escape($ChildPath))
+    $null = [xml]$xml
+    [IO.File]::WriteAllText($Destination, $xml, (New-Object Text.UTF8Encoding $false))
+}
+# END PostgreSQL XML renderer
+
+function Get-PostgresqlServiceAction($Existing, [string]$ServiceExe, [string]$PgCtl, [string]$Data) {
+    if ($null -eq $Existing) { return 'create' }
+    # Never replace a live cluster, another installation, or a different account.
+    if ($Existing.State -ne 'Stopped') { throw 'PostgreSQL service must be stopped before reinstalling; stop dependent SAW services first' }
+    if ($Existing.StartName -notin @('NT AUTHORITY\NetworkService', 'NT AUTHORITY\NETWORK SERVICE')) { throw 'NetworkService identity required for PostgreSQL reinstall' }
+    $command = $Existing.PathName.Trim()
+    if ($command -ieq ('"' + $ServiceExe + '"') -or $command -ieq $ServiceExe) { return 'reuse' }
+    $legacy = '^"?' + [regex]::Escape($PgCtl) + '"?\s+runservice\b'
+    $cluster = '(?:^|\s)-D\s+"' + [regex]::Escape($Data) + '"(?:\s|$)'
+    if ($command -match $legacy -and $command -match $cluster) { return 'migrate' }
+    throw 'Unrecognized PostgreSQL service registration; no service was changed'
+}
+# END PostgreSQL registration classifier
+
+
+function Wait-PostgresqlServiceReady([string]$ReadyCommand, [int]$DbPort, [int]$Attempts = 60) {
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        & $ReadyCommand -h 127.0.0.1 -p $DbPort -U postgres -t 1 *> $null
+        if ($LASTEXITCODE -eq 0) { return }
+        Start-Sleep -Seconds 1
+    }
+    throw 'PostgreSQL service readiness deadline exceeded; inspect its protected log'
+}
+# END PostgreSQL readiness
+
 $zip = Get-ChildItem (Join-Path $BundleDir "postgresql") -Filter "postgresql-*-windows-x64-binaries.zip" | Select-Object -First 1
 if (-not $zip) { throw "postgresql binaries zip not found under $BundleDir\postgresql" }
 $pg = Join-Path $InstallRoot "pgsql"
 $bin = Join-Path $pg "bin"
 $data = Join-Path $InstallRoot "data\postgresql"
+
+$serviceDir = Join-Path $InstallRoot 'service'
+$serviceExe = Join-Path $serviceDir ($ServiceName + '.exe')
+$serviceXml = Join-Path $serviceDir ($ServiceName + '.xml')
+$serviceAction = 'create'
+if (-not $UserMode -and -not $NoService) {
+    if ($ServiceName -notmatch '^[A-Za-z0-9_.-]+$') { throw 'Invalid PostgreSQL service name' }
+    $existing = Get-CimInstance Win32_Service -Filter ("Name='" + $ServiceName + "'")
+    $serviceAction = Get-PostgresqlServiceAction $existing $serviceExe (Join-Path $bin 'pg_ctl.exe') $data
+}
 
 if (-not (Test-Path (Join-Path $bin "postgres.exe"))) {
     Write-Host "Extracting $($zip.Name) ..."
@@ -93,12 +145,29 @@ if ($UserMode) {
     }
     $started = $true
 } elseif (-not $NoService) {
-    if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
-        & (Join-Path $bin "pg_ctl.exe") register -N $ServiceName -D $data -S auto -w -U "NT AUTHORITY\NetworkService"
-        if ($LASTEXITCODE -ne 0) { throw "pg_ctl register failed" }
-        & sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/60000/restart/300000 | Out-Null
+    # pg_ctl register inherits SCM's environment, not the installer's private PATH.
+    # WinSW v2.12.0 supplies that child environment without changing machine PATH.
+    $pgLog = Join-Path $InstallRoot 'logs\postgresql'
+    New-Item -ItemType Directory -Force $serviceDir, $pgLog | Out-Null
+    if (-not $DevNoAcl) {
+        & icacls $serviceDir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL service directory ACL failed' }
+        & icacls $pgLog /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL log directory ACL failed' }
+    }
+    Copy-Item -LiteralPath (Join-Path $BundleDir 'winsw\WinSW-x64.exe') -Destination $serviceExe -Force
+    Write-PostgresqlServiceXml (Join-Path $PSScriptRoot 'postgresql-service.xml') $serviceXml $InstallRoot $ServiceName $privatePath
+    if ($serviceAction -eq 'migrate') {
+        # Only a stopped legacy registration belonging to this exact cluster reaches here.
+        & (Join-Path $bin 'pg_ctl.exe') unregister -N $ServiceName
+        if ($LASTEXITCODE -ne 0) { throw 'Legacy PostgreSQL service unregister failed' }
+    }
+    if ($serviceAction -ne 'reuse') {
+        & $serviceExe install
+        if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL WinSW service install failed' }
     }
     Start-Service $ServiceName
+    Wait-PostgresqlServiceReady (Join-Path $bin 'pg_isready.exe') $Port
     $started = $true
 }
 

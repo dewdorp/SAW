@@ -6,6 +6,7 @@ param(
     [string]$InstallRoot = "C:\SAW",
     [int]$HeapGB = 1,                                       # JVM heap; <= 50% of RAM, 1-2 GB on small servers
     [int]$Port = 9200,
+    [int]$TransportPort = 9300,
     [string]$ServiceName = "saw-opensearch",
     [switch]$NoService,                                     # configure only (e.g. developer verification)
     [switch]$UserMode,                                      # no administrator rights: no service; saw-ctl.ps1 runs it
@@ -37,9 +38,15 @@ Write-Host "Trimming plugins (keep: $($KeepPlugins -join ', '), analysis-nori) .
 # Delete plugin folders directly: 'opensearch-plugin remove' refuses plugins that others extend, and order varies by release
 foreach ($p in Get-ChildItem (Join-Path $home_ "plugins") -Directory) {
     if ($KeepPlugins -notcontains $p.Name -and $p.Name -ne "analysis-nori") {
-        Remove-Item -Recurse -Force $p.FullName
+        $pluginPath = (Resolve-Path -LiteralPath $p.FullName).Path
+        if (-not $pluginPath.StartsWith((Join-Path $home_ 'plugins') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe plugin path' }
+        Remove-Item -LiteralPath $pluginPath -Recurse -Force
         $cfg = Join-Path $home_ ("config\" + $p.Name)
-        if (Test-Path $cfg) { Remove-Item -Recurse -Force $cfg }
+        if (Test-Path -LiteralPath $cfg) {
+            $configPath = (Resolve-Path -LiteralPath $cfg).Path
+            if (-not $configPath.StartsWith((Join-Path $home_ 'config') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe plugin config path' }
+            Remove-Item -LiteralPath $configPath -Recurse -Force
+        }
     }
 }
 if (-not (Test-Path (Join-Path $home_ "plugins\analysis-nori"))) {
@@ -56,6 +63,7 @@ path.data: "$($data -replace '\\', '/')"
 path.logs: "$($logs -replace '\\', '/')"
 network.host: 127.0.0.1
 http.port: $Port
+transport.port: $TransportPort
 discovery.type: single-node
 bootstrap.memory_lock: false
 path.repo: ["$((Join-Path $InstallRoot 'backup\opensearch') -replace '\\', '/')"]

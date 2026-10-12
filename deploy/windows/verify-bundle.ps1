@@ -1,0 +1,42 @@
+﻿# Verify complete media before any executable, script, or archive is used. PowerShell 5.1.
+[CmdletBinding()]
+param([Parameter(Mandatory=$true)][string]$BundleDir)
+$ErrorActionPreference = 'Stop'
+$root = (Resolve-Path -LiteralPath $BundleDir).Path.TrimEnd('\')
+$manifest = Join-Path $root 'release-manifest.json'
+$doc = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($doc.schema -ne 'saw.offline-release/1' -or $doc.model_weights_included -ne $false) { throw 'Unsupported release manifest' }
+$required = @('llm-runtime/runtime-manifest.json','llm-runtime/llama-completion.exe','llm-runtime/llama-tokenize.exe','llm-runtime/licenses/LLAMA-MIT.txt','llm-runtime/licenses/GCC-RUNTIME-EXCEPTION.txt','install.ps1','verify-bundle.ps1','python/python-3.12.10-embed-amd64.zip','postgresql/postgresql-16.15-1-windows-x64-binaries.zip','opensearch/opensearch-2.19.6-windows-x64.zip','opensearch/analysis-nori-2.19.6.zip','winsw/WinSW-x64.exe','bootstrap/pip-25.1.1-py3-none-any.whl','app/apps/web/dist/index.html','app/deploy/windows/requirements.txt')
+function File-Hash([string]$path) {
+    $stream = [IO.File]::OpenRead($path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant() }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
+$expected = @{}
+foreach ($row in $doc.files) {
+    $rel = [string]$row.path
+    if (-not $rel -or $rel.Contains('\') -or $rel -match '[:*?"<>|\x00-\x1f]') { throw 'Unsafe manifest path' }
+    foreach ($part in $rel.Split('/')) {
+        if ($part -in @('','.','..') -or $part -match '[. ]$' -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { throw 'Aliased manifest path' }
+        if ($part -in @('.env','var','secrets','.git','.qa','offline-bundle','node_modules')) { throw 'Private state forbidden' }
+    }
+    if ($rel -match '\.(gguf|safetensors|pt|ckpt|db|sqlite)$') { throw 'Model or store forbidden' }
+    if ($rel -in @('release-manifest.json','SHA256SUMS.txt') -or $expected.ContainsKey($rel)) { throw 'Duplicate or reserved manifest path' }
+    if ([string]$row.sha256 -cnotmatch '^[0-9a-f]{64}$' -or $row.bytes -lt 0) { throw 'Invalid manifest entry' }
+    $expected[$rel] = $row
+}
+foreach ($rel in $required) { if (-not $expected.ContainsKey($rel)) { throw "Required payload missing: $rel" } }
+$all = @(Get-ChildItem -LiteralPath $root -Recurse -Force)
+foreach ($entry in $all) { if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point forbidden in media' } }
+$count = 0
+foreach ($file in $all | Where-Object { -not $_.PSIsContainer }) {
+    $rel = $file.FullName.Substring($root.Length + 1).Replace('\','/')
+    if ($rel -in @('release-manifest.json','SHA256SUMS.txt')) { continue }
+    if (-not $expected.ContainsKey($rel)) { throw "Unexpected media file: $rel" }
+    $row = $expected[$rel]
+    if ($file.Length -ne $row.bytes -or (File-Hash $file.FullName) -ne $row.sha256) { throw "Media integrity failure: $rel" }
+    $count++
+}
+if ($count -ne $expected.Count) { throw 'Missing media files' }
+Write-Host "Complete media verified: $count files"

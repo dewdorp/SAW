@@ -16,6 +16,9 @@ $pgCtl = Join-Path $InstallRoot "pgsql\bin\pg_ctl.exe"
 $pgData = Join-Path $InstallRoot "data\postgresql"
 $osHome = (Get-ChildItem $InstallRoot -Directory -Filter "opensearch-*" | Select-Object -First 1).FullName
 $vpy = Join-Path $InstallRoot "venv\Scripts\python.exe"
+# Limit this process's PATH to bundled runtimes and Windows; do not change machine settings.
+$env:PATH = (Join-Path $osHome 'jdk\bin') + ';' + (Split-Path $vpy) + ';' + (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
+Get-ChildItem Env:SAW_* | ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
 $sawUrl = "https://localhost:$($cfg.port)/api/v1/health"
 $osUrl = "http://127.0.0.1:$($cfg.opensearchPort)/_cluster/health"
 
@@ -30,7 +33,15 @@ function Stop-Tracked([string]$name) {
     $p = Get-Tracked $name
     if ($p) { & taskkill.exe /PID $p.Id /T /F | Out-Null; Remove-Item (Join-Path $run "$name.pid") -Force }
 }
-function Test-Up([string]$url) { $r = & curl.exe -sk -m 3 $url 2>$null; return [bool]$r }
+function Test-Up([string]$url) {
+    $args_ = @('--fail', '--silent', '-m', '3', $url)
+    if ($url.StartsWith('https://')) { $args_ += @('--cacert', (Join-Path $InstallRoot 'tls\saw.crt')) }
+    try { $r = & curl.exe @args_ 2>$null } catch { return $false }
+    if ($LASTEXITCODE -ne 0 -or -not $r) { return $false }
+    try { $body = ($r -join "`n") | ConvertFrom-Json } catch { return $false }
+    if ($url -like '*/api/v1/health') { return ($body.status -eq 'ok') }
+    return ($body.status -in @('green', 'yellow') -and $body.cluster_name -eq 'saw')
+}
 function Wait-Up([string]$url, [string]$what, [int]$seconds) {
     for ($i = 0; $i -lt $seconds; $i += 2) { if (Test-Up $url) { return } ; Start-Sleep -Seconds 2 }
     throw "$what did not start within $seconds s; see $logs"
@@ -77,6 +88,14 @@ function Start-All {
 function Stop-All {
     Write-Host "SAW 종료 ..."
     Stop-Tracked "saw"
+    # Flush accepted writes before stopping the process tree. Failed flush leaves the store running.
+    if ((Get-Tracked "opensearch") -or (Test-Up $osUrl)) {
+        if (-not (Test-Up $osUrl)) { throw 'OpenSearch is unhealthy; storage was left running.' }
+        $flush = & curl.exe --fail --silent -m 60 -X POST "http://127.0.0.1:$($cfg.opensearchPort)/_flush?wait_if_ongoing=true" 2>$null
+        if ($LASTEXITCODE -ne 0) { throw 'OpenSearch flush failed; storage was left running.' }
+        try { $result = ($flush -join "`n") | ConvertFrom-Json } catch { throw 'Invalid flush response; storage was left running.' }
+        if (-not $result._shards -or $result._shards.failed -ne 0) { throw 'OpenSearch shard flush failed; storage was left running.' }
+    }
     Stop-Tracked "opensearch"
     if (Test-Pg) { & $pgCtl stop -D $pgData -m fast -w | Out-Null }
     Write-Host "종료했습니다. (원본 증거와 분석 결과는 그대로 보관됩니다)"

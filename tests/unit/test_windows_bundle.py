@@ -122,7 +122,166 @@ def test_shared_server_install_stores_every_batch_before_acknowledging():
     from saw.storage.opensearch_store import index_template
 
     inst = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8-sig")
-    assert "SAW_OPENSEARCH_DURABILITY=$(if ($LocalOnly) { 'async' } else { 'request' })" in inst
+    assert "SAW_OPENSEARCH_DURABILITY=request" in inst
+    assert "SAW_OPENSEARCH_DURABILITY=$(if" not in inst
     assert Settings.model_fields["opensearch_durability"].default == "request"
     assert index_template()["template"]["settings"]["translog"] == {"durability": "request"}
     assert index_template(durability="async")["template"]["settings"]["translog"]["durability"] == "async"
+
+@WINDOWS_ONLY
+def test_user_mode_health_requires_success_status_and_expected_body(tmp_path):
+    text = (ROOT / "deploy/windows/saw-ctl.ps1").read_text(encoding="utf-8-sig")
+    function = text[text.index("function Test-Up("):text.index("function Wait-Up(")]
+    body = "\n".join([
+        "$InstallRoot = 'C:\\synthetic'", function,
+        "function curl.exe { $global:LASTEXITCODE = $script:mockCode; return $script:mockBody }",
+        "$script:mockCode=22; $script:mockBody='{\"status\":\"ok\"}'; if (Test-Up 'https://localhost/api/v1/health') { throw 'HTTP failure accepted' }",
+        "$script:mockCode=0; $script:mockBody='{\"status\":\"error\"}'; if (Test-Up 'https://localhost/api/v1/health') { throw 'API error accepted' }",
+        "$script:mockBody='{\"status\":\"ok\"}'; if (-not (Test-Up 'https://localhost/api/v1/health')) { throw 'healthy API rejected' }",
+        "$script:mockBody='{\"status\":\"red\",\"cluster_name\":\"saw\"}'; if (Test-Up 'http://localhost/_cluster/health') { throw 'red cluster accepted' }",
+        "$script:mockBody='{\"status\":\"yellow\",\"cluster_name\":\"saw\"}'; if (-not (Test-Up 'http://localhost/_cluster/health')) { throw 'healthy cluster rejected' }",
+    ])
+    _run_ps(tmp_path, body)
+
+@WINDOWS_ONLY
+def test_stop_keeps_store_running_if_flush_fails(tmp_path):
+    text = (ROOT / "deploy/windows/saw-ctl.ps1").read_text(encoding="utf-8-sig")
+    function = text[text.index("function Stop-All"):text.index("function Show-Status")]
+    body = "\n".join([
+        "$cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
+        "function Stop-Tracked($name) { $script:stopped += $name }",
+        "function Get-Tracked($name) { return @{Id=123} }",
+        "function Test-Up($url) { return $true }",
+        "function Test-Pg { return $false }",
+        "function curl.exe { $global:LASTEXITCODE=22; return '' }", function,
+        "try { Stop-All; throw 'flush was not attempted' } catch { if ($_.Exception.Message -notmatch 'flush failed') { throw } }",
+        "if ($script:stopped.Count -ne 1 -or $script:stopped[0] -ne 'saw') { throw 'store was stopped after failed flush' }",
+    ])
+    _run_ps(tmp_path, body)
+
+@WINDOWS_ONLY
+def test_user_health_handles_unavailable_port_and_actual_http_503(tmp_path):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(503)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    text = (ROOT / 'deploy/windows/saw-ctl.ps1').read_text(encoding='utf-8-sig')
+    function = text[text.index('function Test-Up('):text.index('function Wait-Up(')]
+    try:
+        _run_ps(tmp_path, '\n'.join([
+            f"$InstallRoot = '{tmp_path}'", function,
+            f"if (Test-Up 'http://127.0.0.1:{server.server_port}/api/v1/health') {{ throw '503 accepted' }}",
+            "if (Test-Up 'http://127.0.0.1:1/api/v1/health') { throw 'unavailable listener accepted' }",
+        ]))
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=3)
+
+@WINDOWS_ONLY
+def test_stop_does_not_flush_or_kill_a_tracked_unhealthy_store(tmp_path):
+    text = (ROOT / 'deploy/windows/saw-ctl.ps1').read_text(encoding='utf-8-sig')
+    function = text[text.index('function Stop-All'):text.index('function Show-Status')]
+    _run_ps(tmp_path, '\n'.join([
+        "$cfg=@{opensearchPort=59200}; $osUrl='http://localhost/_cluster/health'; $script:stopped=@()",
+        "function Stop-Tracked($name) { $script:stopped += $name }",
+        "function Get-Tracked($name) { return @{Id=123} }",
+        "function Test-Up($url) { return $false }",
+        "function Test-Pg { return $false }",
+        "function curl.exe { throw 'unhealthy store flush was attempted' }", function,
+        "try { Stop-All; throw 'unhealthy store was stopped' } catch { if ($_.Exception.Message -notmatch 'OpenSearch is unhealthy') { throw } }",
+        "if ($script:stopped.Count -ne 1 -or $script:stopped[0] -ne 'saw') { throw 'store was stopped' }",
+    ]))
+
+
+@WINDOWS_ONLY
+def test_postgresql_service_xml_preserves_identity_stop_and_private_path(tmp_path):
+    """The service child must inherit its bundled runtime explicitly, not the installer's PATH."""
+    import xml.etree.ElementTree as ET
+
+    text = (ROOT / 'deploy/windows/setup-postgresql.ps1').read_text(encoding='utf-8-sig')
+    assert 'function Write-PostgresqlServiceXml(' in text, 'PostgreSQL needs an explicit service child environment'
+    function = text[text.index('function Write-PostgresqlServiceXml('):text.index('# END PostgreSQL XML renderer')]
+    root = r'C:\SOC & 관제 <1>\SAW'
+    runtime = root + r'\opensearch-2.19.6\jdk\bin'
+    child_path = runtime + r';C:\Windows\System32;C:\Windows'
+    out = tmp_path / 'postgresql-service.xml'
+    _run_ps(tmp_path, '\n'.join([
+        function,
+        f"Write-PostgresqlServiceXml '{ROOT / 'deploy/windows/postgresql-service.xml'}' '{out}' '{root}' 'saw-postgresql' '{child_path}'",
+    ]))
+    raw = out.read_bytes()
+    assert not raw.startswith(b'\xef\xbb\xbf')
+    svc = ET.fromstring(raw)
+    assert svc.findtext('executable') == root + r'\pgsql\bin\postgres.exe'
+    assert svc.findtext('startarguments') == f'-D "{root}\\data\\postgresql"'
+    assert svc.find('arguments') is None
+    assert svc.findtext('stopexecutable') == root + r'\pgsql\bin\pg_ctl.exe'
+    assert svc.findtext('stoparguments') == f'stop -D "{root}\\data\\postgresql" -m fast -w -t 120'
+    assert svc.findtext('stoptimeout') == '150 sec'
+    assert svc.findtext('serviceaccount/domain') == 'NT AUTHORITY'
+    assert svc.findtext('serviceaccount/user') == 'NetworkService'
+    assert svc.find('serviceaccount/password') is None
+    assert svc.find("env[@name='PATH']").get('value') == child_path
+    assert '%PATH%' not in raw.decode('utf-8')
+
+
+@WINDOWS_ONLY
+def test_postgresql_service_reinstall_refuses_running_or_unowned_registration(tmp_path):
+    text = (ROOT / 'deploy/windows/setup-postgresql.ps1').read_text(encoding='utf-8-sig')
+    assert 'function Get-PostgresqlServiceAction(' in text, 'Existing service identity must be checked before migration'
+    function = text[text.index('function Get-PostgresqlServiceAction('):text.index('# END PostgreSQL registration classifier')]
+    _run_ps(tmp_path, '\n'.join([
+        function,
+        r"$exe='C:\SAW\service\saw-postgresql.exe'; $ctl='C:\SAW\pgsql\bin\pg_ctl.exe'; $data='C:\SAW\data\postgresql'",
+        "$r=Get-PostgresqlServiceAction $null $exe $ctl $data; if ($r -ne 'create') { throw 'new service rejected' }",
+        "$svc=@{PathName='\"'+$exe+'\"'; State='Stopped'; StartName='NT AUTHORITY\\NetworkService'}",
+        "$r=Get-PostgresqlServiceAction $svc $exe $ctl $data; if ($r -ne 'reuse') { throw 'owned wrapper rejected' }",
+        "$svc.PathName='\"'+$ctl+'\" runservice -N saw-postgresql -D \"'+$data+'\" -w'; $r=Get-PostgresqlServiceAction $svc $exe $ctl $data; if ($r -ne 'migrate') { throw 'legacy stopped service rejected' }",
+        "$svc.State='Running'; try { Get-PostgresqlServiceAction $svc $exe $ctl $data; throw 'accepted' } catch { if ($_.Exception.Message -notmatch 'must be stopped') { throw } }",
+        "$svc.State='Stopped'; $svc.PathName='\"C:\\other\\pg_ctl.exe\" runservice -D \"'+$data+'\"'; try { Get-PostgresqlServiceAction $svc $exe $ctl $data; throw 'accepted' } catch { if ($_.Exception.Message -notmatch 'Unrecognized PostgreSQL service') { throw } }",
+        "$svc.PathName='\"'+$ctl+'\" runservice -D \"C:\\other\\data\"'; try { Get-PostgresqlServiceAction $svc $exe $ctl $data; throw 'accepted' } catch { if ($_.Exception.Message -notmatch 'Unrecognized PostgreSQL service') { throw } }",
+        "$svc.PathName='\"'+$exe+'\"'; $svc.StartName='LocalSystem'; try { Get-PostgresqlServiceAction $svc $exe $ctl $data; throw 'accepted' } catch { if ($_.Exception.Message -notmatch 'NetworkService identity required') { throw } }",
+    ]))
+
+
+@WINDOWS_ONLY
+def test_postgresql_uninstall_uses_wrapper_and_refuses_unknown_service(tmp_path):
+    text = (ROOT / 'deploy/windows/uninstall.ps1').read_text(encoding='utf-8-sig')
+    assert 'function Remove-PostgresqlService(' in text, 'Uninstall must recognize the WinSW PostgreSQL registration'
+    function = text[text.index('function Remove-PostgresqlService('):text.index('# END PostgreSQL service removal')]
+    _run_ps(tmp_path, '\n'.join([
+        function,
+        r'''$InstallRoot='C:\SAW'; $script:service=@{PathName='"C:\SAW\service\saw-postgresql.exe"'; State='Running'}; $script:calls=@()''',
+        "function Get-CimInstance { return $script:service }",
+        "function Invoke-PostgresqlServiceCommand($exe, $verb) { $script:calls += $verb }",
+        "Remove-PostgresqlService $InstallRoot; if (($script:calls -join ',') -ne 'stop,uninstall') { throw 'wrong wrapper removal sequence' }",
+        r'''$script:service.PathName='"C:\foreign\service.exe"'; $script:calls=@()''',
+        "try { Remove-PostgresqlService $InstallRoot; throw 'accepted' } catch { if ($_.Exception.Message -notmatch 'Unrecognized PostgreSQL service') { throw } }; if ($script:calls.Count) { throw 'unowned service modified' }",
+    ]))
+
+
+@WINDOWS_ONLY
+def test_postgresql_service_waits_for_database_readiness_after_scm_start(tmp_path):
+    text = (ROOT / 'deploy/windows/setup-postgresql.ps1').read_text(encoding='utf-8-sig')
+    assert 'function Wait-PostgresqlServiceReady(' in text, 'SCM Running does not mean PostgreSQL accepts connections'
+    function = text[text.index('function Wait-PostgresqlServiceReady('):text.index('# END PostgreSQL readiness')]
+    # Fake executables only: no database, SCM, ACL, service registration or administrator operation.
+    ready = tmp_path / 'pg_isready.ps1'
+    ready.write_text("$global:probeTries += 1; $global:LASTEXITCODE = $(if ($global:probeTries -ge 3) { 0 } else { 1 })", encoding='utf-8')
+    _run_ps(tmp_path, '\n'.join([
+        function,
+        '$global:probeTries=0',
+        'function Start-Sleep { }',
+        f"Wait-PostgresqlServiceReady '{ready}' 5432 3",
+        "if ($global:probeTries -ne 3) { throw 'startup returned before database readiness' }",
+        '$global:probeTries=0',
+        f"try {{ Wait-PostgresqlServiceReady '{ready}' 5432 2; throw 'accepted' }} catch {{ if ($_.Exception.Message -notmatch 'readiness deadline') {{ throw }} }}",
+    ]))
