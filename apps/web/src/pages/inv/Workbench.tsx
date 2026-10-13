@@ -22,11 +22,12 @@ import { NotesTab } from "./NotesTab";
 import { OverviewTab } from "./OverviewTab";
 import { RawTab } from "./RawTab";
 import { RelationsTab } from "./RelationsTab";
+import { StatisticsTab } from "./StatisticsTab";
 import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
 const TABS: [string, string][] = [
-  ["overview", "개요"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
+  ["overview", "개요"], ["statistics", "로그 통계"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
   ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"],
   ["raw", "원본 로그"], ["checks", "확인·검토"], ["notes", "메모"],
 ];
@@ -46,7 +47,8 @@ export function Workbench() {
   const [upload, setUpload] = useState(false);
   const [closing, setClosing] = useState(false);
   const [siem, setSiem] = useState(false);
-  const [right, setRight] = useState(true);
+  const [left, setLeft] = useState(() => window.innerWidth >= 1100);
+  const [right, setRight] = useState(() => window.innerWidth >= 1350);
   const inv = useQuery({ queryKey: ["inv", id], queryFn: () => api.get(`/investigations/${id}`), refetchInterval: 10000 });
   const fq = { filters: ctx.filters, time: ctx.time };
   const sources = useQuery({ queryKey: ["agg", id, "data_source"], queryFn: () => api.post(`/investigations/${id}/query/aggregate`, { filters: [], agg: { type: "terms", field: "data_source", size: 20 } }) });
@@ -80,7 +82,7 @@ export function Workbench() {
         <div className="row wrap" style={{ gap: 12 }}>
           <div className="col" style={{ gap: 2, minWidth: 0 }}>
             <div className="eyebrow" style={{ marginBottom: 0 }}>{i.display_id} · 조사 작업대</div>
-            <div className="row" style={{ gap: 10 }}>
+            <div className="row wrap" style={{ gap: 10, maxWidth: "100%" }}>
               <h2 className="ellipsis" style={{ fontSize: 19, maxWidth: 560 }} title={i.title}>{i.title}</h2>
               <Sev level={i.risk_level} score={i.risk_score} />
               <span className="badge">{STATUS_KO[i.status] || i.status}{i.verdict ? ` · ${i.verdict}` : ""}</span>
@@ -91,7 +93,8 @@ export function Workbench() {
           <button className="btn sm" onClick={() => setSiem(true)}>SIEM에서 가져오기</button>
           <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); qc.invalidateQueries({ queryKey: ["inv", id] }); }}>재분석</button>
           <Link className="btn sm" to={`/inv/${id}/report`} title="임원 보고용으로 한 장에 정리한 화면 (인쇄·PDF 저장)"><Icon name="report" size={14} /> 보고용 요약</Link>
-          <button className="btn sm ghost" onClick={() => setRight(!right)}>{right ? "컨텍스트 숨기기" : "컨텍스트 보기"}</button>
+          <button className="btn sm ghost" aria-expanded={left} aria-controls="workbench-evidence" onClick={() => setLeft(!left)}>{left ? "증거·필터 숨기기" : "증거·필터 보기"}</button>
+          <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "참고 정보 숨기기" : "참고 정보 보기"}</button>
           {i.status !== "closed" && <button className="btn sm primary" onClick={() => setClosing(true)}>조사 종결</button>}
         </div>
         <div className="row wrap small" style={{ gap: 16, color: "var(--fg-1)" }}>
@@ -111,8 +114,8 @@ export function Workbench() {
           {ctx.selection && <span className="tag" style={{ borderColor: "var(--hl)", color: "var(--hl)" }}>선택: {ctx.selection.type} {ctx.selection.value} <a onClick={() => ctx.addFilter({ field: ({ ip: "src_ip", uri: "uri_template" } as any)[ctx.selection!.type] || ctx.selection!.type, op: "is", value: ctx.selection!.value })}>이 값으로 필터</a> <a onClick={() => ctx.set({ selection: null })}>×</a></span>}
         </div>
       </div>
-      <div className={`wb-body ${right ? "" : "no-right"}`}>
-        <aside className="wb-left" aria-label="증거와 필터">
+      <div className={`wb-body ${right ? "" : "no-right"} ${left ? "" : "no-left"}`}>
+        {left && <aside id="workbench-evidence" className="wb-left" aria-label="증거와 필터">
           <div className="section">
             <h4>증거</h4>
             {i.evidence.map((e: any) => (
@@ -153,7 +156,7 @@ export function Workbench() {
               );
             })}
           </div>
-        </aside>
+        </aside>}
         <section className="wb-center">
           <div className="tabs" role="tablist">
             {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={ctx.tab === k} disabled={!enabled(k)} title={!enabled(k) ? "PCAP 또는 네트워크 로그 증거가 필요합니다" : undefined} className={ctx.tab === k ? "active" : ""} onClick={() => ctx.set({ tab: k })}>{l}</button>)}
@@ -161,6 +164,7 @@ export function Workbench() {
           </div>
           <div className="tab-body">
             {ctx.tab === "overview" && <OverviewTab inv={id} />}
+            {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}
             {ctx.tab === "story" && <StoryTab inv={id} />}
             {ctx.tab === "timeline" && <TimelineTab inv={id} />}
@@ -175,7 +179,7 @@ export function Workbench() {
             {ctx.tab === "entity" && <EntityTab inv={id} />}
           </div>
         </section>
-        {right ? <aside className="wb-right" aria-label="컨텍스트"><ContextPanel inv={id} /></aside> : <div />}
+        {right && <aside id="workbench-context" className="wb-right" aria-label="컨텍스트"><ContextPanel inv={id} /></aside>}
       </div>
       <EventDrawer inv={id} />
       {upload && <UploadModal invId={id} onClose={() => { setUpload(false); qc.invalidateQueries({ queryKey: ["inv", id] }); }} />}

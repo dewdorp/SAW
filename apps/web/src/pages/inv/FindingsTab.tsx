@@ -25,10 +25,10 @@ export function BaselineBar({ m }: { m: any }) {
   return (
     <div className="col" style={{ gap: 2 }}>
       <div className="small">{m.label} <span className="muted">({b.source})</span></div>
-      <div className="row small"><span className="muted" style={{ width: 54 }}>Normal</span>
+      <div className="row small"><span className="muted" style={{ width: 54 }}>참고 범위</span>
         <div className="range grow"><div className="normal" style={{ left: `${(100 * (b.min || 0)) / max}%`, width: `${Math.max(1, (100 * ((b.max || 0) - (b.min || 0))) / max)}%` }} /></div>
         <span className="mono" style={{ width: 90 }}>{fmtNum(b.min)}–{fmtNum(b.max)}</span></div>
-      <div className="row small"><span className="muted" style={{ width: 54 }}>Now</span>
+      <div className="row small"><span className="muted" style={{ width: 54 }}>관측</span>
         <div className="range grow"><div className="obs" style={{ left: 0, width: `${(100 * Number(m.observed)) / max}%` }} /></div>
         <span className="mono" style={{ width: 90 }}>{fmtNum(m.observed)} {m.ratio ? <b>×{m.ratio}</b> : null}</span></div>
     </div>

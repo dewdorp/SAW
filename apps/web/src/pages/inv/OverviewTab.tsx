@@ -46,7 +46,7 @@ export function OverviewTab({ inv }: { inv: string }) {
   return (
     <div className="col">
       <div className="row wrap" style={{ gap: 16 }}>
-        <b>ANALYSIS OVERVIEW</b>
+        <b>분석 개요</b>
         <span>{fmtNum(s.files)} Files</span><span>{fmtNum(s.events)} Events</span>
         <span className="muted">{fmtTime(s.time_range[0])} ~ {fmtTime(s.time_range[1])}</span>
         <span>Unique IP <b>{fmtNum(s.unique_ip, s.approximate)}</b></span><span>Unique URI <b>{fmtNum(s.unique_uri, s.approximate)}</b></span>
@@ -54,6 +54,7 @@ export function OverviewTab({ inv }: { inv: string }) {
         <span className="muted">Parse errors {pct(s.parse_error_rate)}</span>
         <span className="muted small">{s.data_sources.map((x: any) => `${x.key} ${fmtNum(x.count)}`).join(" · ")}</span>
       </div>
+      <p className="muted small">이벤트 수·관측 기간·차트는 현재 필터와 시간 범위입니다. 파일 수·탐지 결과·파싱 오류율은 조사 전체 값입니다. 파일·로그 종류·출발지별 상세 집계는 로그 통계 탭에서 확인하세요.</p>
       <CorrelationPanel inv={inv} />
       <NetworkOverview inv={inv} />
       {d.top_findings.length > 0 && (
@@ -68,20 +69,20 @@ export function OverviewTab({ inv }: { inv: string }) {
           ))}
         </div>
       )}
-      <Panel title="Event Volume Timeline (status, 드래그로 기간 필터)">
+      <Panel title="기록 수 시간 추이 (응답 상태별, 드래그로 기간 필터)">
         <EChart ariaLabel="event volume" height={190} option={volOpt as any}
           onBrush={([a, b]) => { if (xs[a] !== undefined && xs[b] !== undefined) ctx.set({ time: { start: new Date(xs[a] * 1000).toISOString(), end: new Date((xs[b] + d.charts.volume.interval_sec) * 1000).toISOString() } }); }} />
       </Panel>
       <div className="grid3">
-        <Panel title="HTTP Status Distribution"><TopBar title="status" buckets={st} onPick={pick("status_code")} /></Panel>
-        <Panel title="Response Size Trend"><EChart ariaLabel="response size" option={sizeOpt as any} /></Panel>
-        <Panel title="Unique IP Trend"><EChart ariaLabel="unique ip trend" option={uipOpt as any} /></Panel>
-        <Panel title="Top Source (Alt+클릭 = 제외)"><TopBar title="top source" buckets={d.charts.top_src.buckets} onPick={pick("src_ip")} labelFmt={labelSel("ip")} /></Panel>
-        <Panel title="Top URI (template)"><TopBar title="top uri" buckets={d.charts.top_uri.buckets} onPick={pick("uri_template")} labelFmt={labelSel("uri")} /></Panel>
-        <Panel title="Top User-Agent"><TopBar title="top ua" buckets={d.charts.top_ua.buckets} onPick={pick("user_agent")} /></Panel>
-        <Panel title="Top ASN"><TopBar title="top asn" buckets={d.charts.top_asn.buckets} onPick={pick("src_as_org")} /></Panel>
-        <Panel title="Top Country (지도 미사용)"><TopBar title="top country" buckets={d.charts.top_country.buckets} onPick={pick("src_geo_country")} /></Panel>
-        <Panel title="Cloud / VPS"><TopBar title="cloud" buckets={d.charts.top_cloud.buckets} onPick={pick("src_cloud")} /></Panel>
+        <Panel title="HTTP 응답 상태 분포"><TopBar title="status" buckets={st} onPick={pick("status_code")} /></Panel>
+        <Panel title="응답 크기 추이"><EChart ariaLabel="response size" option={sizeOpt as any} /></Panel>
+        <Panel title="고유 출발지 IP 추이"><EChart ariaLabel="unique ip trend" option={uipOpt as any} /></Panel>
+        <Panel title="주요 출발지 (Alt+클릭 = 제외)"><TopBar title="top source" buckets={d.charts.top_src.buckets} onPick={pick("src_ip")} labelFmt={labelSel("ip")} /></Panel>
+        <Panel title="주요 URI 패턴"><TopBar title="top uri" buckets={d.charts.top_uri.buckets} onPick={pick("uri_template")} labelFmt={labelSel("uri")} /></Panel>
+        <Panel title="주요 User-Agent"><TopBar title="top ua" buckets={d.charts.top_ua.buckets} onPick={pick("user_agent")} /></Panel>
+        <Panel title="주요 ASN"><TopBar title="top asn" buckets={d.charts.top_asn.buckets} onPick={pick("src_as_org")} /></Panel>
+        <Panel title="주요 출발지 국가"><TopBar title="top country" buckets={d.charts.top_country.buckets} onPick={pick("src_geo_country")} /></Panel>
+        <Panel title="클라우드 / VPS"><TopBar title="cloud" buckets={d.charts.top_cloud.buckets} onPick={pick("src_cloud")} /></Panel>
       </div>
     </div>
   );

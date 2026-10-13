@@ -34,8 +34,9 @@ def all_detectors():
 
     from saw.detectors.signatures import SignatureMatch
     from saw.detectors.ndr_policy import NdrPolicy
+    from saw.detectors.peer_behavior import PeerBehavior
 
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior()]
 
 
 def _flow_roles(finding: Finding) -> dict[str, list[str]]:
@@ -77,18 +78,14 @@ def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
 
 
 def history_baseline(s: Session, exclude_inv: str, max_invs: int = 50) -> dict:
-    """Known-normal values from investigations closed as normal / false_positive (attack periods excluded, T-20)."""
-    es = container.get().events
-    uas, ja4s, edges = set(), set(), set()
-    invs = s.execute(select(Investigation).where(Investigation.verdict.in_(["normal", "false_positive"]),
-                                                 Investigation.id != exclude_inv)
-                     .order_by(Investigation.closed_at.desc()).limit(max_invs)).scalars().all()
-    for inv in invs:
-        uas |= {b["key"] for b in es.aggregate(inv.id, [], AggRequest(type="terms", field="user_agent", size=1000))["buckets"]}
-        ja4s |= {b["key"] for b in es.aggregate(inv.id, [], AggRequest(type="terms", field="ja4", size=1000))["buckets"]}
-        for r in es.group_by(inv.id, [Filter(field="data_source", value="zeek_conn")], ["src_ip", "dst_ip"], [], size=20000):
-            edges.add((r["key"]["src_ip"], r["key"]["dst_ip"]))
-    return {"user_agent": sorted(uas), "ja4": sorted(ja4s), "edges": sorted(edges), "investigations": len(invs)}
+    """Fail closed: a normal verdict is not approval to share private source data.
+
+    Findings are visible to every member of the destination investigation, not just
+    the actor who triggered analysis. Cross-investigation baselines require an
+    explicit shared-baseline approval/revocation contract, which is not implemented.
+    Current-investigation peer detectors remain available without shared history.
+    """
+    return {"user_agent": [], "ja4": [], "edges": [], "investigations": 0}
 
 
 def present_sources(inv_id: str) -> list[str]:

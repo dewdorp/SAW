@@ -31,7 +31,7 @@ describe("Raw events table", () => {
   it("shows no notice when everything fits", async () => {
     mockApi({ [`POST /investigations/${INV}/query/events`]: [200, { events: page(0, 3), next_cursor: null }] });
     renderUI(<RawTab inv={INV} />);
-    expect(await screen.findByText(/3 loaded/)).toBeTruthy();
+    expect(await screen.findByText(/3건 불러옴/)).toBeTruthy();
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

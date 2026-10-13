@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -29,6 +31,25 @@ router = APIRouter(prefix="/investigations/{inv_id}", tags=["workbench"])
 class FiltersIn(BaseModel):
     filters: list[Filter] = Field(default_factory=list)
     time: TimeRange | None = None
+
+
+class StatisticsIn(FiltersIn):
+    filters: list[Filter] = Field(default_factory=list, max_length=30)
+    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port"] = "data_source"
+    size: int = Field(20, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def valid_time(self):
+        if self.time:
+            values = []
+            for raw in (self.time.start, self.time.end):
+                value = datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
+                if value is not None and value.tzinfo is None:
+                    raise ValueError("timezone required")
+                values.append(value)
+            if all(values) and values[0] > values[1]:
+                raise ValueError("time range must be increasing")
+        return self
 
 
 class PivotIn(BaseModel):
@@ -77,7 +98,9 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
     inv = _read(s, ctx, inv_id)
     es, f, t = _es(), body.filters, body.time
     total = es.count(inv_id, f, t)
-    lo, hi = es.time_bounds(inv_id, f)
+    from saw.core.application.statistics import bounds
+
+    lo, hi = bounds(es, inv_id, f, t)
 
     def terms(field: str, size: int = 10):
         return es.aggregate(inv_id, f, AggRequest(type="terms", field=field, size=size), t)
@@ -114,6 +137,14 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
             "top_asn": terms("src_as_org"), "top_country": terms("src_geo_country"), "top_cloud": terms("src_cloud"),
         },
     }
+
+
+@router.post("/statistics")
+def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    _read(s, ctx, inv_id)
+    from saw.core.application.statistics import summarize
+
+    return summarize(_es(), inv_id, body.filters, body.time, body.group_by, body.size)
 
 
 # ------------------------------------------------------------------ events

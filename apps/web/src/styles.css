@@ -176,8 +176,21 @@ table.t tr.hl td { background: var(--hl-bg); }
 /* workbench */
 .wb { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
 .wb-head { padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--bg-1); }
-.wb-body { display: grid; grid-template-columns: 250px 1fr 360px; min-height: 0; }
-.wb-body.no-right { grid-template-columns: 250px 1fr 0; }
+.wb-body { display: grid; grid-template-columns: 250px minmax(0, 1fr) 360px; grid-template-areas: "left center right"; min-height: 0; }
+.wb-body.no-right { grid-template-columns: 250px minmax(0, 1fr) 0; }
+.wb-body.no-left { grid-template-columns: 0 minmax(0, 1fr) 360px; }
+.wb-body.no-left.no-right { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.wb-left { grid-area: left; }
+.wb-center { grid-area: center; }
+.wb-right { grid-area: right; }
+.wb-head > .row > .col { max-width: 100%; }
+@media (max-width: 1100px) {
+  .wb-body, .wb-body.no-left, .wb-body.no-right, .wb-body.no-left.no-right {
+    grid-template-columns: minmax(0, 1fr); grid-template-areas: "center" "left" "right";
+    grid-template-rows: minmax(400px, 1fr) auto auto; overflow: auto;
+  }
+  .wb-left, .wb-right { max-height: 300px; border-top: 1px solid var(--line); }
+}
 .wb-left, .wb-right { overflow: auto; border-right: 1px solid var(--line); background: var(--bg-1); }
 .wb-right { border-right: 0; border-left: 1px solid var(--line); }
 .wb-center { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }

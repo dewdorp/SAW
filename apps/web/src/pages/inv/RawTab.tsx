@@ -57,20 +57,20 @@ export function RawTab({ inv }: { inv: string }) {
   return (
     <div className="col" style={{ height: "100%" }}>
       <div className="row wrap small">
-        <b>RAW EVENTS</b><span className="muted">{fmtNum(rows.length)} loaded{q.hasNextPage ? "+" : ""} · masked view · 헤더 클릭=Top values</span>
-        <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>time {sort === "asc" ? "↑" : "↓"}</button>
-        <details><summary className="btn sm">Columns</summary><div className="panel pb" style={{ position: "absolute", zIndex: 5 }}>{ALL_COLS.map((c) => <label key={c} className="row small"><input type="checkbox" checked={cols.includes(c)} onChange={(e) => setCols(e.target.checked ? [...cols, c] : cols.filter((x) => x !== c))} />{c}</label>)}</div></details>
-        <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">Export CSV (masked)</button>
+        <b>원본 로그</b><span className="muted">{fmtNum(rows.length)}건 불러옴{q.hasNextPage ? " · 다음 기록 있음" : ""} · 민감값 가림 · 열 제목을 누르면 상위 값</span>
+        <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>시간 {sort === "asc" ? "↑" : "↓"}</button>
+        <details><summary className="btn sm">표시할 열</summary><div className="panel pb" style={{ position: "absolute", zIndex: 5 }}>{ALL_COLS.map((c) => <label key={c} className="row small"><input type="checkbox" checked={cols.includes(c)} onChange={(e) => setCols(e.target.checked ? [...cols, c] : cols.filter((x) => x !== c))} />{c}</label>)}</div></details>
+        <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">불러온 행 CSV 내보내기 (가림)</button>
         <button className="btn sm" disabled={!rows.length} onClick={() => setChecking(true)} title="지금 검색 결과에 대해 무엇을 확인했는지 남깁니다 (일부만 봤다면 표본으로)">✓ 검색 결과 확인 기록</button>
       </div>
       {capped && <div className="error small" role="status">화면에는 {fmtNum(MAX_LOADED)}건까지만 불러옵니다(브라우저 메모리 보호). 더 있는 이벤트는 시간 범위·필터로 좁히거나 시간 정렬(↑↓)을 바꿔서 보세요.</div>}
       {head && (
-        <div className="panel"><div className="ph"><span className="grow">Top values · {head}</span><button className="btn ghost sm" onClick={() => setHead(null)}>✕</button></div>
+        <div className="panel"><div className="ph"><span className="grow">상위 값 · {head}</span><button className="btn ghost sm" onClick={() => setHead(null)}>✕</button></div>
           <div className="pb">{(top.data?.buckets || []).map((b: any) => (
             <div key={String(b.key)} className="row small"><span className="mono grow ellipsis">{String(b.key)}</span><span className="num">{fmtNum(b.count)}</span>
-              <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is", value: b.key })}>Include</button>
-              <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is_not", value: b.key })}>Exclude</button>
-              {head === "src_ip" && <button className="btn sm" onClick={() => ctx.set({ tab: "entity", selection: { type: "ip", value: String(b.key) } })}>Pivot</button>}
+              <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is", value: b.key })}>포함</button>
+              <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is_not", value: b.key })}>제외</button>
+              {head === "src_ip" && <button className="btn sm" onClick={() => ctx.set({ tab: "entity", selection: { type: "ip", value: String(b.key) } })}>출발지 상세</button>}
             </div>))}</div></div>
       )}
       {q.isLoading && <Loading />}

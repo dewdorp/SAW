@@ -31,10 +31,10 @@ def _ingest(api, inv, lines, name="a.log"):
     api.post(f"/evidence/{up['evidence_id']}/process")
 
 
-def test_volume_sequence_entity_and_rare(analyst):
+def test_volume_sequence_entity_without_unapproved_shared_history(analyst):
     rnd = random.Random(5)
     base = datetime(2026, 10, 5, 1, 0, tzinfo=KST)
-    # history: a closed-as-normal investigation provides the known UA baseline
+    # A normal verdict alone does not authorize cross-investigation baseline sharing.
     hist = analyst.post("/investigations", json={"title": "baseline week"}).json()
     _ingest(analyst, hist["id"], _normal_web(rnd, base - timedelta(days=7)))
     analyst.post(f"/investigations/{hist['id']}/close", json={"verdict": "normal", "reason": "정상 업무 트래픽"})
@@ -50,21 +50,20 @@ def test_volume_sequence_entity_and_rare(analyst):
     _ingest(analyst, inv["id"], lines)
     fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
     cats = {f["category"] for f in fs}
-    assert {"anomaly.volume", "anomaly.sequence", "anomaly.entity", "anomaly.rare"} <= cats, cats
+    assert {"anomaly.volume", "anomaly.sequence", "anomaly.entity"} <= cats, cats
     vol = next(f for f in fs if f["category"] == "anomaly.volume")
     rate = next(m for m in vol["metrics"] if m["name"] == "requests_per_min")
     assert rate["baseline"]["source"].startswith("relative:") and any(m["name"] == "rate_series" for m in vol["metrics"])
     seq = next(f for f in fs if f["category"] == "anomaly.sequence")
     sm = next(m for m in seq["metrics"] if m["name"] == "sequence")
     assert "/export" in sm["observed_path"] and sm["normal_path"][:2] == ["/login", "/search"]
-    rare = next(f for f in fs if f["category"] == "anomaly.rare")
-    assert "Go-http-client" in " ".join(rare["entities"])
+    assert "anomaly.rare" not in cats
     ent = next(f for f in fs if f["category"] == "anomaly.entity")
     assert "43.201.5.5" in " ".join(ent["entities"])
 
 
-def test_attack_investigations_never_become_baseline(analyst):
-    """T-20: a confirmed-attack investigation must not teach the baseline that its UA is normal."""
+def test_closed_verdicts_do_not_authorize_shared_baselines(analyst):
+    """Neither normal nor attack verdicts authorize sharing private historical sources."""
     rnd = random.Random(9)
     base = datetime(2026, 10, 5, 1, 0, tzinfo=KST)
     atk = analyst.post("/investigations", json={"title": "attack"}).json()
@@ -76,7 +75,7 @@ def test_attack_investigations_never_become_baseline(analyst):
     new = analyst.post("/investigations", json={"title": "new"}).json()
     _ingest(analyst, new["id"], _normal_web(rnd, base, 40, ua="EvilBot/9.9"))
     fs = analyst.get(f"/investigations/{new['id']}/findings").json()
-    assert any(f["category"] == "anomaly.rare" and "EvilBot" in " ".join(f["entities"]) for f in fs)
+    assert not any(f["category"] in {"anomaly.rare", "anomaly.relationship"} for f in fs)
 
 
 def test_sequence_source_positions_survive_adapter_projection_and_changed_ids(analyst):
