@@ -178,7 +178,9 @@ def test_process_is_idempotent_and_leases_are_exclusive(analyst):
     assert j1["id"] == j2["id"]
     other = upload(analyst, inv["id"], "b.log", b"x\n")
     assert analyst.post(f"/evidence/{other['evidence_id']}/process", headers=h).status_code == 409
-    # lease: a second claim supersedes the first worker
+    # Lease checks apply to a running attempt; completed jobs cannot be resurrected.
+    with session_scope() as s:
+        s.get(Job, j1["id"]).state = "PARSING"
     pipeline.claim(j1["id"])
     with session_scope() as s:
         s.get(Job, j1["id"]).attempt += 1  # another worker took over

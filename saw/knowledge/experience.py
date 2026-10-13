@@ -56,6 +56,9 @@ def to_dict(e: Experience, include_working: bool = True) -> dict:
 def create(s: Session, p: Principal, data: dict, source_inv: str | None = None) -> Experience:
     if not can(p, "knowledge.write"):
         raise Forbidden("knowledge.write")
+    if source_inv:
+        from saw.core.application.investigations import require
+        require(s, p, "investigation.read", source_inv)
     d = _clean(data)
     if not d.get("title"):
         raise ValueError("title is required")

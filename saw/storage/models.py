@@ -519,3 +519,21 @@ class Counter(Base):
     __tablename__ = "sys_counter"
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DataDeletion(Base):
+    """Durable cleanup receipt. Plans are private; only content-free counts are returned by the API."""
+    __tablename__ = "admin_data_deletion"
+    id: Mapped[str] = _id()
+    target_type: Mapped[str] = mapped_column(String(16))
+    target_id: Mapped[str] = mapped_column(String(36), index=True)
+    investigation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(16), default="PENDING")
+    step: Mapped[str] = mapped_column(String(16), default="planned")
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    reason: Mapped[str] = mapped_column(String(500))
+    actor_id: Mapped[str] = mapped_column(String(36))
+    actor_name: Mapped[str] = mapped_column(String(64))
+    error_code: Mapped[str] = mapped_column(String(48), default="")
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = _ts()

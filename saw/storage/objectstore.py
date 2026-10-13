@@ -53,7 +53,7 @@ class LocalFSObjectStore:
             raise ValueError(f"unknown bucket {bucket}")
         _check_key(key)
         p = (self.root / bucket / key).resolve()
-        if not str(p).startswith(str((self.root / bucket).resolve())):
+        if not p.is_relative_to((self.root / bucket).resolve()):
             raise ValueError("key escapes bucket")
         if os.name == "nt" and len(str(p)) > 240 and not str(p).startswith(LONG_PREFIX):
             p = Path(LONG_PREFIX + str(p))  # Windows long-path prefix
@@ -102,8 +102,46 @@ class LocalFSObjectStore:
     def exists(self, bucket: str, key: str) -> bool:
         return self._path(bucket, key).exists()
 
+    def safe_delete_path(self, bucket: str, key: str) -> Path:
+        if bucket not in BUCKETS:
+            raise ValueError("unknown bucket")
+        _check_key(key)
+        if any(part in ("", ".") or ":" in part for part in key.split("/")):
+            raise ValueError("invalid deletion key")
+        root = self.root.absolute()
+        target = root / bucket / key
+        for part in (target, *target.parents):
+            if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
+                raise ValueError("reparse path is not supported")
+        resolved = target.resolve()
+        if not resolved.is_relative_to((root / bucket).resolve()) or resolved == (root / bucket).resolve():
+            raise ValueError("key escapes bucket")
+        if resolved.exists() and not resolved.is_file():
+            raise ValueError("object is not a regular file")
+        return resolved
+
+    def cleanup_keys(self, bucket: str, prefix: str, limit: int = 10000) -> list[str]:
+        """List one exact internal scope without following junctions or symlinks."""
+        # Validate the directory and every ancestor through a nonexistent child.
+        base = self.safe_delete_path(bucket, prefix.rstrip("/") + "/.cleanup-probe").parent
+        if not base.exists():
+            return []
+        keys = []
+        for directory, dirs, files in os.walk(base, followlinks=False):
+            for name in dirs:
+                child = Path(directory) / name
+                if child.is_symlink() or (hasattr(child, "is_junction") and child.is_junction()):
+                    raise ValueError("reparse directory is not supported")
+            for name in files:
+                key = (Path(directory) / name).relative_to((self.root / bucket).resolve()).as_posix()
+                self.safe_delete_path(bucket, key)
+                keys.append(key)
+                if len(keys) > limit:
+                    raise ValueError("too many cleanup objects")
+        return sorted(keys)
+
     def delete(self, bucket: str, key: str) -> None:
-        self._path(bucket, key).unlink(missing_ok=True)
+        self.safe_delete_path(bucket, key).unlink(missing_ok=True)
 
     def read_range(self, bucket: str, key: str, offset: int, length: int) -> bytes:
         with open(self._path(bucket, key), "rb") as f:

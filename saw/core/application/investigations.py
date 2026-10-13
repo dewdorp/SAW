@@ -26,6 +26,8 @@ def access_of(s: Session, p: Principal, inv_id: str) -> InvestigationAccess:
 
 
 def require(s: Session, p: Principal, permission: str, inv_id: str) -> Investigation:
+    from saw.core.application.data_deletion import lock_investigation
+
     inv = s.get(Investigation, inv_id)
     if inv is None:
         raise NotFound("investigation not found")
@@ -33,7 +35,7 @@ def require(s: Session, p: Principal, permission: str, inv_id: str) -> Investiga
         audit.record(s, "authz.denied", actor_id=p.user_id, actor_name=p.username, target_type="investigation",
                      target_id=inv_id, investigation_id=inv_id, outcome="denied", detail={"perm": permission})
         raise Forbidden(permission)
-    return inv
+    return lock_investigation(s, inv_id)
 
 
 def create(s: Session, p: Principal, title: str, org_unit: str = "") -> Investigation:
@@ -59,7 +61,7 @@ def list_for(s: Session, p: Principal, limit: int = 50) -> list[Investigation]:
     if Role.SOC_MANAGER not in p.roles:
         member_ids = select(InvestigationMember.investigation_id).where(InvestigationMember.user_id == p.user_id)
         q = q.where(or_(Investigation.id.in_(member_ids)))
-    return list(s.execute(q).scalars())
+    return [i for i in s.execute(q).scalars() if not (i.settings or {}).get("data_deletion")]
 
 
 def add_member(s: Session, p: Principal, inv_id: str, user_id: str, access: str) -> None:

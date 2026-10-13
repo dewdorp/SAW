@@ -303,6 +303,18 @@ class OpenSearchEventStore:
         r = self.client.delete_by_query(index=self.alias, body={"query": filters_to_dsl(
             investigation_id, [Filter(field="evidence_id", value=evidence_id)], None)})
         self._dirty = True  # deleted documents stay searchable until the next refresh: the next read must not see them
+        if r.get("failures") or r.get("timed_out") or r.get("version_conflicts"):
+            raise RuntimeError("event deletion incomplete")
+        return r.get("deleted", 0)
+
+    def delete_by_investigation(self, investigation_id: str) -> int:
+        if not investigation_id:
+            raise ValueError("investigation_id is mandatory")
+        self._fresh()
+        r = self.client.delete_by_query(index=self.alias, body={"query": filters_to_dsl(investigation_id, [], None)})
+        self._dirty = True
+        if r.get("failures") or r.get("timed_out") or r.get("version_conflicts"):
+            raise RuntimeError("event deletion incomplete")
         return r.get("deleted", 0)
 
     def histogram_metrics(self, investigation_id: str, filters: list[Filter], interval_sec: int | None,

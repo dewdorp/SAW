@@ -1,5 +1,6 @@
 from saw.apps.api.routers import (
     admin,
+    admin_data,
     ai,
     analyze,
     attack,
@@ -22,6 +23,6 @@ from saw.apps.api.routers import (
     workbench,
 )
 
-ROUTERS = [auth.router, admin.router, investigations.router, analyze.router, evidence.router, workbench.router,
+ROUTERS = [auth.router, admin.router, admin_data.router, investigations.router, analyze.router, evidence.router, workbench.router,
            cases.router, attack.router, network.router, forensics.router, knowledge.router, connectors.router, ai.router, hunting.router, detection.router,
            parser_library.router, provenance.router, briefing.router, checks.router, reviews.router, local_models.router]

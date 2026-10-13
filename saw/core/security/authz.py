@@ -28,6 +28,7 @@ _PERMISSIONS: dict[str, set[Role]] = {
     "ai.use": {Role.SOC_MANAGER, Role.SENIOR_ANALYST, Role.ANALYST},
     "ai.models.manage": {Role.ADMIN},
     "admin.users": {Role.ADMIN},
+    "admin.data.delete": {Role.ADMIN},
     "admin.connectors": {Role.ADMIN},
     "audit.read": {Role.ADMIN, Role.SOC_MANAGER},
 }

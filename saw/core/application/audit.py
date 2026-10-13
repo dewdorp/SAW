@@ -87,8 +87,9 @@ def record(
     outcome: str = "success",
     detail: dict[str, Any] | None = None,
 ) -> AuditEvent:
+    # Acquire the database lock before the process lock: callers may already own a SQLite writer lock.
+    head = _head(s)
     with _lock:
-        head = _head(s)
         prev = head.last_hash or GENESIS
         e = AuditEvent(
             at=utcnow().replace(microsecond=0),

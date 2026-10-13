@@ -72,6 +72,7 @@ def _session_for(s: Session, p: Principal, sid: str) -> UploadSession:
         from saw.core.application.investigations import NotFound
 
         raise NotFound("upload session not found")
+    _evidence_for_write(s, p, u.evidence_id)
     if u.status != "open":
         raise UploadError(f"upload session is {u.status}")
     return u

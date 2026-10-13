@@ -35,6 +35,7 @@ class EventStorePort(Protocol):
     def group_by(self, investigation_id: str, filters: list[Filter], fields: list[str],
                  metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None) -> list[dict]: ...
     def delete_by_evidence(self, investigation_id: str, evidence_id: str) -> int: ...
+    def delete_by_investigation(self, investigation_id: str) -> int: ...
     def time_bounds(self, investigation_id: str,
                     filters: list[Filter] | None = None) -> tuple[str | None, str | None]: ...
 
@@ -135,6 +136,15 @@ class SQLiteEventStore:
                             (investigation_id, evidence_id))
             c.commit()
             return cur.rowcount
+
+    def delete_by_investigation(self, investigation_id: str) -> int:
+        if not investigation_id:
+            raise ValueError("investigation_id is mandatory")
+        with self._write_lock:
+            c = self._conn()
+            result = c.execute("DELETE FROM events WHERE investigation_id=?", (investigation_id,))
+            c.commit()
+            return result.rowcount
 
     # ------------------------------------------------------------------ where
     def _where(self, inv: str, filters: list[Filter] | None, time: TimeRange | None) -> tuple[str, list]:

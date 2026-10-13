@@ -59,7 +59,7 @@ def internal_context(s: Session, p: Principal, obs_type: str, value: str) -> dic
                             "verdict_reason": inv.verdict_reason, "closed_at": inv.closed_at})
     inv_ids = [i["investigation_id"] for i in seen_in]
     cases = []
-    for c in s.execute(select(Case)).scalars():
+    for c in s.execute(select(Case).where(Case.status.notin_(["deleted", "deleting"]))).scalars():
         if set(c.investigation_ids or []) & set(inv_ids):
             cases.append({"case_id": c.id, "display_id": c.display_id, "title": c.title, "verdict": c.verdict,
                           "status": c.status})

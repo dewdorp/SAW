@@ -195,6 +195,7 @@ def _get(s: Session, review_id: str) -> Review:
 
 def decide(s: Session, p: Principal, review_id: str, outcome: str, note: str) -> Review:
     r = _get(s, review_id)
+    require(s, p, "investigation.read", r.investigation_id)
     if r.reviewer_id != p.user_id:
         raise NotFound("review not found")  # only the person asked may answer
     if r.requested_by == p.user_id:
@@ -264,4 +265,5 @@ def inbox(s: Session, p: Principal) -> dict[str, Any]:
         i = invs.get(r.investigation_id)
         return d | {"investigation": {"id": r.investigation_id, "display_id": i.display_id if i else "", "title": i.title if i else ""}}
 
-    return {"to_review": [out(r) for r in mine], "returned": [out(r) for r in back]}
+    usable = lambda r: r.investigation_id in invs and not (invs[r.investigation_id].settings or {}).get("data_deletion")
+    return {"to_review": [out(r) for r in mine if usable(r)], "returned": [out(r) for r in back if usable(r)]}

@@ -125,7 +125,8 @@ def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id
 
 
 def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", finding_id: str | None = None, *, session_id: str | None = None) -> dict:
-    require(s, p, "investigation.read", inv_id)
+    from saw.core.application.data_deletion import epoch
+    data_epoch = epoch(require(s, p, "investigation.read", inv_id))
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action}")
     prov = provider()
@@ -166,7 +167,8 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
     current_principal = principal_of(current_user)
     if not can(current_principal, "ai.use"):
         raise Forbidden("ai_authorization_changed")
-    require(s, current_principal, "investigation.read", inv_id)
+    if epoch(require(s, current_principal, "investigation.read", inv_id)) != data_epoch:
+        raise Forbidden("ai_evidence_changed_output_not_published")
     if not knowledge_still_allowed(s, current_principal, knowledge_versions):
         raise Forbidden("ai_context_authorization_changed")
     if synthetic_only and inv_id not in container.get().settings.llm_synthetic_investigation_ids:

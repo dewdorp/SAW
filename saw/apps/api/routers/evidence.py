@@ -169,6 +169,7 @@ def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
     if j is None:
         raise NotFound("job not found")
     require(s, ctx.principal, "investigation.read", j.investigation_id)
+    s.refresh(j)
     return j
 
 
@@ -222,6 +223,9 @@ async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(a
                 return
             with session_scope() as s:
                 j = s.get(Job, job_id)
+                if j is None:
+                    yield "event: end\ndata: {}\n\n"
+                    return
                 payload = json.dumps(job_out(j), default=str)
                 state = j.state
             if payload != last:

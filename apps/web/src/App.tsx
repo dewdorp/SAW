@@ -6,6 +6,7 @@ import { Loading } from "./components/common";
 import { api } from "./lib/api";
 import { getTz, subscribeTz } from "./lib/format";
 import { Admin } from "./pages/Admin";
+import { AdminData } from "./pages/AdminData";
 import { CaseDetail, Cases } from "./pages/Cases";
 import { Home } from "./pages/Home";
 import { Investigations } from "./pages/Investigations";
@@ -69,6 +70,7 @@ export function App() {
         <Route path="/provenance" element={<Provenance />} />
         <Route path="/hunting/*" element={<Hunting />} />
         <Route path="/admin" element={<Admin me={me.data} />} />
+        <Route path="/admin/data" element={<AdminData me={me.data} />} />
         <Route path="/admin/local-models" element={<LocalModels me={me.data} />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

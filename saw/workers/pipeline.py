@@ -47,7 +47,18 @@ def claim(job_id: str) -> int:
     """Take the job lease for this worker: bump the epoch and remember it for every later _job_update."""
     with session_scope() as s:
         j = s.get(Job, job_id)
+        if j is None:
+            raise StaleLease("job is no longer runnable")
+        from saw.core.application.data_deletion import lock_investigation
+        lock_investigation(s, j.investigation_id)
+        s.refresh(j)
+        if j.state not in ("QUEUED", "PARSING", "INDEXING", "ANALYZING"):
+            raise StaleLease("job is no longer runnable")
         j.attempt = (j.attempt or 0) + 1
+        # A claimed worker must remain nonterminal until it has acknowledged cancellation.
+        if j.state == "QUEUED":
+            j.state = "ANALYZING" if j.kind == "reanalyze" else "PARSING"
+        j.started_at = j.started_at or utcnow()
         epoch = j.attempt
     _lease.set((job_id, epoch))
     return epoch
@@ -57,6 +68,8 @@ def _job_update(job_id: str, **kw) -> None:
     with session_scope() as s:
         j = s.get(Job, job_id)
         lease = _lease.get()
+        if j is None:
+            raise StaleLease("job was removed")
         if lease and lease[0] == job_id and (j.attempt or 0) != lease[1]:
             raise StaleLease(f"job {job_id}: lease {lease[1]} superseded by {j.attempt}")
         stages = dict(j.stages or {})
@@ -71,7 +84,8 @@ def _job_update(job_id: str, **kw) -> None:
 
 def _cancelled(job_id: str) -> bool:
     with session_scope() as s:
-        return bool(s.get(Job, job_id).cancel_requested)
+        j = s.get(Job, job_id)
+        return j is None or bool(j.cancel_requested)
 
 
 def _file_encoding(path: Path) -> str:
@@ -427,6 +441,7 @@ def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
 
 @task("ingest.resume")
 def ingest_resume(job_id: str) -> None:
+    claim(job_id)
     with session_scope() as s:
         j = s.get(Job, job_id)
         ev = s.get(Evidence, j.evidence_id)

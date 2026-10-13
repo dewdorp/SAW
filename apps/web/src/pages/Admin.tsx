@@ -31,6 +31,7 @@ export function Admin({ me }: { me: Me }) {
   return (
     <div className="page col">
       <PageHeader eyebrow="관리" title="관리·감사" desc="사용자·MFA·감사 로그·연동을 관리합니다. 관리자 계정은 분석 데이터에 접근하지 않습니다." />
+      {me.permissions.includes("admin.data.delete") && <Panel title="데이터 관리"><p className="small">조사·증거 묶음·케이스의 영향 범위를 확인한 뒤 정리합니다. 감사와 보존 기록은 유지합니다.</p><Link className="btn" to="/admin/data">데이터 관리 열기</Link></Panel>}
       {me.permissions.includes("ai.models.manage") && <Panel title="로컬 모델"><p className="small">CPU 합성 시험용 모델의 반입 검증과 선택을 관리합니다. 운영 품질은 미채택 상태입니다.</p><Link className="btn" to="/admin/local-models">로컬 모델 관리 열기</Link></Panel>}
       {canUsers && (
         <Panel title="Users (MFA 필수 · 직무분리: Admin은 분석 데이터 기본 접근 없음)">

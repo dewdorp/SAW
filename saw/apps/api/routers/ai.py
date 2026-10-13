@@ -38,5 +38,8 @@ def feedback(rid: str, body: FeedbackIn, ctx: AuthContext = Depends(require_perm
     r = s.get(service.LlmInteraction, rid)
     if r is None or r.user_id != ctx.principal.user_id:
         raise NotFound("interaction not found")
+    if r.investigation_id:
+        from saw.core.application.investigations import require
+        require(s, ctx.principal, "investigation.read", r.investigation_id)
     r.feedback = body.feedback
     return {"ok": True}

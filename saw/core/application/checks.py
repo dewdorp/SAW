@@ -394,6 +394,8 @@ def _shared(s: Session, check_id: str) -> Check:
     c = s.get(Check, check_id)
     if c is None or not c.shared or c.state != "active":
         raise NotFound("shared check not found")
+    from saw.core.application.data_deletion import lock_investigation
+    lock_investigation(s, c.investigation_id)
     return c
 
 

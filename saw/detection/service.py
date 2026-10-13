@@ -5,11 +5,11 @@ SAW never deploys rules. Versions are immutable once approved; edits create a ne
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from time import monotonic
 
 import yaml
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func, select
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func, select, update as sql_update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from saw import container
@@ -247,7 +247,8 @@ def _in_threshold(hits: list[dict], th: dict) -> list[dict]:
     return apply_threshold(hits, th)
 
 
-def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str] | None = None, max_events: int = 500_000) -> TestRun:
+def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str] | None = None, max_events: int = 500_000,
+             *, session_id: str | None = None) -> TestRun:
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
@@ -256,8 +257,17 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
         raise ValueError(f"local historical testing supports sigma only ({v.format}: test on the target engine, ENV-06/ENV-11)")
     rule = compile_rule(v.logic)
     validate_threshold(v.threshold)
+    from saw.core.application.data_deletion import epoch
+    from saw.core.application.identity import principal_of
+    from saw.storage.models import User, UserSession
+
     readable = {i.id: i for i in list_for(s, p, 500)}
-    scope = [i for i in (investigation_ids or list(readable)) if i in readable]
+    scope = sorted({i for i in (investigation_ids or list(readable)) if i in readable})
+    epochs = {iid: epoch(require(s, p, "investigation.read", iid)) for iid in scope}
+    tested_version = v.version
+    # Native search may take seconds. Do not retain investigation/SQLite writer locks while scanning.
+    # A changed or deleted source invalidates the entire result before any samples can be published.
+    s.commit()
     es = container.get().events
     exc = [Filter(**x) for x in v.exceptions]
     pre = [Filter(field="data_source", op="in", value=rule.data_sources)] if rule.data_sources else []
@@ -324,7 +334,33 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
                            "uri": e.get("uri")} for i, e in hits_all[:20]]}
     passed = (not truncated and not evaluation_errors and all(u["ok"] for u in unit)
               and (recall_ok is not False) and len(hits_all) > 0)
-    tr = TestRun(detection_id=det_id, version=v.version, scope={"investigations": scope}, result=result, passed=passed, ran_by=p.username)
+    s.expire_all()
+    current_user = s.get(User, p.user_id)
+    if current_user is None or current_user.status != "active":
+        raise Forbidden("시험 중 사용자 권한이 변경되어 결과를 저장하지 않았습니다. 권한을 확인하고 다시 시험하세요.")
+    if session_id:
+        current_session = s.get(UserSession, session_id)
+        if (current_session is None or current_session.user_id != p.user_id
+                or current_session.revoked_at is not None or not current_session.mfa_passed
+                or current_session.expires_at.replace(tzinfo=UTC) <= utcnow()):
+            raise Forbidden("시험 중 로그인 상태가 변경되어 결과를 저장하지 않았습니다. 다시 로그인하고 시험하세요.")
+    current_principal = principal_of(current_user)
+    if not can(current_principal, "detection.write"):
+        raise Forbidden("시험 중 사용자 권한이 변경되어 결과를 저장하지 않았습니다. 권한을 확인하고 다시 시험하세요.")
+    for iid in scope:
+        current = require(s, current_principal, "investigation.read", iid)
+        if epoch(current) != epochs[iid]:
+            raise Forbidden("시험 중 조사 자료가 변경되어 결과를 저장하지 않았습니다. 다시 시험하세요.")
+        if current.verdict != verdict[iid]:
+            raise ValueError("조사 판단이 변경되었습니다. 탐지 시험을 다시 실행하세요.")
+    # Keep the version check and final status transition atomic with concurrent rule edits.
+    s.execute(sql_update(Detection).where(Detection.id == det_id).values(id=det_id)
+              .execution_options(synchronize_session=False))
+    d = s.scalar(select(Detection).where(Detection.id == det_id).execution_options(populate_existing=True))
+    if d is None or d.current_version != tested_version:
+        raise ValueError("탐지 룰 버전이 변경되었습니다. 다시 시험하세요.")
+    v = _latest(s, det_id)
+    tr = TestRun(detection_id=det_id, version=tested_version, scope={"investigations": scope}, result=result, passed=passed, ran_by=p.username)
     s.add(tr)
     if d.status == "draft":
         d.status = "test"

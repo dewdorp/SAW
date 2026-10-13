@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from saw.apps.api.deps import AuthContext, db, require_perm
@@ -43,6 +43,10 @@ class ItemIn(BaseModel):
 
 
 def _readable(s: Session, ctx: AuthContext, c: Case) -> None:
+    s.execute(update(Case).where(Case.id == c.id).values(id=c.id).execution_options(synchronize_session=False))
+    s.refresh(c)
+    if c.status in ("deleted", "deleting"):
+        raise NotFound("case not found")
     ok = {i.id for i in list_for(s, ctx.principal, 500)}
     if c.created_by != ctx.principal.user_id and not (set(c.investigation_ids or []) & ok):
         from saw.core.application.investigations import Forbidden
@@ -78,7 +82,7 @@ def create(body: CaseIn, ctx: AuthContext = Depends(require_perm("case.write")),
 @router.get("")
 def list_cases(ctx: AuthContext = Depends(require_perm("case.read")), s: Session = Depends(db, scope="function")):
     ok = {i.id for i in list_for(s, ctx.principal, 500)}
-    return [case_out(s, c) for c in s.execute(select(Case).order_by(Case.created_at.desc())).scalars()
+    return [case_out(s, c) for c in s.execute(select(Case).where(Case.status.notin_(["deleted", "deleting"])).order_by(Case.created_at.desc())).scalars()
             if c.created_by == ctx.principal.user_id or set(c.investigation_ids or []) & ok]
 
 
@@ -97,6 +101,8 @@ def patch(cid: str, body: CasePatch, ctx: AuthContext = Depends(require_perm("ca
     if c is None:
         raise NotFound("case not found")
     _readable(s, ctx, c)
+    if body.status in ("deleted", "deleting"):
+        raise HTTPException(403, "관리자 데이터 관리에서만 폐기할 수 있습니다.")
     diff = {}
     for k, v in body.model_dump(exclude_none=True).items():
         if getattr(c, k) != v:

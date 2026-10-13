@@ -85,7 +85,7 @@ def update(det_id: str, body: DetIn, ctx: AuthContext = Depends(require_perm("de
 
 @router.post("/detections/{det_id}/test")
 def test(det_id: str, body: TestIn, ctx: AuthContext = Depends(require_perm("detection.write")), s: Session = Depends(db, scope="function")):
-    tr = svc.run_test(s, ctx.principal, det_id, body.investigation_ids)
+    tr = svc.run_test(s, ctx.principal, det_id, body.investigation_ids, session_id=ctx.session.id)
     return {"id": tr.id, "passed": tr.passed, "result": tr.result}
 
 

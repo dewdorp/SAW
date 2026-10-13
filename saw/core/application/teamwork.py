@@ -70,6 +70,7 @@ def _get(s: Session, support_id: str) -> Support:
 def update(s: Session, p: Principal, support_id: str, status: str, result_note: str = "", remaining: str = "") -> Support:
     """The helper reports: working / done (with what was found and what is still unknown) / cannot take it."""
     r = _get(s, support_id)
+    require(s, p, "investigation.read", r.investigation_id)
     if r.helper_id != p.user_id:
         raise NotFound("support request not found")
     if r.status not in OPEN:
@@ -112,7 +113,7 @@ def inbox(s: Session, p: Principal) -> list[dict[str, Any]]:
     invs = {i.id: i for i in s.execute(select(Investigation).where(
         Investigation.id.in_({r.investigation_id for r in rows}))).scalars()} if rows else {}
     return [to_dict(r) | {"investigation": {"id": r.investigation_id, "display_id": invs[r.investigation_id].display_id,
-                                            "title": invs[r.investigation_id].title}} for r in rows if r.investigation_id in invs]
+                                            "title": invs[r.investigation_id].title}} for r in rows if r.investigation_id in invs and not (invs[r.investigation_id].settings or {}).get("data_deletion")]
 
 
 def open_counts(s: Session, inv_ids: list[str]) -> dict[str, int]:
