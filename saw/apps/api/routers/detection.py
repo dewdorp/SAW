@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -70,6 +72,19 @@ def validate(body: ValidateIn, ctx: AuthContext = Depends(require_perm("detectio
     return out
 
 
+@router.get("/detections/export")
+def export_all(format: Literal["json"] = "json", ctx: AuthContext = Depends(require_perm("knowledge.read")),
+               s: Session = Depends(db, scope="function")):
+    from saw.detection import exporting
+
+    document = exporting.custom(s)
+    text, media = exporting.encode(document, format)
+    audit.record(s, "detection.bundle_export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
+                 target_type="detection", detail={"format": format, "count": document["count"]})
+    return Response(text, media_type=media, headers={"Content-Disposition": 'attachment; filename="saw-current-rules.json"',
+                                                    "Cache-Control": "no-store"})
+
+
 @router.get("/detections/{det_id}")
 def get(det_id: str, ctx: AuthContext = Depends(require_perm("knowledge.read")), s: Session = Depends(db, scope="function")):
     d = s.get(svc.Detection, det_id)
@@ -112,7 +127,14 @@ def export(det_id: str, fmt: str = "native", ctx: AuthContext = Depends(require_
         raise HTTPException(501, str(e)) from None
     audit.record(s, "detection.export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username, target_type="detection",
                  target_id=det_id, detail={"format": fmt})
-    return text
+    import re
+    from saw.detection.exporting import MAX_EXPORT_BYTES
+    if len(text.encode("utf-8")) > MAX_EXPORT_BYTES:
+        raise ValueError("개별 룰 파일이 2MiB 한도를 넘습니다.")
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", det_id)[:64]
+    suffix = "yaml" if fmt == "native" and svc._latest(s, det_id).format == "sigma" else "txt"
+    return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="saw-rule-{safe_id}.{suffix}"',
+                                           "Cache-Control": "no-store"})
 
 
 @router.get("/coverage/attack")
@@ -176,3 +198,16 @@ def switch_signature(sig_id: str, body: SignatureSwitchIn, ctx: AuthContext = De
     audit.record(s, "detection.signature_switch", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="signature", target_id=sig_id, detail={"enabled": body.enabled, "note": r.note})
     return {"id": sig_id, "enabled": r.enabled, "note": r.note, "updated_by": r.updated_by}
+
+
+@router.get("/detection-catalog/export")
+def export_catalog(format: Literal["json", "yaml"] = "json", ctx: AuthContext = Depends(auth),
+                   s: Session = Depends(db, scope="function")):
+    from saw.detection import exporting
+
+    document = exporting.shipped(s)
+    text, media = exporting.encode(document, format)
+    audit.record(s, "detection.catalog_export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
+                 target_type="detection_catalog", detail={"format": format, "count": len(document["signatures"])})
+    return Response(text, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="saw-detection-catalog.{format}"', "Cache-Control": "no-store"})

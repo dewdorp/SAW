@@ -50,6 +50,7 @@ function AttackTags({ values }: { values: string[] }) {
 
 export function DetectionCatalog() {
   const catalog = useQuery({ queryKey: ["detection-catalog"], queryFn: () => api.get<Catalog>("/detection-catalog") });
+  const exportFile = useMutation({ mutationFn: (format: "json" | "yaml") => api.download(`/detection-catalog/export?format=${format}`, `saw-detection-catalog.${format}`) });
   const [kind, setKind] = useState<Kind>("signatures");
   const [search, setSearch] = useState("");
   const [group, setGroup] = useState("");
@@ -83,6 +84,12 @@ export function DetectionCatalog() {
           <div>HTTP 2xx 응답만으로 공격 성공을 확정할 수 없습니다. 차단된 공격 시도도 차단 여부만으로 오탐으로 분류하지 않습니다.</div>
           <div className="muted">시그니처 설정은 모든 조사에 공통이며 다음 분석부터 적용됩니다. 기존 결과를 갱신하려면 재분석하고, 새 규칙의 태그가 없는 기존 자료는 증거를 다시 처리해야 합니다.</div>
         </div>
+      </Panel>
+      <Panel title="룰 내보내기">
+        <div className="row wrap"><button className="btn sm" disabled={exportFile.isPending} onClick={() => exportFile.mutate("json")}>전체 기본 룰 JSON 다운로드</button>
+          <button className="btn sm" disabled={exportFile.isPending} onClick={() => exportFile.mutate("yaml")}>전체 기본 룰 YAML 다운로드</button></div>
+        <p className="small muted">검색 필터와 관계없이 전체 기본 목록을 받습니다. 실제 일치 조건·정상 예제·현재 설정을 포함하며 코드 탐지기는 ID·버전 설명만 포함합니다.</p>
+        <ErrorBox error={exportFile.error} />
       </Panel>
       <div className="row wrap" aria-label="기본 탐지 종류">
         {tabs.map(([value, label, count]) => <button key={value} className={`btn sm ${kind === value ? "primary" : ""}`}
