@@ -12,10 +12,10 @@ type NavItem = [to: string, label: string, icon: string];
 const NAV_GROUPS: [string, NavItem[]][] = [
   ["분석", [["/", "홈", "home"], ["/analyze", "빠른 분석", "analyze"], ["/investigations", "조사 목록", "folder"], ["/board", "현황판", "board"], ["/jobs", "작업 상태", "clock"], ["/provenance", "처리 기록", "report"]]],
   ["조사·대응", [["/hunting", "위협 헌팅", "target"], ["/cases", "케이스", "briefcase"]]],
-  ["지식·탐지", [["/knowledge", "SOC 지식", "book"], ["/detections", "탐지 룰", "shield"], ["/parsers", "파서 관리", "parser"]]],
+  ["지식·탐지", [["/knowledge", "SOC 지식", "book"], ["/detections", "탐지 룰", "shield"], ["/parsers", "파서 관리", "parser"], ["/content-packages", "오프라인 룰·파서", "shield"]]],
 ];
 const SECTION: [string, string][] = [["/analyze", "빠른 분석"], ["/investigations", "조사 목록"], ["/board", "현황판"], ["/inv/", "조사 작업대"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"],
-  ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
+  ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
 const ROLE_KO: Record<string, string> = { analyst: "분석가", senior_analyst: "선임 분석가", soc_manager: "관제 매니저", viewer: "조회자", admin: "관리자" };
 
 /** null = no explicit choice: the sidebar then collapses itself on the (space-hungry) investigation workbench. */
@@ -139,7 +139,7 @@ function Palette({ onClose }: { onClose: () => void }) {
     ["빠른 분석: 페이로드 디코딩", () => nav("/analyze/payload")], ["빠른 분석: 요청 비교 (Diff)", () => nav("/analyze/diff")],
     ["빠른 분석: IOC", () => nav("/analyze/ioc")], ["빠른 분석: 로그", () => nav("/analyze/log")],
     ["조사 목록", () => nav("/investigations")], ["작업 상태", () => nav("/jobs")], ["케이스", () => nav("/cases")],
-    ["SOC 지식", () => nav("/knowledge")], ["탐지 룰", () => nav("/detections")], ["위협 헌팅", () => nav("/hunting")],
+    ["오프라인 룰·파서", () => nav("/content-packages")], ["SOC 지식", () => nav("/knowledge")], ["탐지 룰", () => nav("/detections")], ["위협 헌팅", () => nav("/hunting")],
     ...((invs.data || []) as any[]).map((i) => [`조사 ${i.display_id} ${i.title}`, () => nav(`/inv/${i.id}`)] as [string, () => void]),
   ];
   const list = cmds.filter(([l]) => l.toLowerCase().includes(q.toLowerCase())).slice(0, 12);

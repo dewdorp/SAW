@@ -6,6 +6,7 @@ import { useMe } from "../App";
 import { ErrorBox, Loading, Panel } from "../components/common";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
+import { GoldenCases, GoldenReview, type GoldenChoice } from "./Golden";
 
 const TABS: [string, string][] = [["/knowledge", "SOC 경험"], ["/knowledge/review", "승인 대기"], ["/knowledge/assets", "자산 정보"],
   ["/knowledge/fp", "오탐 규칙"], ["/knowledge/playbooks", "점검 절차"], ["/knowledge/similar", "유사 사례 검색"]];
@@ -34,11 +35,14 @@ const STATUS_ICON: Record<string, string> = { draft: "✎", review: "◐", appro
 function ExperienceList({ queue }: { queue?: boolean }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [goldenOnly, setGoldenOnly] = useState(false);
   const list = useQuery({ queryKey: ["exps", queue, status, q], queryFn: () => api.get(`/experiences?${queue ? "status=review_queue" : status ? `status=${status}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`) });
   const qc = useQueryClient();
   const create = useMutation({ mutationFn: () => api.post("/experiences", { data: { title: "새 경험", category: "attack" } }), onSuccess: () => qc.invalidateQueries({ queryKey: ["exps"] }) });
   return (
     <div className="col">
+      {!queue && <label className="row small"><input type="checkbox" checked={goldenOnly} onChange={e => setGoldenOnly(e.target.checked)} />정답 사례 보기</label>}
+      {goldenOnly ? <GoldenCases /> : <>
       <div className="row"><b>{queue ? "REVIEW QUEUE (작성자 본인 건 제외)" : "SOC EXPERIENCE"}</b>
         {!queue && <><input className="input" placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} />
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">전체</option>{["draft", "review", "approved", "deprecated"].map((s) => <option key={s}>{s}</option>)}</select></>}
@@ -52,6 +56,7 @@ function ExperienceList({ queue }: { queue?: boolean }) {
               <td>{e.data?.title}</td><td>{e.data?.category}</td><td>{e.data?.final_verdict}</td><td>{e.analyst}</td><td>{e.reviewer || "–"}</td>
               <td className="small">{fmtTime(e.expires_at)}</td><td className="small">{fmtTime(e.updated_at)}</td></tr>))}</tbody></table>
       )}
+      </>}
     </div>
   );
 }
@@ -79,9 +84,10 @@ function ExperienceEditor() {
   const [d, setD] = useState<any | null>(null);
   const [comment, setComment] = useState("");
   const [ack, setAck] = useState(false);
-  const inval = () => { qc.invalidateQueries({ queryKey: ["exp", id] }); qc.invalidateQueries({ queryKey: ["exp-revs", id] }); setD(null); };
+  const [goldenChoice, setGoldenChoice] = useState<GoldenChoice>({ valid: true });
+  const inval = () => { qc.invalidateQueries({ queryKey: ["exp", id] }); qc.invalidateQueries({ queryKey: ["exp-revs", id] }); qc.invalidateQueries({ queryKey: ["golden", id] }); setD(null); };
   const save = useMutation({ mutationFn: () => api.patch(`/experiences/${id}`, { data: d }), onSuccess: inval });
-  const act = useMutation({ mutationFn: (a: string) => api.post(`/experiences/${id}/${a}`, { comment, ack_fp_conflicts: ack }), onSuccess: inval });
+  const act = useMutation({ mutationFn: (a: string) => api.post(`/experiences/${id}/${a}`, { comment, ack_fp_conflicts: ack, ...(a === "approve" && goldenChoice.payload ? { golden: goldenChoice.payload } : {}) }), onSuccess: inval });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   const e = q.data;
@@ -110,6 +116,7 @@ function ExperienceEditor() {
         <ListEditor label="False positive conditions (SAW Query Model: field / op / value)" items={data.false_positive_conditions || []} keys={["field", "op", "value"]} onChange={(v) => set("false_positive_conditions", v)} />
         {e.fp_conflicts?.matches > 0 && <div className="tag bad">⚠ FP 조건이 확정 공격 이벤트 {e.fp_conflicts.matches}건과 일치: {e.fp_conflicts.investigations.map((i: any) => i.display_id).join(", ")}</div>}
         <ListEditor label="Detection conditions" items={data.detection_conditions || []} keys={["logic", "data_source"]} onChange={(v) => set("detection_conditions", v)} />
+        <GoldenReview experience={e} onChoice={setGoldenChoice} />
         <div className="row wrap">
           {d && <button className="btn primary" onClick={() => save.mutate()}>저장 (새 revision)</button>}
           {e.status === "draft" && !d && <button className="btn" onClick={() => act.mutate("submit")}>검토 요청 (Submit)</button>}
@@ -117,7 +124,7 @@ function ExperienceEditor() {
             <input className="input grow" placeholder="검토 의견" value={comment} onChange={(x) => setComment(x.target.value)} />
             {e.fp_conflicts?.matches > 0 && <label className="row small"><input type="checkbox" checked={ack} onChange={(x) => setAck(x.target.checked)} />FP 충돌 확인함</label>}
             <button className="btn" onClick={() => act.mutate("reject")} disabled={!comment.trim()}>Reject</button>
-            <button className="btn primary" onClick={() => act.mutate("approve")}>Approve</button></>}
+            <button className="btn primary" disabled={!goldenChoice.valid || act.isPending || !!d} onClick={() => act.mutate("approve")}>경험 승인</button></>}
           {e.status === "review" && !canApprove && <span className="muted small">작성자와 다른 Senior/Manager가 승인해야 합니다 (4-eyes).</span>}
           {e.status === "approved" && me.data?.permissions.includes("knowledge.approve") && <button className="btn ghost" onClick={() => act.mutate("deprecate")}>Deprecate</button>}
         </div>

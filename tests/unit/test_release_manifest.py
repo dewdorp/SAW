@@ -83,3 +83,26 @@ def test_public_guides_are_required_and_copied_with_start_here(tmp_path, monkeyp
     (source / build_release.PUBLIC_DOCS[-1]).unlink()
     with pytest.raises(BundleError, match="public guide missing"):
         build_release.copy_public_guides(tmp_path / "incomplete")
+
+
+def test_source_assembly_ships_guidance_rules_but_not_unlisted_data(tmp_path, monkeypatch):
+    from saw.devtools import build_release
+    source = tmp_path / "source"
+    files = {
+        "saw/core/application/guidance.py": "# synthetic module",
+        "saw/core/application/guidance_rules.yaml": "version: test",
+        "saw/content_packages/example.py": "# synthetic example",
+        "saw/core/application/private.json": "synthetic private state",
+        "saw/.env": "synthetic configuration",
+        "saw/__pycache__/cache.py": "synthetic cache",
+    }
+    for rel, content in files.items():
+        path = source / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(build_release, "ROOT", source)
+    out = tmp_path / "media"
+    build_release.copy_app_sources(out)
+    shipped = {p.relative_to(out / "app").as_posix() for p in (out / "app").rglob("*") if p.is_file()}
+    assert shipped == set(list(files)[:3])
+    assert (out / "app/saw/core/application/guidance_rules.yaml").read_text() == "version: test"

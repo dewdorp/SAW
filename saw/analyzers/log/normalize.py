@@ -164,6 +164,23 @@ def _int(v) -> int | None:
 def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: str = "Asia/Seoul") -> dict:
     """Fill derived/enrichment fields on a CES event in place."""
     en = enricher or default_enricher()
+    # Explicit appliance actions only: an HTTP status never proves blocking or allowing.
+    action_keys = {"action", "securityaction", "wafaction", "차단여부", "조치", "대응"}
+    actions = []
+    ext = ev.get("ext") or {}
+    sources = [ev, ext] + [v for v in ext.values() if isinstance(v, dict)]
+    for source in sources:
+        for key, value in source.items():
+            if str(key).lower().replace("_", "").replace(" ", "") in action_keys and isinstance(value, str):
+                word = value.strip().lower()
+                if word in {"block", "blocked", "deny", "denied", "drop", "차단"}:
+                    actions.append("blocked")
+                elif word in {"allow", "allowed", "permit", "permitted", "pass", "허용", "통과"}:
+                    actions.append("allowed")
+    if len(set(actions)) == 1:
+        ev["enforcement_action"] = actions[0]
+    elif actions:
+        ev["enforcement_action"] = "conflicting"
     if "timestamp_raw" in ev and not ev.get("timestamp"):
         ev["timestamp"], ev["timestamp_quality"] = parse_time(ev["timestamp_raw"], assumed_tz)
     for k in ("src_port", "dst_port", "status_code", "bytes_in", "bytes_out"):

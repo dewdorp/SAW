@@ -31,6 +31,9 @@ class CloseIn(BaseModel):
     detection_idea: str = ""
     limits: str = ""  # what could not be established ("closed with limits" is said, not hidden)
     save_experience: bool = False
+    behavior_assessment: str = Field("", max_length=5000)
+    impact_assessment: str = Field("", max_length=5000)
+    follow_up: list[dict] = Field(default_factory=list, max_length=30)
 
 
 def inv_out(s: Session, i: Investigation) -> dict:
@@ -94,9 +97,19 @@ def add_member(inv_id: str, body: MemberIn, ctx: AuthContext = Depends(auth), s:
 
 @router.post("/{inv_id}/close")
 def close(inv_id: str, body: CloseIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from saw.core.application.guidance import FollowUp, build_closure_draft
+    draft = build_closure_draft(s, ctx.principal, inv_id)
+    extra = [FollowUp.model_validate({k: v for k, v in x.items() if k != "check_id"}).model_dump() for x in body.follow_up]
+    draft["behavior_assessment"] = body.behavior_assessment.strip() or draft["behavior_assessment"]
+    draft["impact_assessment"] = body.impact_assessment.strip() or draft["impact_assessment"]
+    known = [{k: v for k, v in x.items() if k != "check_id"} for x in draft["follow_up"]]
+    for item in extra:
+        if item not in known:
+            draft["follow_up"].append(item)
+            known.append(item)
     i = inv_svc.close(s, ctx.principal, inv_id, body.verdict, body.reason,
                       {"checks": body.checks, "response": body.response, "detection_idea": body.detection_idea,
-                       "limits": body.limits.strip()[:1000]})
+                       "limits": body.limits.strip()[:1000], "guidance": draft})
     from saw.core.application import reviews
 
     need = reviews.on_close(s, ctx.principal, i)  # an attack verdict goes into reports: someone else looks at it

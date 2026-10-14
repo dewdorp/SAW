@@ -31,3 +31,6 @@ offline-bundle/
 models/
 *.gguf
 *.safetensors
+
+# Per-task implementation ledgers and private review scratch
+.superpowers/

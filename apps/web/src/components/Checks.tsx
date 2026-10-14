@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { fmtNum, fmtTime } from "../lib/format";
 import { ErrorBox } from "./common";
+import { ANSWER_STATES, GuidanceResponseFields, type GuidanceResponse } from "./GuidanceResponse";
 
 /** Confirmation records: what was checked (the question), how it was judged, how far (one / sample / all). */
 export const QUESTIONS: [string, string, string][] = [
@@ -20,7 +21,7 @@ export type Target = {
   /** search-result targets: the query, how many records match and the ids of the first loaded rows */
   set?: { query: unknown; total: number | null; loaded: string[] };
 };
-export type Mark = { id: string; questions: string[]; judgement: string | null; author: string; kind: string; coverage: string; shared: boolean; source_state: string };
+export type Mark = { id: string; questions: string[]; judgement: string | null; author: string; kind: string; coverage: string; shared: boolean; source_state: string; guidance_status?: string };
 export type Marks = { events: Record<string, Mark[]>; entities: Record<string, Mark[]>; findings: Record<string, Mark[]> };
 
 export function useMarks(inv: string) {
@@ -32,7 +33,7 @@ export function MarkBadges({ own, parent }: { own?: Mark[]; parent?: Mark[] }) {
   const one = (m: Mark, i: number, up: boolean) => (
     <span key={(up ? "p" : "o") + m.id + i} className={`ck ${m.judgement || "none"} ${up ? "up" : ""} ${m.kind === "cited" ? "cited" : ""}`}
       title={`${up ? "상위 대상(주소·이름)에 대한 확인 — 이 기록을 직접 판단한 것은 아님\n" : ""}${m.kind === "cited" ? "다른 조사의 확인을 참고\n" : ""}확인: ${m.questions.map((q) => Q_KO[q]).join(", ")}${m.judgement ? `\n판단: ${J_KO[m.judgement]}` : "\n판단 없음"}${COVER_KO[m.coverage] ? `\n범위: ${COVER_KO[m.coverage]}` : ""}\n${m.author}`}>
-      {up ? "↑" : "✓"}{m.judgement ? J_KO[m.judgement] : "확인"}{m.coverage === "sample" ? "·표본" : ""}
+      {m.guidance_status && m.guidance_status !== "answered" ? ANSWER_STATES[m.guidance_status] : <>{up ? "↑" : "✓"}{m.judgement ? J_KO[m.judgement] : "확인"}</>}{m.coverage === "sample" ? "·표본" : ""}
     </span>);
   if (!own?.length && !parent?.length) return null;
   return <span className="ck-row">{(own || []).slice(0, 2).map((m, i) => one(m, i, false))}{(parent || []).slice(0, 1).map((m, i) => one(m, i, true))}
@@ -40,10 +41,18 @@ export function MarkBadges({ own, parent }: { own?: Mark[]; parent?: Mark[] }) {
 }
 
 /** "확인 기록" window: the question(s), an optional judgement with a one-line reason, the range, optional sharing. */
-export function CheckDialog({ inv, target, edit, onClose }: { inv: string; target: Target; edit?: any; onClose: () => void }) {
+export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evidenceOptions = [], onClose }: { inv: string; target: Target; edit?: any; guidance?: GuidanceResponse; evidenceOptions?: string[]; onClose: () => void }) {
   const qc = useQueryClient();
+  const [selectedEvidence, setSelectedEvidence] = useState<string[]>(edit?.evidence || target.evidence || []);
+  const [guidance, setGuidance] = useState<GuidanceResponse | undefined>(edit?.guidance || initialGuidance);
+  const editEvidence = useQuery<{ queries: { evidence_refs?: string[] }[] }>({
+    queryKey: ["guidance-edit-evidence", inv, edit?.id, guidance?.scope],
+    queryFn: () => api.post(`/investigations/${inv}/guidance/preview`, guidance!.scope),
+    enabled: !!edit && !!guidance, retry: false,
+  });
+  const availableEvidence = [...new Set([...evidenceOptions, ...(editEvidence.data?.queries || []).flatMap(q => q.evidence_refs || [])])];
   const [questions, setQuestions] = useState<string[]>(edit?.questions || []);
-  const [judgement, setJudgement] = useState<string>(edit?.judgement || "");
+  const [judgement, setJudgement] = useState<string>(edit?.judgement || (guidance ? "undetermined" : ""));
   const [note, setNote] = useState<string>(edit?.note || "");
   const [coverage, setCoverage] = useState<string>(edit?.coverage || (target.type === "set" ? "sample" : "one"));
   const [sample, setSample] = useState<number>(Math.min(30, target.set?.loaded.length || 30));
@@ -52,29 +61,47 @@ export function CheckDialog({ inv, target, edit, onClose }: { inv: string; targe
   const save = useMutation({
     mutationFn: () => {
       const body: any = { questions, judgement: judgement || null, note, shared, share };
+      if (guidance) {
+        body.evidence = selectedEvidence;
+        const f = guidance.follow_up;
+        body.guidance = { methodology_version: guidance.methodology_version, rule_id: guidance.rule_id, scope: guidance.scope,
+          answer_status: guidance.answer_status || "follow_up", data_states: (guidance.data_states || []).map(({ source, state, reason }) => ({ source, state, reason })), answer: note,
+          follow_up: f ? { ...f, needed_data: f.needed_data.map(x => x.trim()).filter(Boolean), items: f.items.map(x => x.trim()).filter(Boolean) } : undefined };
+      }
       if (!edit) {
         Object.assign(body, { target_type: target.type, target_key: target.key, target_label: target.label,
-          time_start: target.time?.[0] || null, time_end: target.time?.[1] || null, evidence: target.evidence || [] });
+          time_start: target.time?.[0] || null, time_end: target.time?.[1] || null, evidence: guidance ? selectedEvidence : target.evidence || [] });
         if (target.set) body.scope = coverage === "sample"
           ? { coverage, query: target.set.query, total: target.set.total, checked: sample, event_ids: target.set.loaded.slice(0, sample) }
           : { coverage: "all", query: target.set.query, total: target.set.total, checked: target.set.total };
       }
       return edit ? api.put(`/investigations/${inv}/checks/${edit.id}`, body) : api.post(`/investigations/${inv}/checks`, body);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["checks", inv] }); qc.invalidateQueries({ queryKey: ["briefing", inv] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["checks", inv] }); qc.invalidateQueries({ queryKey: ["briefing", inv] }); qc.invalidateQueries({ queryKey: ["guidance", inv] }); qc.invalidateQueries({ queryKey: ["closure-draft", inv] }); onClose(); },
   });
   const toggle = (k: string) => setQuestions(questions.includes(k) ? questions.filter((x) => x !== k) : [...questions, k]);
   const needNote = judgement === "normal" || judgement === "malicious";
-  const ok = questions.length > 0 && (!needNote || note.trim()) && (!shared || (share.fact?.trim() && share.confirmed_scope?.trim()));
+  const followOk = !guidance || (guidance.answer_status || "follow_up") !== "follow_up" || (!!guidance.follow_up?.target.trim() && guidance.follow_up.items.some(x => x.trim()) && guidance.follow_up.needed_data.some(x => x.trim()));
+  const ok = (guidance ? !!note.trim() && followOk && (guidance.answer_status !== "answered" || selectedEvidence.length > 0) : questions.length > 0) && (!needNote || note.trim()) && (!shared || (share.fact?.trim() && share.confirmed_scope?.trim()));
   return (
     <>
       <div className="overlay" onClick={onClose} />
       <div className="modal panel" role="dialog" aria-label="확인 기록" style={{ width: 580 }}>
         <div className="ph"><span className="grow">{edit ? "판단 변경" : "확인 기록"}</span><button className="btn ghost sm" onClick={onClose}>닫기</button></div>
         <div className="pb col" style={{ gap: 12 }}>
+        {guidance && <>
+          <GuidanceResponseFields value={guidance} onChange={setGuidance} />
+          <details open={guidance.answer_status === "answered"}><summary className="small">선택 근거 {selectedEvidence.length}건</summary>
+            <div className="small muted">조회 표본 중 실제로 확인한 기록만 선택하세요. 답변 기록 상태는 근거 선택이 필요합니다.</div>
+            {[...new Set([...selectedEvidence, ...availableEvidence])].map(id => <label key={id} className="row small" style={{ overflowWrap: "anywhere" }}><input type="checkbox" aria-label={`근거 선택 ${id}`} checked={selectedEvidence.includes(id)} onChange={e => setSelectedEvidence(e.target.checked ? [...selectedEvidence, id] : selectedEvidence.filter(x => x !== id))} />{id}</label>)}
+            <ErrorBox error={editEvidence.error} />
+            {editEvidence.isFetching && <div className="small muted">기존 범위에서 새 근거를 조회합니다…</div>}
+            {!availableEvidence.length && !selectedEvidence.length && <div className="small muted">선택 가능한 원문이 없습니다. 자료 부족과 후속확인으로 기록할 수 있습니다.</div>}
+          </details>
+        </>}
         <div className="small"><span className="muted">대상</span> <span className="mono">{target.label}</span></div>
         <div className="col" style={{ gap: 4 }}>
-          <div className="small muted">무엇을 확인했나요? (하나 이상)</div>
+          <div className="small muted">{guidance ? "기존 확인 분류 (선택하지 않으면 안내 항목에서 자동 분류)" : "무엇을 확인했나요? (하나 이상)"}</div>
           <div className="row wrap">{QUESTIONS.map(([k, l, hint]) => (
             <label key={k} className={`chip-check ${questions.includes(k) ? "on" : ""}`} title={hint}><input type="checkbox" checked={questions.includes(k)} onChange={() => toggle(k)} />{l}</label>))}</div>
         </div>
@@ -85,7 +112,7 @@ export function CheckDialog({ inv, target, edit, onClose }: { inv: string; targe
             {JUDGEMENTS.map(([k, l]) => <label key={k} className={`chip-check ck ${k} ${judgement === k ? "on" : ""}`}><input type="radio" name="ck-j" checked={judgement === k} onChange={() => setJudgement(k)} />{l}</label>)}
           </div>
         </div>
-        <input className="input" aria-label="근거" placeholder={needNote ? "근거 한 줄 (필수) 예) DB팀 확인: 02시 정산 배치" : "근거·메모 한 줄 (선택)"} value={note} onChange={(e) => setNote(e.target.value)} />
+        <input className="input" aria-label="근거" placeholder={guidance ? "현재 확인한 내용과 판단 근거 (필수)" : needNote ? "근거 한 줄 (필수) 예) DB팀 확인: 02시 정산 배치" : "근거·메모 한 줄 (선택)"} value={note} onChange={(e) => setNote(e.target.value)} />
         {target.set && !edit && (
           <div className="col" style={{ gap: 4 }}>
             <div className="small muted">어디까지 봤나요? (검색 결과 {target.set.total != null ? `${fmtNum(target.set.total)}건` : "건수 미확인"})</div>
@@ -95,7 +122,7 @@ export function CheckDialog({ inv, target, edit, onClose }: { inv: string; targe
             <div className="small muted">표본 확인은 전체 확인으로 세지 않으며, 보고용 요약의 유의할 점에 표시됩니다.</div>
           </div>
         )}
-        {target.type === "entity" && (
+        {target.type === "entity" && !guidance && (
           <div className="col" style={{ gap: 4 }}>
             <label className="row small"><input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} /> 다른 조사에도 공유 (같은 대상이 나오면 참고로 표시됩니다. 그 조사의 판정을 바꾸지 않습니다)</label>
             {shared && (<>
@@ -125,7 +152,7 @@ function CheckRow({ inv, c, me, canEdit, target }: { inv: string; c: any; me: st
   return (
     <div className="ck-item" style={old ? { opacity: 0.55 } : undefined}>
       <div className="row wrap small">
-        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : <span className="tag ok">직접 확인</span>}
+        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : c.guidance ? <span className="tag">{ANSWER_STATES[c.guidance.answer_status] || "답변 기록"}</span> : <span className="tag ok">직접 확인</span>}
         <b>{c.question_labels.join(" · ")}</b>
         {c.judgement ? <span className={`ck ${c.judgement}`}>{c.judgement_ko}</span> : <span className="muted">판단 없음</span>}
         {c.coverage === "sample" && <span className="tag warn">표본 {fmtNum(c.checked)} / {fmtNum(c.total)}건</span>}

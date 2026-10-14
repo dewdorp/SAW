@@ -23,6 +23,7 @@ const Workbench = lazy(() => import("./pages/inv/Workbench").then((m) => ({ defa
 const Hunting = lazy(() => import("./pages/Hunting").then((m) => ({ default: m.Hunting })));
 const Detections = lazy(() => import("./pages/Detections").then((m) => ({ default: m.Detections })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then((m) => ({ default: m.Knowledge })));
+const ContentPackages = lazy(() => import("./pages/ContentPackages").then((m) => ({ default: m.ContentPackages })));
 const Parsers = lazy(() => import("./pages/Parsers").then((m) => ({ default: m.Parsers })));
 const Briefing = lazy(() => import("./pages/Briefing").then((m) => ({ default: m.Briefing })));
 const Board = lazy(() => import("./pages/Board").then((m) => ({ default: m.Board })));
@@ -66,6 +67,7 @@ export function App() {
         <Route path="/cases/:id" element={<CaseDetail />} />
         <Route path="/knowledge/*" element={<Knowledge />} />
         <Route path="/detections/*" element={<Detections />} />
+        <Route path="/content-packages" element={<ContentPackages />} />
         <Route path="/parsers/*" element={<Parsers />} />
         <Route path="/provenance" element={<Provenance />} />
         <Route path="/hunting/*" element={<Hunting />} />

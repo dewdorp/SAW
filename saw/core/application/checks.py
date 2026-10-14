@@ -77,10 +77,12 @@ def to_dict(c: Check, full: bool = True) -> dict[str, Any]:
         "valid_until": c.valid_until, "expired": _expired(c), "state": c.state, "state_note": c.state_note,
         "state_by": c.state_by, "supersedes_id": c.supersedes_id, "author_id": c.author_id, "author": c.author_name,
         "created_at": c.created_at, "time_start": c.time_start, "time_end": c.time_end,
+        "guidance_status": scope.get("guidance", {}).get("answer_status"),
     }
     if full:
         d |= {"share": {k: mask_text(str(v)).text for k, v in (c.share or {}).items()}, "evidence": c.evidence or [],
-              "scope": {k: v for k, v in scope.items() if k != "event_ids"}, "context": c.context or {}}
+              "scope": {k: v for k, v in scope.items() if k != "event_ids"}, "context": c.context or {},
+              "guidance": scope.get("guidance"), "capture": (c.context or {}).get("guidance")}
     return d
 
 
@@ -221,8 +223,12 @@ def _share_fields(c: Check, data: dict, inv_id: str) -> None:
 
 def create(s: Session, p: Principal, inv_id: str, data: dict) -> Check:
     require(s, p, "investigation.write", inv_id)
+    from saw.core.application.guidance import attach_capture, prepare_check
+    if data.get("guidance"):
+        data = prepare_check(data)
     c = Check(investigation_id=inv_id, author_id=p.user_id, author_name=p.username, **_clean(data, inv_id))
     _share_fields(c, data, inv_id)
+    attach_capture(s, p, inv_id, c, data)
     s.add(c)
     s.flush()
     audit.record(s, "check.create", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
@@ -254,6 +260,9 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
         raise ValueError("다른 사람의 확인 기록은 고칠 수 없습니다. 내 확인 기록을 따로 남기세요")
     if old.state != "active":
         raise Conflict("이 기록은 이미 변경되었거나 취소되었습니다. 최신 내용을 다시 불러오세요")
+    from saw.core.application.guidance import attach_capture, prepare_check
+    if data.get("guidance"):
+        data = prepare_check(data)
     merged = {"target_type": old.target_type, "target_key": old.target_key, "target_label": old.target_label,
               "scope": old.scope, "questions": old.questions, "judgement": old.judgement, "note": old.note,
               "evidence": old.evidence, "time_start": old.time_start, "time_end": old.time_end,
@@ -261,6 +270,7 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
     new = Check(investigation_id=inv_id, author_id=p.user_id, author_name=p.username, kind=old.kind,
                 source_check_id=old.source_check_id, supersedes_id=old.id, **_clean(merged, inv_id))
     _share_fields(new, merged, inv_id)
+    attach_capture(s, p, inv_id, new, data, previous=old)
     old.state, old.state_by, old.updated_at = "superseded", p.username, utcnow()
     s.add(new)
     s.flush()
@@ -305,7 +315,8 @@ def list_checks(s: Session, inv_id: str, target_key: str | None = None, history:
 
 def _brief(c: Check) -> dict[str, Any]:
     return {"id": c.id, "questions": c.questions, "judgement": c.judgement, "author": c.author_name, "kind": c.kind,
-            "coverage": (c.scope or {}).get("coverage", "one"), "shared": c.shared, "source_state": c.source_state}
+            "coverage": (c.scope or {}).get("coverage", "one"), "shared": c.shared, "source_state": c.source_state,
+            "guidance_status": (c.scope or {}).get("guidance", {}).get("answer_status")}
 
 
 def lookup(s: Session, inv_id: str, event_ids: list[str], entity_keys: list[str]) -> dict[str, Any]:

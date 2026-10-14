@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saw.attack.catalog import TECHNIQUES
+from saw.content_packages.service import has_package_validation
 from saw.core.application.identity import principal_of
 from saw.core.application.investigations import access_of
 from saw.core.schemas.query import Filter
@@ -50,6 +51,9 @@ def _authorized(s: Session, det: Detection, version: DetectionVersion, inv_id: s
     if reviewer.id in (creator.id, author.id) or not can(principal_of(reviewer), "detection.approve"):
         return False
     source_inv = (det.source or {}).get("investigation_id")
+    # Reviewed synthetic package definitions are shared content without private source investigations.
+    if not source_inv and has_package_validation(s, det.id, version.version):
+        return True
     for user in (creator, author):
         principal = principal_of(user)
         for ident in {inv_id, source_inv} - {None}:
@@ -76,7 +80,8 @@ def _project_metadata(event: dict, fields: set[str]) -> tuple[dict, int]:
     return kept, size
 
 
-def _finding(det: Detection, version: DetectionVersion, rule, hits: list[dict], scanned: int) -> FindingDraft:
+def _finding(det: Detection, version: DetectionVersion, rule, hits: list[dict], scanned: int,
+             validation_kind: str = "historical_replay") -> FindingDraft:
     ids = [event["event_id"] for event in hits]
     timestamps = sorted(event["timestamp"] for event in hits if event.get("timestamp"))
     ips = sorted({str(event[key]) for event in hits for key in ("src_ip", "dst_ip") if event.get(key)})[:20]
@@ -88,6 +93,8 @@ def _finding(det: Detection, version: DetectionVersion, rule, hits: list[dict], 
         metrics=[metric("matched_events", len(hits), label="일치한 기록"), metric("scanned_events", scanned, label="검사한 기록"),
                  metric("rule_version", version.version, label="승인된 규칙 버전")],
         checks=[check("승인된 현재 버전", True, f"{det.display_id} v{version.version}"),
+                check("승인 시험 종류", True, validation_kind,
+                      "합성 양성·정상 예제 시험이며 과거 조사 재생 시험은 아닙니다" if validation_kind == "package_fixture" else "과거 조사 재생 시험"),
                 check("전체 검사 완료", True, f"{scanned:,}건"),
                 check("근거 조회 범위", True, f"{min(len(ids), EVIDENCE_LIMIT):,}/{len(ids):,}건",
                       "일치한 기록이 많으면 근거 조회는 표본으로 제한합니다")],
@@ -146,7 +153,8 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
         if (version is None or version.version != det.current_version or version.format != "sigma"
                 or version.status_at_version not in {"approved", "deployed"} or not _authorized(s, det, version, ctx.investigation_id)):
             continue
-        if not has_passing_test(s, det.id, version.version):
+        package_validated = has_package_validation(s, det.id, version.version)
+        if not package_validated and not has_passing_test(s, det.id, version.version):
             continue
         if scanned_total >= MAX_EVALUATIONS or monotonic() >= deadline:
             settled.discard(ident)
@@ -196,7 +204,7 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
                     hits.append(kept)
             hits = apply_threshold(hits, threshold)
             if hits:
-                out.append(_finding(det, version, rule, hits, scanned))
+                out.append(_finding(det, version, rule, hits, scanned, "package_fixture" if package_validated else "historical_replay"))
         except TimeoutError:
             settled.discard(ident)
             reasons["budget"] += 1

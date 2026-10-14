@@ -27,6 +27,7 @@ class CheckIn(BaseModel):
     time_end: str | None = None
     shared: bool | None = None
     share: dict[str, Any] | None = None
+    guidance: dict[str, Any] | None = None
 
 
 class LookupIn(BaseModel):

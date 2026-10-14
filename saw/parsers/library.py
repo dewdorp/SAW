@@ -71,6 +71,12 @@ def _need(p: Principal, perm: str) -> None:
         raise Forbidden(f"permission {perm} required")
 
 
+def _lock_mutation(s: Session) -> None:
+    # Packages and the library share a transaction lock before selecting a version or active row.
+    audit._head(s)
+    s.expire_all()
+
+
 def _visible(d: ParserDefinition, p: Principal) -> bool:
     return d.status != "draft" or d.created_by == p.user_id  # drafts are private to their author
 
@@ -169,6 +175,7 @@ def save(s: Session, p: Principal, name: str, spec: dict, slug: str | None = Non
     slug = slug or slugify(name)
     if not SLUG.match(slug):
         raise ValueError("slug: lower-case letters, digits, - and _ (2-47 chars)")
+    _lock_mutation(s)
     last = s.execute(select(func.max(ParserDefinition.version)).where(ParserDefinition.slug == slug)).scalar() or 0
     d = ParserDefinition(slug=slug, name=name[:128], version=last + 1, status="draft", spec=validated,
                          note=note[:2000], created_by=p.user_id, created_by_name=p.username)
@@ -182,6 +189,7 @@ def save(s: Session, p: Principal, name: str, spec: dict, slug: str | None = Non
 
 def request_share(s: Session, p: Principal, slug: str, version: int) -> dict:
     _need(p, "parser.manage")
+    _lock_mutation(s)
     d = _version(s, slug, version)
     if d.created_by != p.user_id:
         raise Forbidden("only the author can ask to share a draft")
@@ -196,6 +204,7 @@ def request_share(s: Session, p: Principal, slug: str, version: int) -> dict:
 def review(s: Session, p: Principal, slug: str, version: int, approve: bool, note: str = "") -> dict:
     """4-eyes: a reviewer other than the author approves (shared, auto-detected) or returns it to draft."""
     _need(p, "parser.approve")
+    _lock_mutation(s)
     d = _version(s, slug, version)
     if d.status != "pending":
         raise ValueError(f"version {version} is {d.status}, not waiting for review")
@@ -217,11 +226,15 @@ def review(s: Session, p: Principal, slug: str, version: int, approve: bool, not
 def set_status(s: Session, p: Principal, slug: str, enabled: bool) -> dict:
     """Turn the shared parser off (or back on). It affects everyone, so it needs the approver permission."""
     _need(p, "parser.approve")
+    _lock_mutation(s)
     want = "disabled" if enabled else "active"
     d = s.execute(select(ParserDefinition).where(ParserDefinition.slug == slug, ParserDefinition.status == want)
                   .order_by(ParserDefinition.version.desc())).scalars().first()
     if d is None:
         raise NotFound("no shared version to change")
+    if enabled and s.scalar(select(ParserDefinition.id).where(ParserDefinition.slug == slug,
+                                                              ParserDefinition.status == "active").limit(1)):
+        raise ValueError("이미 활성 버전이 있습니다. 현재 공용 버전을 먼저 검토하세요.")
     d.status = "active" if enabled else "disabled"
     audit.record(s, "parser.enable" if enabled else "parser.disable", actor_id=p.user_id, actor_name=p.username,
                  target_type="parser", target_id=f"u:{slug}", detail={"version": d.version})

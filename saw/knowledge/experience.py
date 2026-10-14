@@ -22,7 +22,7 @@ from saw.storage.models import Finding, Investigation
 
 FIELDS = ["title", "category", "event_type", "product", "asset", "attack_type", "observables", "behavior_features",
           "initial_assessment", "analysis_steps", "recommended_checks", "final_verdict", "reason", "response",
-          "false_positive_conditions", "detection_conditions", "related_case_ids", "confidence"]
+          "false_positive_conditions", "detection_conditions", "related_case_ids", "confidence", "behavior_assessment", "impact_assessment", "limits", "follow_up", "methodology_version", "check_ids", "scopes", "evidence"]
 CATEGORIES = {"attack", "benign_pattern", "false_positive", "operational", "tuning"}
 EXPIRY_DAYS = {"attack": 365, "false_positive": 180, "benign_pattern": 180, "operational": 365, "tuning": 180}
 
@@ -80,6 +80,13 @@ def draft_from_investigation(s: Session, p: Principal, inv: Investigation) -> Ex
         .order_by(Finding.risk_score.desc())).scalars()]
     top = fs[0] if fs else None
     detail = inv.close_detail or {}
+    from saw.core.application.guidance import build_closure_draft
+    from saw.storage.models import Check
+    closure = detail.get("guidance") or build_closure_draft(s, p, inv.id)
+    recorded = [s.get(Check, cid) for cid in closure.get("check_ids", [])]
+    steps = [{"step": c.note, "check_id": c.id, "questions": c.questions, "evidence_refs": c.evidence}
+             for c in recorded if c is not None and c.investigation_id == inv.id]
+    steps += [{"step": text, "source": "analyst_close_entry"} for text in detail.get("checks", []) if text]
     verdict = inv.verdict or "unknown"
     category = {"attack": "attack", "false_positive": "false_positive", "normal": "benign_pattern"}.get(verdict, "operational")
     observables = []
@@ -96,12 +103,14 @@ def draft_from_investigation(s: Session, p: Principal, inv: Investigation) -> Ex
         "observables": observables[:15],
         "behavior_features": from_findings(fs[:10]),
         "initial_assessment": "; ".join(f"{f['display_id']} {f['title']}" for f in fs[:5]),
-        "analysis_steps": [{"step": f"Finding {f['display_id']} 검토", "finding": f["title"]} for f in fs[:5]],
+        "analysis_steps": steps,
         "recommended_checks": [{"check": c, "why": "Close 시 수행", "how": ""} for c in detail.get("checks", [])],
         "final_verdict": verdict, "reason": inv.verdict_reason or "", "response": detail.get("response", ""),
         "false_positive_conditions": [], "detection_conditions":
             ([{"logic": detail["detection_idea"], "data_source": "web"}] if detail.get("detection_idea") else []),
         "related_case_ids": [], "confidence": "medium",
+        **{key: closure.get(key) for key in ("behavior_assessment", "impact_assessment", "limits", "follow_up",
+                                            "methodology_version", "check_ids", "scopes", "evidence")},
     }
     e = create(s, p, data, source_inv=inv.id)
     _snapshot(s, e, p.username, f"auto-draft from {inv.display_id}")

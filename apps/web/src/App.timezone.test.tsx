@@ -64,14 +64,14 @@ it("updates workbench and overview when the time-zone button is toggled without 
   expect(header.textContent).toContain(kst);
   expect(summary.textContent).toContain(kst);
 
-  fireEvent.click(screen.getByRole("button", { name: "참고 정보 숨기기" }));
+  fireEvent.click(screen.getByRole("button", { name: "조사 안내·참고 숨기기" }));
   fireEvent.click(screen.getByTitle("표시 시간대 전환"));
   expect(screen.getByTitle("표시 시간대 전환").textContent).toContain("UTC");
   await waitFor(() => {
     expect(header.textContent).toContain(utc);
     expect(summary.textContent).toContain(utc);
   });
-  expect(screen.getByRole("button", { name: "참고 정보 보기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "조사 안내·참고 보기" })).toBeTruthy();
 
   fireEvent.click(screen.getByTitle("표시 시간대 전환"));
   expect(screen.getByTitle("표시 시간대 전환").textContent).toContain("KST");
@@ -79,7 +79,7 @@ it("updates workbench and overview when the time-zone button is toggled without 
     expect(header.textContent).toContain(kst);
     expect(summary.textContent).toContain(kst);
   });
-  expect(screen.getByRole("button", { name: "참고 정보 보기" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "조사 안내·참고 보기" })).toBeTruthy();
 });
 
 

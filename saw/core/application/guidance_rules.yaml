@@ -1,0 +1,73 @@
+id: soc-guidance
+version: '1.0'
+rules:
+  - id: A
+    applies_when: explicit_blocked_and_allowed
+    question: 허용된 요청의 실제 처리 결과를 확인해야 합니다.
+    purpose: 일부 차단을 전체 방어 성공과 구분합니다.
+    needed_sources: [WAF 요청, 원본 웹·WAS 처리 기록]
+    allowed_actions: [filter_allowed, open_evidence, add_evidence, record_answer, request_follow_up]
+    resolution_conditions: [허용 요청과 동일 시간·자산의 처리 결과 근거, 미확보 자료와 담당·필요 자료가 있는 후속확인]
+    missing_or_conflicting: 자료 부족이나 서로 다른 결과를 명시하고 판단 범위를 제한한다.
+    exit_conditions: 근거가 연결된 답변 또는 구체적인 후속확인을 기록한다.
+    forbidden_claims: [모두 차단됨, 당사 영향 없음]
+  - id: B
+    applies_when: attack_pattern_without_queried_reputation
+    question: 외부 평판보다 현재 내부 요청의 공격 근거를 먼저 검토하세요.
+    purpose: 평판 미조회·미신고를 정상 판정으로 바꾸지 않습니다.
+    needed_sources: [내부 요청, 관련 탐지, 외부 평판 조회 상태]
+    allowed_actions: [open_evidence, record_answer, request_follow_up]
+    resolution_conditions: [공격성 요청의 구체적인 근거와 범위를 기록, 평판의 조회 상태를 명시]
+    missing_or_conflicting: 미조회와 조회 후 일치 없음은 구분한다.
+    exit_conditions: 현재 요청 판단과 외부정보 한계를 기록한다.
+    forbidden_claims: [신고가 없으므로 정상, IP만으로 공격자 확정]
+  - id: C
+    applies_when: repeated_external_connections
+    question: 반복 외부 통신의 프로세스·계정·대상 서비스와 정상업무 여부를 확인하세요.
+    purpose: 반복 통신을 감염이나 C2 확정과 구분합니다.
+    needed_sources: [연결 기록, 프로세스·계정 정보, 정상업무 승인]
+    allowed_actions: [open_evidence, add_evidence, record_answer, request_follow_up]
+    resolution_conditions: [해당 자산·시간의 프로세스와 서비스 근거, 접근 불가일 때 담당·자료·기간 후속확인]
+    missing_or_conflicting: 권한 없음이나 미수집을 감염 또는 정상 근거로 쓰지 않는다.
+    exit_conditions: 근거와 판단 범위 또는 후속확인을 기록한다.
+    forbidden_claims: [주기성만으로 감염 확정, 반복 통신만으로 C2 확정]
+  - id: D
+    applies_when: existing_normal_business_reference
+    question: 이번 관측의 출발지·대상·시간·방법이 승인된 업무 범위와 맞는지 확인하세요.
+    purpose: 과거 정상 이력을 이번 사건의 정상 판정으로 확대하지 않습니다.
+    needed_sources: [승인된 점검 기록, 현재 요청·자산·시간·방법]
+    allowed_actions: [open_evidence, record_answer, request_follow_up]
+    resolution_conditions: [출발지·대상·시간·방법 네 조건의 일치 여부와 승인 근거, 불일치 조건을 제한사항으로 기록]
+    missing_or_conflicting: 비교 정보가 없으면 일치로 표시하지 않는다.
+    exit_conditions: 이번 사건의 범위에 한정된 판단과 근거를 기록한다.
+    forbidden_claims: [이 IP는 영구 정상, 과거 정상이므로 이번에도 정상]
+  - id: E
+    applies_when: http_200_or_large_response
+    question: HTTP 응답의 의미와 실제 처리·데이터 접근 결과를 확인하세요.
+    purpose: HTTP 200이나 응답 크기만으로 성공·유출을 확정하지 않습니다.
+    needed_sources: [응답 원문, 서비스 처리 기록, 데이터 접근 근거]
+    allowed_actions: [open_evidence, add_evidence, record_answer, request_follow_up]
+    resolution_conditions: [실제 처리 결과를 입증하는 연결 근거, 자료 부족과 추가 확인 대상을 기록]
+    missing_or_conflicting: 상태 코드와 서비스 처리 의미가 다르면 각각 기록한다.
+    exit_conditions: 시도·처리 결과·영향을 구분하여 기록한다.
+    forbidden_claims: [HTTP 200이므로 침해 성공, 큰 응답이므로 정보유출]
+  - id: F
+    applies_when: missing_failed_unqueried_or_incomplete_data
+    question: 부족한 자료와 필요한 확인 대상·시간·자료를 남기세요.
+    purpose: 조회 실패·권한 없음·미수집·일치 없음의 상태를 보존합니다.
+    needed_sources: [조회 영수증, 자료 상태, 수집·조회 범위]
+    allowed_actions: [add_evidence, record_answer, request_follow_up]
+    resolution_conditions: [자료 상태와 구체적인 한계, 후속확인 대상과 필요 자료]
+    missing_or_conflicting: 실패를 0건이나 정상으로 변환하지 않는다.
+    exit_conditions: 미확인과 후속확인으로 종결할 수 있다.
+    forbidden_claims: [조회 실패이므로 정상, 자료가 없으므로 영향 없음]
+  - id: G
+    applies_when: evidenced_direct_compromise_answer
+    question: 직접 침해 근거를 우선 검토하고 기존 보고·상향 절차를 진행하세요.
+    purpose: 기본 질문 완료를 기다리지 않고 중요한 근거와 보고를 우선합니다.
+    needed_sources: [직접 실행·침해·영향 근거, 분석가 판단 이유]
+    allowed_actions: [open_evidence, open_review, record_answer, request_follow_up]
+    resolution_conditions: [검증된 직접 근거와 영향 범위, 보고·상향 필요 사항]
+    missing_or_conflicting: 근거 충돌은 검토 대상과 제한사항으로 남긴다.
+    exit_conditions: 기존 검토·보고로 연결하며 모든 질문 응답을 요구하지 않는다.
+    forbidden_claims: [자동 차단 완료, 자동 정책 변경 완료]

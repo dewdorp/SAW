@@ -94,7 +94,7 @@ export function Workbench() {
           <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); qc.invalidateQueries({ queryKey: ["inv", id] }); }}>재분석</button>
           <Link className="btn sm" to={`/inv/${id}/report`} title="임원 보고용으로 한 장에 정리한 화면 (인쇄·PDF 저장)"><Icon name="report" size={14} /> 보고용 요약</Link>
           <button className="btn sm ghost" aria-expanded={left} aria-controls="workbench-evidence" onClick={() => setLeft(!left)}>{left ? "증거·필터 숨기기" : "증거·필터 보기"}</button>
-          <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "참고 정보 숨기기" : "참고 정보 보기"}</button>
+          <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "조사 안내·참고 숨기기" : "조사 안내·참고 보기"}</button>
           {i.status !== "closed" && <button className="btn sm primary" onClick={() => setClosing(true)}>조사 종결</button>}
         </div>
         <div className="row wrap small" style={{ gap: 16, color: "var(--fg-1)" }}>

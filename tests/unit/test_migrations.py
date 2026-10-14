@@ -86,3 +86,21 @@ def test_sqlite_upgrade_with_data_keeps_rows_and_foreign_keys(tmp_path):
         assert c.exec_driver_sql("SELECT total_size FROM ev_evidence WHERE id='e1'").scalar() == 3000000000
         assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
     assert _diff(eng) == []
+
+
+def test_content_upgrade_keeps_existing_development_tables(tmp_path):
+    """Adopting a create_all development schema must retain applied content lineage."""
+    eng = make_engine(f"sqlite:///{(tmp_path / 'partial-content.db').as_posix()}")
+    assert upgrade(eng, "0012") == "0012"
+    binding = Base.metadata.tables["cp_binding"]
+    binding.create(eng)
+    with eng.begin() as c:
+        c.execute(binding.insert().values(kind="sigma", source_id="synthetic", target_id="rule1",
+                                         source_version=1, max_source_version=2, payload_digest="f" * 64))
+    assert upgrade(eng) == head()
+    assert upgrade(eng) == head()
+    with eng.connect() as c:
+        row = c.execute(binding.select()).mappings().one()
+        assert (row["source_version"], row["max_source_version"], row["payload_digest"]) == (1, 2, "f" * 64)
+        assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+    assert _diff(eng) == []

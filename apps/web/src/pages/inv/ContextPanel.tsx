@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import { TeamChecks } from "../../components/Checks";
 import { Panel } from "../../components/common";
 import { Assistant } from "./Assistant";
+import { GuidancePanel } from "./GuidancePanel";
 import { entityKey, useInv } from "../../context/invContext";
 import { api, ApiError } from "../../lib/api";
 
-/** Right context: Asset → Similar Cases → Our SOC Experience → SOC Assistant (fixed order, docs/15 §1.4). */
+/** Scoped investigation guidance followed by existing reference knowledge and optional assistance. */
 export function ContextPanel({ inv }: { inv: string }) {
   const ctx = useInv(inv);
   const key = ctx.findingId || (ctx.selection ? `${ctx.selection.type}:${ctx.selection.value}` : "inv");
@@ -20,6 +21,8 @@ export function ContextPanel({ inv }: { inv: string }) {
   return (
     <div className="col" style={{ padding: 6 }}>
       <div className="small muted">기준: {ctx.findingId ? "선택한 Finding" : ctx.selection ? `${ctx.selection.type} ${ctx.selection.value}` : "Investigation 전체"}</div>
+      <GuidancePanel inv={inv} />
+      <div className="small muted">아래 지식은 참고 자료입니다. 위 조사 안내의 시간·필터 범위에 대한 확인 결과와 구분하세요.</div>
       {ctx.selection && <TeamChecks inv={inv} keys={[entityKey(ctx.selection)]} />}
       <Panel title="자산 정보">
         {d.assets?.length ? d.assets.map((a: any) => (

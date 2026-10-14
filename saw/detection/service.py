@@ -145,6 +145,13 @@ def candidate_from_finding(f: Finding) -> dict:
 
 
 # ------------------------------------------------------------------ CRUD / workflow
+def _lock_mutation(s: Session) -> None:
+    # Content packages and manual workflows must serialize before reading live versions.
+    # The audit-head row is held through commit on both PostgreSQL and SQLite.
+    audit._head(s)
+    s.expire_all()
+
+
 def _latest(s: Session, det_id: str) -> DetectionVersion:
     v = s.execute(select(DetectionVersion).where(DetectionVersion.detection_id == det_id)
                   .order_by(DetectionVersion.version.desc()).limit(1)).scalars().first()
@@ -186,6 +193,7 @@ def create(s: Session, p: Principal, data: dict, source: dict | None = None) -> 
     errs = _validate(data.get("format", "sigma"), data.get("logic", ""))
     if errs:
         raise ValueError("; ".join(errs))
+    _lock_mutation(s)
     d = Detection(display_id=next_display_id(s, "DET", daily=False, width=4), created_by=p.user_id, created_by_name=p.username,
                   source=source or {})
     s.add(d)
@@ -222,11 +230,12 @@ def from_finding(s: Session, p: Principal, finding_id: str) -> Detection:
 
 
 def update(s: Session, p: Principal, det_id: str, data: dict) -> Detection:
+    if not can(p, "detection.write"):
+        raise Forbidden("detection.write")
+    _lock_mutation(s)
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    if not can(p, "detection.write"):
-        raise Forbidden("detection.write")
     cur = _latest(s, det_id)
     merged = {k: getattr(cur, k) for k in ("title", "description", "data_source", "format", "logic", "threshold", "exceptions",
                                            "false_positive", "severity", "confidence", "test_events", "attack")}
@@ -353,6 +362,8 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
             raise Forbidden("시험 중 조사 자료가 변경되어 결과를 저장하지 않았습니다. 다시 시험하세요.")
         if current.verdict != verdict[iid]:
             raise ValueError("조사 판단이 변경되었습니다. 탐지 시험을 다시 실행하세요.")
+    # Acquire the content/audit lock before the detection row, matching package and manual edits.
+    _lock_mutation(s)
     # Keep the version check and final status transition atomic with concurrent rule edits.
     s.execute(sql_update(Detection).where(Detection.id == det_id).values(id=det_id)
               .execution_options(synchronize_session=False))
@@ -382,11 +393,12 @@ def has_passing_test(s: Session, det_id: str, version: int) -> bool:
 
 
 def approve(s: Session, p: Principal, det_id: str) -> Detection:
+    if not can(p, "detection.approve"):
+        raise Forbidden("detection.approve")
+    _lock_mutation(s)
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    if not can(p, "detection.approve"):
-        raise Forbidden("detection.approve")
     v = _latest(s, det_id)
     if v.created_by == p.username or d.created_by == p.user_id:
         raise Forbidden("reviewer must differ from the creator (4-eyes)")
@@ -400,6 +412,7 @@ def approve(s: Session, p: Principal, det_id: str) -> Detection:
 
 def record_deployment(s: Session, p: Principal, det_id: str, target: str, note: str) -> Detection:
     """SAW does not deploy. A human deploys via the existing rule-management process and records it here."""
+    _lock_mutation(s)
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
@@ -414,11 +427,12 @@ def record_deployment(s: Session, p: Principal, det_id: str, target: str, note: 
 
 
 def deprecate(s: Session, p: Principal, det_id: str) -> Detection:
+    if not can(p, "detection.approve"):
+        raise Forbidden("detection.approve")
+    _lock_mutation(s)
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    if not can(p, "detection.approve"):
-        raise Forbidden("detection.approve")
     d.status = "deprecated"
     audit.record(s, "detection.deprecate", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id)
     return d

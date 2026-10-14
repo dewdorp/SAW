@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from saw import container
 from saw.apps.api.deps import AuthContext, auth, db, require_perm
+from saw.apps.api.routers.golden import LinkedGoldenDecision
 from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.schemas.query import AggRequest, Filter
@@ -27,6 +28,7 @@ class ExpIn(BaseModel):
 class ReviewIn(BaseModel):
     comment: str = ""
     ack_fp_conflicts: bool = False
+    golden: LinkedGoldenDecision | None = None
 
 
 class AssetIn(BaseModel):
@@ -109,7 +111,16 @@ def submit_exp(eid: str, ctx: AuthContext = Depends(require_perm("knowledge.writ
 
 @router.post("/experiences/{eid}/approve")
 def approve_exp(eid: str, body: ReviewIn, ctx: AuthContext = Depends(require_perm("knowledge.approve")), s: Session = Depends(db, scope="function")):
-    return exp_svc.to_dict(exp_svc.approve(s, ctx.principal, eid, body.comment, body.ack_fp_conflicts))
+    e = exp_svc.approve(s, ctx.principal, eid, body.comment, body.ack_fp_conflicts)
+    if body.golden:
+        from saw.knowledge import golden
+        from saw.knowledge.golden_models import GoldenVersion
+        g = s.get(GoldenVersion, body.golden.version_id)
+        if g is None or g.experience_id != eid:
+            raise ValueError("golden_experience_mismatch")
+        golden.review(s, ctx.principal, body.golden.version_id,
+                      **body.golden.model_dump(exclude={"version_id"}))
+    return exp_svc.to_dict(e)
 
 
 @router.post("/experiences/{eid}/reject")

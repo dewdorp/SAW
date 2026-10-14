@@ -12,6 +12,14 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
  'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
 PUBLIC_DOCS = (
+ 'docs/OFFLINE-CONTENT-GUIDE.md','docs/GUIDANCE-GOLDEN-GUIDE.md',
+ 'docs/GUIDANCE-CONTENT-VALIDATION-2026-10-15.md',
+ 'docs/verification/guidance-content-http-2026-10-15.json',
+ 'docs/assets/guidance-content/02-closure.jpg','docs/examples/guidance-waf-synthetic.csv',
+ 'examples/content-packages/synthetic-rules-parsers.json',
+ 'examples/content-packages/synthetic-rules-parsers-r2.json',
+ 'examples/content-packages/synthetic-demo.log','examples/content-packages/synthetic-demo-r2.log',
+ 'examples/content-packages/SHA256SUMS.txt',
  'docs/INSTALL-WINDOWS.md','docs/LOCAL-AI-DESIGN.md','docs/LOCAL-MODEL-GUIDE.md',
  'docs/LOCAL-AI-VALIDATION-2026-10-12.md','docs/OFFLINE-RELEASE-2026-10-12.md',
  'docs/OFFLINE-RELEASE-VALIDATION-2026-10-12.md','docs/USER-MANUAL.md',
@@ -44,6 +52,18 @@ def copy_public_guides(out: Path):
     copy_file(ROOT / 'docs/INSTALL-WINDOWS.md', out / 'INSTALL-WINDOWS.md')
     copy_file(ROOT / 'docs/OFFLINE-RELEASE-2026-10-12.md', out / 'START-HERE.md')
 
+
+def copy_app_sources(out: Path):
+    # Only executable source modules, migrations, and authored detector YAML enter app/saw.
+    for p in (ROOT/'saw').rglob('*'):
+        if not p.is_file() or '__pycache__' in p.parts: continue
+        if p.suffix != '.py' and p.relative_to(ROOT).as_posix() not in {
+            'saw/storage/migrations/script.py.mako',
+            'saw/core/application/guidance_rules.yaml',
+            'saw/detectors/packs/ndr_policies.yaml','saw/detectors/packs/scenarios.yaml',
+            'saw/detectors/packs/web_extended_signatures.yaml','saw/detectors/packs/web_signatures.yaml'}: continue
+        copy_file(p,out/'app'/p.relative_to(ROOT))
+
 def assemble(inputs: Path, out: Path, native: Path | None = None):
     if out.exists(): raise BundleError('output must be a fresh directory')
     if native is None: raise BundleError('native AI runtime required for this release')
@@ -62,14 +82,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
         if rel.split('/')[0] in allowed and not rel.endswith('python-3.12.10-amd64.exe'):
             copy_file(inputs/rel,out/rel)
     copy_file(inputs/'provenance.json',out/'provenance.json')
-    # Only executable source modules, migrations, and authored detector YAML enter app/saw.
-    for p in (ROOT/'saw').rglob('*'):
-        if not p.is_file() or '__pycache__' in p.parts: continue
-        if p.suffix != '.py' and p.relative_to(ROOT).as_posix() not in {
-            'saw/storage/migrations/script.py.mako',
-            'saw/detectors/packs/ndr_policies.yaml','saw/detectors/packs/scenarios.yaml',
-            'saw/detectors/packs/web_extended_signatures.yaml','saw/detectors/packs/web_signatures.yaml'}: continue
-        copy_file(p,out/'app'/p.relative_to(ROOT))
+    copy_app_sources(out)
     for rel in PUBLIC_DATA + ('pyproject.toml',):
         if (ROOT/rel).is_file(): copy_file(ROOT/rel,out/'app'/rel)
     for name in WINDOWS_FILES:
