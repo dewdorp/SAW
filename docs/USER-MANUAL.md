@@ -8,6 +8,8 @@
 
 ## 2026-10-14 추가 기능 빠른 안내
 
+- [새 통계·시간별 이상행위: 가상160건과 단계별 화면](STATISTICS-TEMPORAL-GUIDE.md)
+- [약8B 한국어·보안 후보와 다운로드·폐쇄망 반입](MODEL-8B-KOREAN-SECURITY-GUIDE.md)
 - [스크린샷으로 따라하기: 관리자 삭제·룰·로그 통계](ADMIN-RULES-ANALYTICS-GUIDE.md)
 - [룰 등록·시험·승인·Export 상세](DETECTION-RULES-HOWTO.md)
 - [16GB 무GPU 한국어 모델 추천·반입·등록](MODEL-16GB-KOREAN-GUIDE.md)

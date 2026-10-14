@@ -4,6 +4,8 @@
 
 16GB·무GPU 서버의 한국어 후보 비교와 후보별 반입 조건은 [16GB 한국어 모델 가이드](MODEL-16GB-KOREAN-GUIDE.md)를 확인하세요. 추천 후보는 아직 실제 실행·품질 검증 전이며 현재 모델을 자동으로 바꾸지 않습니다.
 
+약 8B 후보를 원하는 경우 [8B 한국어·보안 모델 가이드](MODEL-8B-KOREAN-SECURITY-GUIDE.md)의 공식 버전·권리·실행기 호환·준비 PC 절차를 먼저 확인하세요. 한국어와 보안 품질을 모두 입증한 모델은 아직 채택하지 않았습니다.
+
 ## 1. 반입할 파일 준비
 
 현재 지원 대상은 Llama 3 계열 GGUF(`Q4_K_M`, `Q5_K_M`, `Q8_0`)와 그 파일에 맞는 원본 `config.json`, `tokenizer_config.json`, LICENSE/NOTICE입니다. GGUF에는 실제 토크나이저가 들어 있어야 합니다. 임의 Hugging Face 폴더, safetensors, 다른 아키텍처, 사용자 스크립트와 Jinja template은 바로 실행하지 않습니다. 지원 밖 모델에는 별도 adapter 검증이 필요합니다.

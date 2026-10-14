@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-14",
+  "synthetic_only": true,
+  "backend": {
+    "passed": 830,
+    "skipped": 2,
+    "seconds": 234.68
+  },
+  "ui": {
+    "passed": 132,
+    "files": 26,
+    "seconds": 9.06,
+    "tsc_exit_code": 0,
+    "build_exit_code": 0,
+    "build_seconds": 21.1
+  },
+  "native": {
+    "postgresql": "16.15",
+    "opensearch": "2.19.6",
+    "native_api_passed": 26,
+    "additional_unit_passed": 8,
+    "seconds": 188.46,
+    "owned_processes_stopped": true,
+    "ports_closed": true
+  },
+  "benchmark": {
+    "synthetic_only": true,
+    "runtime": "OpenSearch2.19.6",
+    "heap_mb": 512,
+    "events": 10000,
+    "groups": 50,
+    "scope": "Service calls on real isolated OpenSearch; excludes API auth/browser; same data and current store; no concurrent indexing/tests",
+    "results": {
+      "prior_service_29950d7_current_store": [
+        {
+          "milliseconds": 1376.937,
+          "store_method_calls": {
+            "count": 53,
+            "search": 102,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 157
+        },
+        {
+          "milliseconds": 443.03,
+          "store_method_calls": {
+            "count": 53,
+            "search": 102,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 157
+        },
+        {
+          "milliseconds": 354.014,
+          "store_method_calls": {
+            "count": 53,
+            "search": 102,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 157
+        }
+      ],
+      "current_service": [
+        {
+          "milliseconds": 403.371,
+          "store_method_calls": {
+            "count": 3,
+            "search": 2,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 7
+        },
+        {
+          "milliseconds": 32.17,
+          "store_method_calls": {
+            "count": 3,
+            "search": 2,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 7
+        },
+        {
+          "milliseconds": 23.58,
+          "store_method_calls": {
+            "count": 3,
+            "search": 2,
+            "group_by": 1,
+            "histogram_metrics": 1
+          },
+          "total_store_calls": 7
+        }
+      ]
+    },
+    "bytes_out_order_correct": true,
+    "target_ltsc_acceptance": false
+  },
+  "live_http": {
+    "synthetic_only": true,
+    "investigation_id": "862e1533-b512-4fb3-bfa8-ccb26a20e9ec",
+    "display_id": "INV-20261014-001",
+    "evidence_id": "64e003c8-3763-4bbd-a3c6-afae57bb5268",
+    "transport": "REAL_LOCAL_HTTP",
+    "all_events": 160,
+    "temporal_finding_id": "0c3f1e62-9e26-4552-85f4-f0bcbadd8fa7",
+    "temporal_candidates": 1,
+    "candidate_raw_events": 80,
+    "candidate_all_http_500": true,
+    "http_error_rate_percent": 50,
+    "bytes_out": 8016000,
+    "bytes_in_missing_preserved": true,
+    "time_filtered_statistics": 80,
+    "attack_mapping_empty": true,
+    "finding_categories": {
+      "anomaly.peer.coverage": 1,
+      "anomaly.temporal": 1,
+      "anomaly.temporal.coverage": 1
+    }
+  },
+  "browser": {
+    "observed": true,
+    "default_viewport_width": 554,
+    "csv": {
+      "browser_download": true,
+      "synthetic_only": true,
+      "bytes": 1050,
+      "sha256": "9cf659bb44c5f6ea66351aab096786f0e06e5b0e25784a066e759050f167252b",
+      "displayed_groups": 1,
+      "events": 160,
+      "http_5xx_count": 80,
+      "error_rate_percent": 50,
+      "bytes_out": 8016000,
+      "missing_preserved": true,
+      "scope_included": true,
+      "utf8_bom": true,
+      "raw_events_exported": false
+    },
+    "screenshots": [
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/01-overview.jpg",
+        "bytes": 56268,
+        "sha256": "2f810dfd34abd11e239a07d131ead47ad2de55914ce2139948438e99f1fab0d2",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/02-statistics-controls.jpg",
+        "bytes": 57164,
+        "sha256": "aefe17bf80b76bb87b2059ff6afec8eeacc91fd0aae3a464b398ee9321c1c711",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/03-statistics-values.jpg",
+        "bytes": 56017,
+        "sha256": "915f8122900d387b8a1f76f54c7892784a4a3d2907e1e2df947c6db1964065e9",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/04-temporal-finding.jpg",
+        "bytes": 56267,
+        "sha256": "fb1af7c849e5574746bef21b8f0018651f10dbfa589f558c6c658171c626c1a5",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/05-evidence-80.jpg",
+        "bytes": 67491,
+        "sha256": "5503fa17cd59336805a24200efa875c0ace60a8c479a6a46e8716ebf09f5c19e",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/06-original-line.jpg",
+        "bytes": 63831,
+        "sha256": "d1f9925ff4d2c524bd9238d24757a11bbb4711eff7e85f8b76c5fb1959f99929",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/07-status-chart.jpg",
+        "bytes": 46148,
+        "sha256": "efdd2b0df92929ae7e83ebde761da4957070b322764fd4dfb775ee9bb4b16820",
+        "original_browser_bytes": true
+      },
+      {
+        "file": "docs/assets/statistics-temporal-2026-10-14/08-filtered-raw.jpg",
+        "bytes": 63505,
+        "sha256": "b18a63477bf1446356fb7c6ee8c3420eaa9257eed66df10ac23583717517177a",
+        "original_browser_bytes": true
+      }
+    ]
+  },
+  "new_model_download": false,
+  "new_model_inference": false,
+  "new_model_training": false,
+  "target_ltsc_acceptance": false,
+  "release_zip_updated": false,
+  "synthetic_sample": {
+    "file": "docs/samples/temporal-behavior-160.jsonl",
+    "bytes": 56630,
+    "sha256": "ef78463400902d9ef183e8ba401611583b217a0ddea22ed0e3c767ce374d69e0",
+    "same_as_uploaded_payload": true
+  }
+}

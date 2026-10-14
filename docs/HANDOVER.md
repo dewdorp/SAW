@@ -1,3 +1,11 @@
+# 2026-10-14 추가 인계: 통계·시간 변화·약 8B 모델
+
+최신 변경/실행은 [STATE](../STATE.md), [통계와 실제 화면](STATISTICS-TEMPORAL-GUIDE.md), [검증 기록](STATISTICS-TEMPORAL-VALIDATION-2026-10-14.md)을 먼저 읽는다. 아래 같은 날짜의 이전 기록은 역사적 결과다.
+
+서버 830통과·2건너뜀, 화면 132통과·tsc/build, 별도 실제 PG/OS API 26통과를 확인했다. 합성 160건으로 통계/시간 변화/원문/CSV를 실제 브라우저에서 확인했다. [약 8B 모델 안내](MODEL-8B-KOREAN-SECURITY-GUIDE.md)는 후보·준비 절차이며 새 모델 실행 성공이 아니다. 새 스키마/의존성/제품 Phase는 추가하지 않았다. 기존 10/12 설치 매체 미갱신과 LTSC·16GB·모델 품질 게이트는 유지한다.
+
+---
+
 # 2026-10-14 최신 인계
 
 이번 작업은 관리자 데이터 정리·룰 Export/사용 안내·통계/행동 차이 탐지·16GB 모델 가이드를 추가했다. 실제 변경 위치는 계속 **F:/codex/SAW-Claude-main**이며 원본은 수정하지 않는다. 상세 최신 결과는 [STATE](../STATE.md), [사용 안내](ADMIN-RULES-ANALYTICS-GUIDE.md), [검증 기록](ADMIN-RULES-ANALYTICS-VALIDATION-2026-10-14.md)을 먼저 읽는다.
