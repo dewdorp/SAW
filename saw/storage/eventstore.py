@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 import orjson
 
-from saw.core.schemas.query import FIELD_RE, AggRequest, Filter, GroupMetric, TimeRange
+from saw.core.schemas.query import FIELD_RE, AggRequest, Filter, GroupMetric, GroupByRequest, TimeRange
 
 INDEXED_COLUMNS = {"event_id", "investigation_id", "evidence_id", "data_source"}
 ARRAY_FIELDS = {"tags", "param_names", "finding_ids"}
@@ -33,7 +33,8 @@ class EventStorePort(Protocol):
     def aggregate(self, investigation_id: str, filters: list[Filter], agg: AggRequest,
                   time: TimeRange | None = None) -> dict: ...
     def group_by(self, investigation_id: str, filters: list[Filter], fields: list[str],
-                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None) -> list[dict]: ...
+                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None,
+                 order_by: str | None = None) -> list[dict]: ...
     def delete_by_evidence(self, investigation_id: str, evidence_id: str) -> int: ...
     def delete_by_investigation(self, investigation_id: str) -> int: ...
     def time_bounds(self, investigation_id: str,
@@ -75,6 +76,25 @@ def _like_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+class _FirstTimestamp:
+    reverse = False
+
+    def __init__(self):
+        self.epoch = None
+        self.value = None
+
+    def step(self, value, epoch):
+        if epoch is not None and (self.epoch is None or (epoch > self.epoch if self.reverse else epoch < self.epoch)):
+            self.epoch, self.value = epoch, value
+
+    def finalize(self):
+        return self.value
+
+
+class _LastTimestamp(_FirstTimestamp):
+    reverse = True
+
+
 class SQLiteEventStore:
     def __init__(self, path: str | Path):
         self.path = str(path)
@@ -108,6 +128,8 @@ class SQLiteEventStore:
             c.execute("PRAGMA synchronous=NORMAL")
             c.execute("PRAGMA cache_size=-65536")  # 64 MB page cache: bounded for small PCs, avoids re-reading pages
             c.execute("PRAGMA temp_store=MEMORY")
+            c.create_aggregate("first_timestamp", 2, _FirstTimestamp)
+            c.create_aggregate("last_timestamp", 2, _LastTimestamp)
             self._local.c = c
         return c
 
@@ -318,7 +340,9 @@ class SQLiteEventStore:
         return 86400
 
     def group_by(self, investigation_id: str, filters: list[Filter], fields: list[str],
-                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None) -> list[dict]:
+                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None,
+                 order_by: str | None = None) -> list[dict]:
+        request = GroupByRequest(fields=fields, metrics=metrics, order_by=order_by)
         w, p = self._where(investigation_id, filters, time)
         sel, sel_p = [], []
         for i, f in enumerate(fields):
@@ -326,33 +350,32 @@ class SQLiteEventStore:
             sel.append(f"{col} AS g{i}")
             sel_p += cp
         msel = ["COUNT(*) AS __count"]
-        for m in metrics:
-            if m.type == "count":
-                continue
+        for i, m in enumerate(metrics):
+            condition, condition_p = self._where(investigation_id, m.filters, None) if m.filters else ("1", [])
             if m.type in ("min_ts", "max_ts"):
-                msel.append(f"{'MIN' if m.type == 'min_ts' else 'MAX'}(ts)")
-                continue
-            col, cp = _col(m.field or "")
-            fn = {"cardinality": "COUNT(DISTINCT {})", "min": "MIN({})", "max": "MAX({})",
-                  "sum": "SUM({})", "avg": "AVG({})"}[m.type]
-            msel.append(fn.format(col))
-            sel_p += cp
+                fn = "first_timestamp" if m.type == "min_ts" else "last_timestamp"
+                expression = f"{fn}(ts, CASE WHEN {condition} THEN ts_epoch END)"
+                expression_p = condition_p
+            elif m.type == "count":
+                expression = f"SUM(CASE WHEN {condition} THEN 1 ELSE 0 END)"
+                expression_p = condition_p
+            else:
+                col, cp = _col(m.field or "")
+                value = f"CASE WHEN {condition} THEN {col} END" if m.filters else col
+                expression_p = condition_p + cp if m.filters else cp
+                fn = {"value_count": "COUNT({})", "cardinality": "COUNT(DISTINCT {})",
+                      "min": "MIN({})", "max": "MAX({})", "sum": "SUM({})", "avg": "AVG({})"}[m.type]
+                expression = fn.format(value)
+            msel.append(f"{expression} AS m{i}")
+            sel_p += expression_p
         group_cols = ", ".join(f"g{i}" for i in range(len(fields)))
+        order = "__count" if request.order_by in (None, "count") else f"m{next(i for i,m in enumerate(metrics) if m.name == request.order_by)}"
         rows = self._conn().execute(
             f"SELECT {', '.join(sel + msel)} FROM events WHERE {w} GROUP BY {group_cols} "
-            f"ORDER BY __count DESC LIMIT ?", sel_p + p + [size]
+            f"ORDER BY {order} DESC, __count DESC LIMIT ?", sel_p + p + [size]
         ).fetchall()
-        out = []
-        extra = [m for m in metrics if m.type != "count"]
-        for r in rows:
-            d = {"key": {f: r[i] for i, f in enumerate(fields)}, "count": r[len(fields)]}
-            for j, m in enumerate(extra):
-                d[m.name] = r[len(fields) + 1 + j]
-            for m in metrics:
-                if m.type == "count":
-                    d[m.name] = d["count"]
-            out.append(d)
-        return out
+        return [{"key": {f: r[i] for i, f in enumerate(fields)}, "count": r[len(fields)],
+                 **{m.name: r[len(fields) + 1 + j] for j, m in enumerate(metrics)}} for r in rows]
 
     def histogram_metrics(self, investigation_id: str, filters: list[Filter], interval_sec: int | None,
                           metrics: list[GroupMetric], time: TimeRange | None = None,

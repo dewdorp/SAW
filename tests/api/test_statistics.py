@@ -109,3 +109,46 @@ def test_missing_bytes_are_not_zero_and_counts_have_coverage(analyst):
     assert by_source["192.0.2.1"]["bytes_out_known_events"] == 0
     assert by_source["192.0.2.2"]["bytes_out_sum"] == 0
     assert by_source["192.0.2.2"]["bytes_out_known_events"] == 1
+
+
+def test_statistics_pair_metrics_and_sorting(analyst):
+    inv = analyst.post("/investigations", json={"title": "Synthetic metrics"}).json()["id"]
+    events = [
+        {"event_id": "m1", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 404, "method": "GET", "bytes_in": 0, "bytes_out": 10},
+        {"event_id": "m2", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 500, "method": "POST", "bytes_out": 20},
+        {"event_id": "m3", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 0},
+        {"event_id": "m4", "src_ip": "192.0.2.2", "dst_ip": "198.51.100.2", "status_code": 200, "bytes_in": 1000, "bytes_out": 900},
+        {"event_id": "m5", "src_ip": "192.0.2.2"},
+        {"event_id": "foreign", "investigation_id": "other", "src_ip": "192.0.2.2", "dst_ip": "198.51.100.2", "bytes_out": 99999},
+    ]
+    container.get().events.index([{"investigation_id": inv, "data_source": "web", **e} for e in events])
+    d = analyst.post(f"/investigations/{inv}/statistics", json={"group_by": "src_dst", "order_by": "bytes_out_sum", "size": 1}).json()
+    assert d["table"]["rows"][0]["key"] == {"src_ip": "192.0.2.2", "dst_ip": "198.51.100.2"}
+    assert (d["table"]["shown_events"], d["table"]["other_events"], d["table"]["missing_events"]) == (1, 3, 1)
+    d = analyst.post(f"/investigations/{inv}/statistics", json={"group_by": "src_dst", "order_by": "http_error_count"}).json()
+    row = d["table"]["rows"][0]
+    assert row["count"] == 3
+    assert row["http_status_known_events"] == 2
+    assert row["http_4xx_count"] == row["http_5xx_count"] == 1
+    assert row["http_error_rate"] == 100
+    assert row["bytes_in_sum"] == 0 and row["bytes_in_known_events"] == 1
+    assert row["bytes_out_sum"] == 30 and row["bytes_out_known_events"] == 2
+    for group in ("status_code", "method"):
+        assert analyst.post(f"/investigations/{inv}/statistics", json={"group_by": group}).status_code == 200
+    assert analyst.post(f"/investigations/{inv}/statistics", json={"order_by": "http_error_rate"}).status_code == 422
+
+
+def test_statistics_aggregate_calls_do_not_grow_with_rows(analyst, monkeypatch):
+    inv = seed(analyst)
+    store = container.get().events
+    calls = []
+    for method in ("count", "search", "group_by", "histogram_metrics"):
+        original = getattr(store, method)
+        def wrapped(*args, _method=method, _original=original, **kwargs):
+            calls.append(_method)
+            return _original(*args, **kwargs)
+        monkeypatch.setattr(store, method, wrapped)
+    r = analyst.post(f"/investigations/{inv}/statistics", json={"group_by": "src_ip", "size": 50})
+    assert r.status_code == 200
+    assert calls.count("group_by") == 1
+    assert len(calls) <= 8

@@ -12,7 +12,7 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from typing import Any
 
-from saw.core.schemas.query import AggRequest, Filter, GroupMetric, TimeRange
+from saw.core.schemas.query import AggRequest, Filter, GroupMetric, GroupByRequest, TimeRange
 from saw.storage.eventstore import decode_cursor, encode_cursor
 
 INDEX_BY_SOURCE = {
@@ -273,28 +273,48 @@ class OpenSearchEventStore:
         return 86400
 
     def group_by(self, investigation_id: str, filters: list[Filter], fields: list[str],
-                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None) -> list[dict]:
+                 metrics: list[GroupMetric], size: int = 100, time: TimeRange | None = None,
+                 order_by: str | None = None) -> list[dict]:
+        request = GroupByRequest(fields=fields, metrics=metrics, order_by=order_by)
         self._fresh()
         sub: dict[str, Any] = {}
         for m in metrics:
-            if m.type == "cardinality":
-                sub[m.name] = {"cardinality": {"field": m.field}}
-            elif m.type in ("min", "max", "sum", "avg"):
-                sub[m.name] = {m.type: {"field": m.field}}
-            elif m.type in ("min_ts", "max_ts"):
-                sub[m.name] = {m.type[:3]: {"field": "timestamp"}}
+            if m.type == "count":
+                if m.filters:
+                    sub[m.name] = {"filter": filters_to_dsl(investigation_id, m.filters, None)}
+                continue
+            if m.preserve_timestamp:
+                # Statistics keeps original timestamp text without fetching raw event payloads.
+                metric = {"top_hits": {"size": 1, "_source": ["timestamp"],
+                          "sort": [{"timestamp": {"order": "asc" if m.type == "min_ts" else "desc", "missing": "_last"}}]}}
+            else:
+                metric = ({m.type[:3]: {"field": "timestamp"}} if m.type in ("min_ts", "max_ts")
+                          else {m.type: {"field": m.field}})
+            sub[m.name] = {"filter": filters_to_dsl(investigation_id, m.filters, None),
+                           "aggs": {"metric": metric}} if m.filters else metric
+        terms = ({"terms": [{"field": f} for f in fields], "size": size} if len(fields) > 1
+                 else {"field": fields[0], "size": size})
+        if request.order_by not in (None, "count"):
+            m = next(m for m in metrics if m.name == request.order_by)
+            path = "_count" if m.type == "count" and not m.filters else m.name + (">metric" if m.filters and m.type != "count" else "")
+            terms["order"] = {path: "desc"}
         body = {"query": filters_to_dsl(investigation_id, filters, time), "size": 0, "aggs": {"g": {
-            "multi_terms" if len(fields) > 1 else "terms":
-                ({"terms": [{"field": f} for f in fields], "size": size} if len(fields) > 1
-                 else {"field": fields[0], "size": size}),
-            "aggs": sub}}}
+            "multi_terms" if len(fields) > 1 else "terms": terms, "aggs": sub}}}
         out = []
         for b in self.client.search(index=self.alias, body=body)["aggregations"]["g"]["buckets"]:
             keys = b["key"] if isinstance(b["key"], list) else [b["key"]]
             d = {"key": dict(zip(fields, keys, strict=False)), "count": b["doc_count"]}
             for m in metrics:
-                d[m.name] = b["doc_count"] if m.type == "count" else b.get(m.name, {}).get(
-                    "value_as_string", b.get(m.name, {}).get("value"))
+                value = b.get(m.name, {})
+                if m.type == "count":
+                    d[m.name] = value.get("doc_count", 0) if m.filters else b["doc_count"]
+                else:
+                    value = value.get("metric", {}) if m.filters else value
+                    if m.preserve_timestamp:
+                        hits = value.get("hits", {}).get("hits", [])
+                        d[m.name] = hits[0].get("_source", {}).get("timestamp") if hits else None
+                    else:
+                        d[m.name] = value.get("value_as_string", value.get("value"))
             out.append(d)
         return out
 

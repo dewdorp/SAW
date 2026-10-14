@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -35,8 +35,9 @@ class FiltersIn(BaseModel):
 
 class StatisticsIn(FiltersIn):
     filters: list[Filter] = Field(default_factory=list, max_length=30)
-    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port"] = "data_source"
+    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port", "src_dst", "status_code", "method"] = "data_source"
     size: int = Field(20, ge=1, le=50)
+    order_by: Literal["count", "bytes_in_sum", "bytes_out_sum", "http_error_count"] = "count"
 
     @model_validator(mode="after")
     def valid_time(self):
@@ -144,7 +145,7 @@ def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth)
     _read(s, ctx, inv_id)
     from saw.core.application.statistics import summarize
 
-    return summarize(_es(), inv_id, body.filters, body.time, body.group_by, body.size)
+    return summarize(_es(), inv_id, body.filters, body.time, body.group_by, body.size, body.order_by)
 
 
 # ------------------------------------------------------------------ events
@@ -505,9 +506,29 @@ def finding_events(inv_id: str, fid: str, body: SearchRequest, ctx: AuthContext 
     f = _finding(s, ctx, inv_id, fid)
     q = (f.evidence_refs or {}).get("query", {})
     flt = [Filter(**x) for x in q.get("filters", [])] + body.filters
-    page = _es().search(inv_id, flt, body.time, body.sort, body.limit, body.cursor)
+    # A caller may narrow evidence time, but must never expand the finding's scope.
+    ranges = [TimeRange(**q["time"])] if q.get("time") else []
+    if body.time:
+        ranges.append(body.time)
+    starts, ends = [], []
+    try:
+        for time in ranges:
+            for value, target in ((time.start, starts), (time.end, ends)):
+                if value:
+                    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    if instant.tzinfo is None:
+                        raise ValueError("timezone required")
+                    target.append((instant, value))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid evidence time range") from exc
+    start = max(starts, key=lambda item: item[0]) if starts else None
+    end = min(ends, key=lambda item: item[0]) if ends else None
+    if start and end and start[0] > end[0]:
+        return {"events": [], "next_cursor": None, "query": q, "total": 0}
+    effective_time = TimeRange(start=start[1] if start else None, end=end[1] if end else None) if ranges else None
+    page = _es().search(inv_id, flt, effective_time, body.sort, body.limit, body.cursor)
     return {"events": [mask_event(e)[0] for e in page["events"]], "next_cursor": page["next_cursor"],
-            "query": q, "total": _es().count(inv_id, flt)}
+            "query": q, "total": _es().count(inv_id, flt, effective_time)}
 
 
 @router.post("/findings/{fid}/feedback")

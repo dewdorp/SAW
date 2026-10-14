@@ -2,9 +2,9 @@ import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useInvStore } from "../../context/invContext";
 import { mockApi, renderUI } from "../../test/helpers";
-import { StatisticsTab } from "./StatisticsTab";
+import { StatisticsTab, statisticsCsv } from "./StatisticsTab";
 
-vi.mock("../../viz/EChart", () => ({ EChart: ({ onBrush }: any) => <button onClick={() => onBrush([0, 0])}>구간 선택</button>, axisStyle: {}, safeTooltip: () => () => "" }));
+vi.mock("../../viz/EChart", () => ({ EChart: ({ onBrush, ariaLabel }: any) => onBrush ? <button onClick={() => onBrush([0, 0])}>구간 선택</button> : <div aria-label={ariaLabel} />, axisStyle: {}, safeTooltip: () => () => "" }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); useInvStore.setState({ byInv: {} }); });
 const INV = "stats-inv";
 const DATA = { scope: { investigation_id: INV, filters: [], time: null },
@@ -56,5 +56,33 @@ describe("Scoped statistics", () => {
     renderUI(<StatisticsTab inv={INV} />);
     expect(await screen.findByText(/statistics unavailable/)).toBeTruthy();
     expect(screen.queryByText("표시 합계 0")).toBeNull();
+  });
+});
+
+
+describe("Statistics metric controls and safe displayed export", () => {
+  it("adds pair and HTTP grouping and sends the selected metric order", async () => {
+    const api = mockApi({ [`POST /investigations/${INV}/statistics`]: [200, DATA] });
+    renderUI(<StatisticsTab inv={INV} />);
+    await screen.findByText("192.0.2.1");
+    fireEvent.change(screen.getByLabelText("통계 기준"), { target: { value: "src_dst" } });
+    fireEvent.change(screen.getByLabelText("정렬 지표"), { target: { value: "http_error_count" } });
+    await waitFor(() => expect(api.calls.some(c => c.body.group_by === "src_dst" && c.body.order_by === "http_error_count")).toBe(true));
+    expect(await screen.findByRole("button", { name: "표시된 통계 CSV 내보내기" })).toBeTruthy();
+    expect(screen.getByText(/표시된 상위 그룹만/)).toBeTruthy();
+  });
+  it("exports exact response scope, missing coverage and top-only limits safely", () => {
+    const csv = statisticsCsv({ ...DATA,
+      scope: { investigation_id: INV, filters: [{ field: "method", value: "POST" }], time: { start: "2026-10-14T00:00:00Z" } },
+      table: { ...DATA.table, rows: [{ ...DATA.table.rows[0],
+        key: { method: '\t =HYPERLINK("bad")\nnext' }, bytes_in_sum: null, http_status_known_events: 0, http_error_rate: null }] }
+    });
+    expect(csv).toContain("POST");
+    expect(csv).toContain("2026-10-14T00:00:00Z");
+    expect(csv).toContain("표시된 상위 그룹만");
+    expect(csv).toContain("값 없음");
+    expect(csv).toContain('\t =HYPERLINK(""bad"")\nnext');
+    expect(csv).toContain("\"'");
+    expect(csv).not.toContain("never-export-this-raw");
   });
 });

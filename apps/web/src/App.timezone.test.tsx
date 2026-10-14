@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { useInvStore, useInvTabs } from "./context/invContext";
 import { setTz } from "./lib/format";
@@ -26,6 +26,12 @@ const overview = {
     status: bucket, top_src: bucket, top_uri: bucket, top_ua: bucket, top_asn: bucket, top_country: bucket, top_cloud: bucket },
   top_findings: [],
 };
+
+// Finish loading the actual lazy route before timing its UI assertions.
+// Cold module transforms under concurrent suites are setup, not time-zone behavior.
+beforeAll(async () => {
+  await import("./pages/inv/Workbench");
+});
 
 beforeEach(() => {
   vi.stubGlobal("innerWidth", 1440);
