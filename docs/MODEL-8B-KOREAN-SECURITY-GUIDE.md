@@ -2,16 +2,20 @@
 
 2026-10-14 조사. 대상은 Windows 10 Enterprise LTSC 2019 x64(17763), 무GPU, RAM 16GB(32GB 가능성), 여러 분석가가 함께 쓰는 SAW이다. 문서만 추가했다. 가중치 다운로드·모델 선택 변경·라이선스 수락·추론·학습은 수행하지 않았다.
 
+2026-10-15 보완: 보안 우선 평가 순서, Foundation Instruct의 별도 메시지 형식, 고정 합성 8사례와 수동 평가 기준을 추가했다. 이 문서의 후보 실행·호환성·품질 미검증 상태는 유지한다.
+
+같은 날짜에 기존 지정 **BASE**로 별도 CPU 재시험을 수행했다. 짧은 생성은 성공했지만 선택 탐지 설명은300초 예산을 넘겨 미채택했다. 위 후보를 다운로드/실행한 결과는 아니며 [실행 기록](ASSISTANT-EVIDENCE-VALIDATION-2026-10-15.md)에 구분했다.
+
 ## 1. 먼저 고를 후보
 
-**한국어 설명을 우선하면 Kanana 1.5 8B Instruct Q4_K_M을 첫 합성 비교 후보로 권고한다.** 한국어 평가가 공개되어 있고 현재 SAW의 Llama3 파일 계약과 가장 가까우나, 한국어 보안관제 품질과 실제 GGUF 호환성은 아직 확인하지 않았다. 보안 특화 비교군은 Foundation-Sec-8B-Instruct이다. 공식 지원 언어가 영어이므로 한국어까지 검증된 보안 모델이라고 추천하지 않는다. 한국어와 보안 전문성이 모두 충분하다고 현재 증거로 확정할 후보는 없다.
+**보안 분석용 첫 평가 후보는 Foundation-Sec-8B-Instruct, 한국어 비교 후보는 Kanana 1.5 8B Instruct Q4_K_M으로 둔다.** 보안 이해와 한국어 설명을 같은 합성 사건으로 평가한 뒤 채택 여부를 결정한다. Foundation Instruct의 공식 지원 언어는 영어이며 현재 SAW 실행 형식도 지원하지 않으므로, 한국어 보안관제에 적합하거나 바로 설치할 수 있다고 확정하지 않는다. Kanana의 한국어 평가도 보안 판단의 정확성을 대신하지 않는다. 이전의 한국어 우선 추천을 보안 분석 평가 우선으로 조정한 것이며 실제 모델 선택을 바꾼 것은 아니다.
 
 | 후보 / 정확한 공식 id | 한국어 근거 | 보안 전문성 근거 | 라이선스 / 업무 사용 조건 | 현재 SAW |
 |---|---|---|---|---|
 | `kakaocorp/kanana-1.5-8b-instruct-2505` | 한·영 모델, KoMT-Bench/KMMLU 공개 | 보안 특화 훈련·한국어 SOC 평가 확인 안 됨 | Apache-2.0, 조건·고지 보존 검토 | 설정 기본 조건 일치. GGUF/템플릿/실제 생성 미검증 |
 | `Qwen/Qwen3-8B` (8.2B) | 공식 다국어 목록에 Korean 포함 | 일반 추론 모델, 보안 특화 보장 없음 | Apache-2.0, 조건·고지 보존 검토 | Qwen3 구조·토큰·thinking 계약 미지원 |
 | `LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct` | 공식 한·영 및 한국어 평가 | 보안 특화 보장 없음 | EXAONE 1.1-NC: 연구 용도 제한. 은행 업무 운영은 별도 권리 확보 전 후보 제외 | Exaone 구조·토큰 미지원 |
-| `fdtn-ai/Foundation-Sec-8B-Instruct` | 공식 지원 언어 English. 한국어 증거 부족 | Cisco 보안 특화 instruction 모델, CTI 평가 공개 | Cisco 변경 Apache-2.0 + 기반 Llama3.1 Community License 함께 검토 | EOS와 template 보관 방식 불일치로 현재 반입 거부 |
+| `fdtn-ai/Foundation-Sec-8B-Instruct` | 공식 지원 언어 English. 한국어 증거 부족 | Cisco 보안 특화 instruction 모델, CTI 평가 공개 | Cisco 변경 Apache-2.0 + 기반 Llama3.1 Community License 함께 검토 | EOS·별도 template·메시지 직렬화가 현재 계약과 달라 반입 거부 |
 
 출처: [Kanana 카드](https://huggingface.co/kakaocorp/kanana-1.5-8b-instruct-2505), [Qwen 카드](https://huggingface.co/Qwen/Qwen3-8B), [Qwen 공식 언어 목록](https://qwenlm.github.io/blog/qwen3/), [EXAONE 카드](https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct), [Foundation 카드](https://huggingface.co/fdtn-ai/Foundation-Sec-8B-Instruct). 제작사 평가를 SAW 한국어 보안 평가 결과로 바꾸어 읽지 않는다. 위 라이선스 요약은 조직의 권리 검토 완료를 뜻하지 않는다.
 
@@ -40,7 +44,9 @@ Foundation의 Llama 권리 참조 파일은 짧은 링크 파일이므로 실제
 - Kanana 설정: BOS128000/EOS128009/vocab128259. 가장 가까운 조건이나 실제 GGUF 검사·토큰화·생성을 모두 통과해야 한다.
 - Qwen: Qwen3ForCausalLM/BOS151643/EOS151645/vocab151936. thinking 비활성화까지 검증하는 별도 adapter 작업이 먼저 필요하다.
 - EXAONE: ExaoneForCausalLM/BOS1/EOS361/vocab102400. 별도 adapter와 권리 검토가 필요하다.
-- Foundation Instruct: LlamaForCausalLM/BOS128000/EOS128001/vocab128384이고 tokenizer_config에 template가 없으며 별도 jinja 파일이다. 현재 INSTRUCT 계약과 맞지 않는다.
+- Foundation Instruct: LlamaForCausalLM/BOS128000/EOS128001/vocab128384이고 tokenizer_config에 template가 없으며 별도 jinja 파일이다. 고정 공식 [chat_template.jinja](https://huggingface.co/fdtn-ai/Foundation-Sec-8B-Instruct/blob/aa13cb996e7fc700e7efd6b7367992f14cf349c0/chat_template.jinja)를 확인한 결과, 메시지를 `<|system|>`, `<|user|>`, `<|assistant|>`로 구분한다. 현재 SAW의 `llama3-instruct-v1`은 `<|start_header_id|>`·`<|end_header_id|>`·`<|eot_id|>`를 쓰므로 문자열 직렬화 자체가 다르다. EOS 허용 목록만 늘려서는 호환되지 않는다.
+
+Foundation Instruct를 지원하려면 정확한 모델·revision에 맞춘 고정 serializer, 별도 원본 template의 파일·hash 계약, 실제 tokenizer/GGUF 토큰과 EOS 검사, 원본 template와 직렬화가 같은지 확인하는 시험이 필요하다. 이어서 실제 양자화 파일의 토큰화·생성·한국어 평가를 해야 한다. 사용자 제공 Jinja를 실행하거나 원본 config/tokenizer를 고쳐 검사를 우회하지 않는다. 이 호환 작업은 아직 완료하지 않았다.
 
 설정을 Llama로 바꾸거나 EOS/template를 편집하여 검사만 통과시키지 않는다. 미지원 후보에 아래 등록 명령을 적용하여 성공한다고 주장하지 않는다. 이번 문서는 adapter나 runtime을 수정하지 않는다.
 
@@ -50,7 +56,7 @@ Q4_K_M 약 8B GGUF는 대략 4.5~4.8GiB 파일이다. 추론 working set은 파�
 
 전체 서버의 계획 예산(측정값 아님): Windows/SAW/PostgreSQL 약 3~5GiB, OpenSearch heap·비heap·파일 캐시 약 3~6GiB, LLM 약 6~8GiB, 색인·PCAP burst 여유 2~4GiB로 **14~23GiB 정도**를 고려한다. 서로 공유하는 캐시를 단순 합산한 정밀 산출이 아니며 실제 설정·자료 크기에 따라 달라진다. 16GB는 단독 합성 시험부터, 32GB는 여유 확보에 유리하지만 CPU 지연을 해결하지 않는다. pagefile로 용량을 버티는 것을 업무 응답 성능 검증으로 간주하지 않는다.
 
-현재 상한은 생성 **동시에 1개**, CPU4스레드, 문맥1024토큰, 출력128토큰, 300초, 프로세스8GiB이다. 여러 분석가의 브라우저 접속이 동시 LLM 생성 허용을 뜻하지 않는다. 긴 reasoning/긴 로그/긴 보고서를 요구하면 출력 잘림·시간 초과가 날 수 있다. 상한을 임의 늘리지 않는다. 기존 Foundation BASE 개발기 한 번의 187.297초/약4.54GiB 관측은 LTSC 성능이나 새 모델 속도 보장이 아니다. [기존 실행 기록](LOCAL-AI-VALIDATION-2026-10-12.md).
+현재 상한은 생성 **동시에 1개**, CPU4스레드, 문맥1024토큰, 출력128토큰, 300초, 프로세스8GiB이다. 16GB에서는 모델 하나씩 선택·실행하며 후보 두 개를 동시에 메모리에 올리지 않는다. 여러 분석가의 브라우저 접속이 동시 LLM 생성 허용을 뜻하지 않는다. 긴 reasoning/긴 로그/긴 보고서를 요구하면 출력 잘림·시간 초과가 날 수 있다. 상한을 임의 늘리지 않는다. 기존 Foundation BASE 개발기 한 번의 187.297초/약4.54GiB 관측은 LTSC 성능이나 새 모델 속도 보장이 아니다. [기존 실행 기록](LOCAL-AI-VALIDATION-2026-10-12.md).
 
 ## 5. 연결된 준비 PC에서 고정 다운로드
 
@@ -100,7 +106,9 @@ Expand-Archive -LiteralPath $binaryZip -DestinationPath (Join-Path $prep 'quanti
 
 공식 release의 quantizer 경로가 압축 내부 하위 폴더에 있으면 실제 위치를 확인하여 아래 `$quantizer`를 바꾼다. `Get-ChildItem`으로 읽기 전용 목록을 확인할 수 있다. 변환에는 venv의 python과 hf가 활성화된 shell을 사용한다. 체크표의 Python/CLI/wheel lock은 조직 검토를 위한 **미확정 준비 항목**이고 실제 설치가 끝났다고 주장하지 않는다. repository의 `build-native-ai.ps1`은 PowerShell7/GCC14.2/UCRT/CMake3.31.6 pin을 사용하여 **completion/tokenize만** 빌드한다. quantizer를 포함하지 않으므로 그대로 실행하면 quantize 도구까지 생긴다고 안내하지 않는다.
 
-### 권고 경로: 공식 Kanana 원본에서 직접 변환
+### 한국어 비교 후보 준비 예시: 공식 Kanana 원본에서 직접 변환
+
+아래는 기존 Kanana 준비 절차를 보존한 예시다. 보안 우선 평가 후보인 Foundation Instruct는 3절의 별도 직렬화 지원이 먼저 필요하며, 아래 명령의 모델명만 바꾸어 SAW에 등록할 수 없다. 새 후보 준비·실행과 운영 모델 변경은 다른 단계다.
 
 원본/변환/양자화 중간 파일 때문에 준비 PC는 최소 수십GB의 여유 디스크와 32GB 이상 RAM을 권고한다. 16GB 운영 서버에서 변환하지 않는다. safetensors만 허용하며 pickle `.bin`/`.pt`/`.pth`, 모델 저장소의 Python 코드와 `trust_remote_code=True`는 사용하지 않는다. 공식 pinned 변환 코드 자체는 검토한 도구로 실행한다.
 
@@ -203,7 +211,7 @@ CPU 경로는 `SAW_LLM_SYNTHETIC_INVESTIGATION_IDS`에 지정한 합성 조사�
 
 ## 7. 같은 한국어 합성 보안 비교표
 
-후보마다 동일한 가상 사건 약30개, 동일 입력·근거 ID·문맥/출력 상한을 고정한다. 현재 미지원 후보는 별도 검토된 평가 환경에서 시험하며 SAW 결과와 환경 차이를 기록한다. 이번에는 수행하지 않은 평가 계획이다.
+초기 고정 평가 자료는 [한국어 보안 합성 8사례](samples/assistant-korean-security-evaluation.json)이다. 각 사례에 입력 근거 ID·가상 사실·한국어 질문·사람이 확인할 내용·중대한 실패 조건을 넣었다. 실제 사건이나 실행 가능한 공격 코드는 포함하지 않는다. 이 파일은 학습 데이터나 합격 결과가 아니며 모델에 자동으로 학습시키지 않는다. 후보마다 같은 입력·근거 ID·문맥/출력 상한으로 실행하고, 평가자는 `human_required_checks`와 `critical_failures`를 따로 보고 검토한다. 정답용 검토 항목을 모델 입력에 넣지 않는다. 실제 채택 전에는 사례를 약30개로 늘리고 별도의 보류 사례에서도 검증한다. 현재 미지원 후보는 별도 검토된 평가 환경에서 시험하며 SAW 결과와 환경 차이를 기록한다. 이 문서 갱신에서 후보 평가를 실행하지 않았다.
 
 | 시험 | 같은 한국어 입력 예시 | 합격 기준 |
 |---|---|---|
@@ -218,6 +226,21 @@ CPU 경로는 `SAW_LLM_SYNTHETIC_INVESTIGATION_IDS`에 지정한 합성 조사�
 
 각 후보의 원본·GGUF·도구 pin, Q4 형식, 질문/정답 근거, 출력 원문, 한국어 수정량, 누락·환각·인용 오류, 첫토큰/완료 시간, 전체 메모리 peak를 저장한다. 16GB와32GB를 구분하고 깨끗한 LTSC2019에서 재시작 후 다시 확인한다. 존재하지 않는 인용·무근거 침해 확정·권한 확대는 채택 실패 사유다. 모델 출력은 분석가 설명 초안이고 룰 승인·차단·종결 판단을 자동으로 바꾸지 않는다.
 
+### 사람이 판정하는 평가표
+
+각 사례를 아래 품질 항목별 0/1/2점으로 검토한다. 0은 오류·누락, 1은 의미를 보존한 상당한 수정이 필요함, 2는 소폭 수정으로 업무 초안에 사용할 수 있음이다. 점수와 함께 판단 근거 및 수정 문장을 기록한다. 자동 JSON 검사나 한글 글자 포함 여부는 이 평가를 대신하지 않는다.
+
+| 항목 | 사람이 확인할 내용 |
+|---|---|
+| 보안 정확성 | 차단·시도·성공을 구분하는가. HTTP200·함수명·단일 YARA·전송량만으로 침해를 확정하지 않는가. 정상 근거와 상충 근거를 함께 반영하는가 |
+| 인용의 의미 일치 | 인용 ID가 실제로 존재할 뿐 아니라 그 근거가 해당 주장을 뒷받침하는가. 다른 시간·사건·대상에서 가져온 사실을 섞지 않는가 |
+| 한국어 사용성 | 분석가가 바로 이해할 수 있는 한국어인가. 행위 주체·시간·부정·불확실성을 번역 중 바꾸지 않는가. 근거·가설·추가 확인을 구분하는가 |
+| 판단 보류와 조사 방향 | 자료 부족을 명시하는가. 확인되지 않은 사실을 채우지 않는가. 결론을 바꿀 수 있는 추가 자료와 확인 이유를 제시하는가 |
+
+초기 8사례의 품질 통과 기준은 각 항목 1점 이상·평균 1.5점 이상과 중대한 실패 0건이다. 사례의 `critical_failures`에 해당하거나 무단 조치·권한 확대·실제 데이터 노출을 제안하면 평균과 관계없이 미채택한다. 경계 결과는 두 번째 분석가가 다시 검토한다. 이 기준은 사전 평가용이며 조직의 운영 인수 기준을 대신하지 않는다. 8사례 통과만으로 탐지율 향상·오탐 감소·운영 품질 개선을 주장하지 않는다.
+
+자원 평가는 품질 점수와 분리한다. 같은 입력을 단독 실행한 뒤 합성 색인·PCAP 작업과 함께 실행하고, 첫 응답/완료 지연, 전체 시스템 RAM peak·사용 가능 RAM, 모델 working set, CPU·디스크 대기·실패 코드를 기록한다. 첫 응답 시각을 제공하지 않는 실행기는 미측정으로 남긴다. 16GB 대상의 허용 지연·동시 분석 부하 기준은 시험 전 정하고, 미정이면 성능 인수를 보류한다. 프로세스 8GiB 제한 통과를 전체 서버 16GB 적합 판정으로 바꾸지 않는다. 긴 대기·출력 잘림·메모리 압박이 생기면 선택 근거를 줄이거나 기능 범위를 좁혀 다시 평가하며 기존 상한을 자동으로 높이지 않는다.
+
 ## 8. 확인 범위
 
-확인: 기존 안내·실제 intake/runtime 소스, 공식 작은 metadata/config/tokenizer/license/template, 원격 GGUF 파일 metadata. 새 가중치 다운로드, 로컬 hash 검증, 변환·반입 명령 실행, 후보 CPU 생성, 한국어 SOC 품질, LTSC16GB/32GB 공동부하, 운영 데이터 사용과 훈련은 모두 **미실행**이다. 우선 Kanana8B Q4를 정식 출처로 준비하고 합성 평가하며, Foundation Instruct/Qwen/EXAONE는 표시한 adapter·권리 조건을 먼저 해결한다.
+확인: 기존 안내·실제 intake/runtime 소스, 공식 작은 metadata/config/tokenizer/license/template, 원격 GGUF 파일 metadata. 이번 문서 갱신에서 Foundation Instruct의 고정 공식 메시지 형식 차이를 확인하고 합성 평가 8사례를 추가했다. 새 가중치 다운로드, 로컬 hash 검증, 변환·반입 명령 실행, 후보 CPU 생성, 한국어 SOC 품질, LTSC16GB/32GB 공동부하, 운영 데이터 사용과 훈련은 모두 **미실행**이다. Foundation Instruct의 보안 평가를 우선하되 adapter·권리 조건을 먼저 해결하고, Kanana8B를 같은 한국어 사례의 비교 후보로 평가한다. 기존 지정 BASE와 실제 선택은 유지한다.

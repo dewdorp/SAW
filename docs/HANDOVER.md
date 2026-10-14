@@ -1,3 +1,13 @@
+# 2026-10-15 추가 인계: 선택 탐지 Assistant
+
+수정 대상은 계속 **F:/codex/SAW-Claude-main**이다. [최신 STATE](../STATE.md), [실제 화면/사용법](ASSISTANT-EVIDENCE-GUIDE.md), [새 검증 기록](ASSISTANT-EVIDENCE-VALIDATION-2026-10-15.md)을 먼저 읽는다. 이전 PASS를 복사하지 않는다.
+
+최종 서버 851/화면 144 시험, tsc/build를 통과했고 합성 브라우저에서 3동작·노트 보존·원문 71번째 줄을 확인했다. 실제 Foundation BASE 짧은 생성은 성공했지만 선택 탐지 설명은 300초 초과로 실패했다. 한국어 품질/학습/후보 채택은 미완료이며 현재 브라우저는 템플릿이다. 새 Instruct는 별도 template 계약 미지원이다. 후보 8사례는 평가 자료만 준비했다.
+
+다음은 후보 직렬화 호환성 → 파일 반입 → 고정 한국어 보안 평가이며, 기존 설치 ZIP은 미갱신이다. LTSC17763/16GB 공동 부하/운영 자료·배포 승인 게이트를 유지한다. History503와 중간 UI/Node 일시 실패 원인을 재통과만으로 해결 처리하지 않는다. 원본 Claude와 실제 은행 자료·비밀값은 건드리지 않는다.
+
+---
+
 # 2026-10-14 추가 인계: 통계·시간 변화·약 8B 모델
 
 최신 변경/실행은 [STATE](../STATE.md), [통계와 실제 화면](STATISTICS-TEMPORAL-GUIDE.md), [검증 기록](STATISTICS-TEMPORAL-VALIDATION-2026-10-14.md)을 먼저 읽는다. 아래 같은 날짜의 이전 기록은 역사적 결과다.

@@ -1,0 +1,318 @@
+{
+  "date": "2026-10-15",
+  "baseline_commit": "c3c01b6ba9b2e3255f32d5ac2359d216884f9f58",
+  "synthetic_only": true,
+  "source_only_update": true,
+  "release_zip_rebuilt": false,
+  "automated": {
+    "backend": {
+      "passed": 851,
+      "skipped": 2,
+      "seconds": 241.19,
+      "exit_code": 0
+    },
+    "ui": {
+      "passed": 144,
+      "files": 26,
+      "seconds": 26.41,
+      "max_workers": 2,
+      "exit_code": 0
+    },
+    "tsc_exit_code": 0,
+    "ruff_exit_code": 0,
+    "build": {
+      "final_exit_code": 0,
+      "seconds": 20.25,
+      "large_chunk_warning": true,
+      "prior_attempt_exit_code": -1073740791,
+      "prior_error": "UV_HANDLE_CLOSING",
+      "prior_failure_root_cause_resolved": false
+    },
+    "prior_default_worker_ui_failure": {
+      "test": "AdminData confirmation preview",
+      "root_cause_resolved": false
+    }
+  },
+  "browser": {
+    "store": "isolated development SQLite",
+    "account": "claude-check",
+    "input_events": 160,
+    "selected_finding": "F-1006",
+    "matched_events": 80,
+    "preview_references": 3,
+    "time_utc": [
+      "2026-10-14T01:45:00+00:00",
+      "2026-10-14T01:59:59.999999+00:00"
+    ],
+    "actions_executed": [
+      "explain_finding",
+      "next_steps",
+      "report_draft"
+    ],
+    "provider": "template",
+    "actual_llm": false,
+    "note_saved_by_click": true,
+    "note_present_after_reload": true,
+    "raw_reference_opened": {
+      "source_file": "synthetic-temporal.jsonl",
+      "line": 71
+    },
+    "output_cleared_on_finding_change": true,
+    "unreviewed_check_display": "미확인",
+    "responsive": {
+      "narrow_width": 554,
+      "desktop_width": 1440,
+      "override_reset": true,
+      "before_context_height_px": 1,
+      "final_client_height_px": 239,
+      "final_context_client_width_px": 459,
+      "final_context_scroll_width_px": 459
+    }
+  },
+  "native": {
+    "model": "fdtn-ai/Foundation-Sec-8B",
+    "checkpoint_type": "BASE",
+    "revision": "9e6bb1f70b402e55bbf68cfd7abf88458daf09b3",
+    "model_bytes": 4921462592,
+    "model_sha256": "98989f9e89414f8607fe76727b46852a3ec6f3d534fc6f6259a50b02bf14e681",
+    "runtime_manifest_sha256": "d0bb50baf0baf16516dea9feafcca4cdbfd449ab6e6fb68816b0281b125867e2",
+    "input_sha256": "ef78463400902d9ef183e8ba401611583b217a0ddea22ed0e3c767ce374d69e0",
+    "host": {
+      "os": "Windows 11 Pro",
+      "build": 26200,
+      "cpu": "Intel Core i5-12600",
+      "visible_memory_kib": 33289592,
+      "gpu_used": false
+    },
+    "activation": {
+      "http_status": 200,
+      "result": {
+        "active_pack_id": "foundation-sec-q4",
+        "previous_pack_id": null,
+        "actual_inference": "EXECUTED",
+        "quality_adopted": false
+      },
+      "seconds": 156.734
+    },
+    "native_traces": [
+      {
+        "executable": "llama-tokenize.exe",
+        "status": "SUCCEEDED",
+        "returncode": 0,
+        "elapsed_seconds": 2.25,
+        "token_appcontainer": true,
+        "token_capabilities": [
+          "registryRead"
+        ],
+        "network_capability_count": 0,
+        "less_privileged_appcontainer": true,
+        "job_active_process_limit": 1,
+        "token_integrity_rid": 4096,
+        "token_elevated": false,
+        "kernel_all_application_packages_read": false,
+        "kernel_all_restricted_application_packages_read": true,
+        "implicit_profile_filesystem_write_denied": true,
+        "job_memory_limit_bytes": 8589934592,
+        "job_kill_on_close": true,
+        "job_cpu_limit_100ns": 11127480000,
+        "peak_working_set_bytes": 88199168,
+        "peak_private_commit_bytes": 72609792,
+        "job_peak_memory_bytes": 73805824,
+        "process_cpu_seconds": 0.640625,
+        "first_stdout_seconds": 2.25,
+        "cwd_read_only": true
+      },
+      {
+        "executable": "llama-completion.exe",
+        "status": "SUCCEEDED",
+        "returncode": 0,
+        "elapsed_seconds": 120.969,
+        "token_appcontainer": true,
+        "token_capabilities": [
+          "registryRead"
+        ],
+        "network_capability_count": 0,
+        "less_privileged_appcontainer": true,
+        "job_active_process_limit": 1,
+        "token_integrity_rid": 4096,
+        "token_elevated": false,
+        "kernel_all_application_packages_read": false,
+        "kernel_all_restricted_application_packages_read": true,
+        "implicit_profile_filesystem_write_denied": true,
+        "job_memory_limit_bytes": 8589934592,
+        "job_kill_on_close": true,
+        "job_cpu_limit_100ns": 11005000000,
+        "peak_working_set_bytes": 4866949120,
+        "peak_private_commit_bytes": 357462016,
+        "job_peak_memory_bytes": 358617088,
+        "process_cpu_seconds": 440.328125,
+        "first_stdout_seconds": 77.57799999999406,
+        "cwd_read_only": true
+      },
+      {
+        "executable": "llama-tokenize.exe",
+        "status": "SUCCEEDED",
+        "returncode": 0,
+        "elapsed_seconds": 2.438,
+        "token_appcontainer": true,
+        "token_capabilities": [
+          "registryRead"
+        ],
+        "network_capability_count": 0,
+        "less_privileged_appcontainer": true,
+        "job_active_process_limit": 1,
+        "token_integrity_rid": 4096,
+        "token_elevated": false,
+        "kernel_all_application_packages_read": false,
+        "kernel_all_restricted_application_packages_read": true,
+        "implicit_profile_filesystem_write_denied": true,
+        "job_memory_limit_bytes": 8589934592,
+        "job_kill_on_close": true,
+        "job_cpu_limit_100ns": 11220599999,
+        "peak_working_set_bytes": 88059904,
+        "peak_private_commit_bytes": 72499200,
+        "job_peak_memory_bytes": 73691136,
+        "process_cpu_seconds": 0.765625,
+        "first_stdout_seconds": 2.422000000005937,
+        "cwd_read_only": true
+      },
+      {
+        "executable": "llama-completion.exe",
+        "status": "TIMEOUT",
+        "returncode": 125,
+        "elapsed_seconds": 277.922,
+        "token_appcontainer": true,
+        "token_capabilities": [
+          "registryRead"
+        ],
+        "network_capability_count": 0,
+        "less_privileged_appcontainer": true,
+        "job_active_process_limit": 1,
+        "token_integrity_rid": 4096,
+        "token_elevated": false,
+        "kernel_all_application_packages_read": false,
+        "kernel_all_restricted_application_packages_read": true,
+        "implicit_profile_filesystem_write_denied": true,
+        "job_memory_limit_bytes": 8589934592,
+        "job_kill_on_close": true,
+        "job_cpu_limit_100ns": 11088719999,
+        "peak_working_set_bytes": 4864376832,
+        "peak_private_commit_bytes": 335384576,
+        "job_peak_memory_bytes": 336584704,
+        "process_cpu_seconds": 1048.453125,
+        "first_stdout_seconds": null,
+        "cwd_read_only": true
+      }
+    ],
+    "selected_action": {
+      "http_status": 400,
+      "seconds": 301.594,
+      "response": {
+        "type": "https://saw.local/problems/400",
+        "title": "Bad request",
+        "status": 400,
+        "detail": "cpu_wall_budget",
+        "instance": "/api/v1/ai/actions"
+      }
+    },
+    "failure_audit": [
+      {
+        "action": "explain_finding",
+        "provider": "local_cpu",
+        "code": "cpu_wall_budget",
+        "actual_inference": "EXECUTED_OUTPUT_UNVERIFIED",
+        "native_status": "TIMEOUT",
+        "native_stage": "completion",
+        "native_returncode": 125,
+        "input_tokens": 598,
+        "native_elapsed_seconds": 277.922,
+        "process_cpu_seconds": 1048.453125
+      }
+    ],
+    "snapshot_limit": "Native run preceded final query_available/null-count prompt wording and presentation fixes; not a final-prompt performance measurement.",
+    "deactivation_http_status": 200,
+    "active_after": null,
+    "finding_decisions_unchanged": true,
+    "test_account_disabled": true,
+    "quality_adopted": false
+  },
+  "evaluation": {
+    "synthetic_cases": 8,
+    "executed_on_candidate_models": false,
+    "korean_soc_quality_passed": false,
+    "candidate_adopted": false
+  },
+  "training": {
+    "optimizer_executed": false,
+    "adapter_changed": false,
+    "adapter_reload_tested": false
+  },
+  "new_model_downloaded": false,
+  "target_ltsc2019_tested": false,
+  "whole_platform_16gb_tested": false,
+  "native_pg_opensearch_restore_retested_this_change": false,
+  "production_data_used": false,
+  "production_deployment_approved": false,
+  "screenshots": [
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/01-evidence-preview.jpg",
+      "bytes": 115155,
+      "sha256": "f81316d8f33646e11cdfd42f384307315a19880c062a076213e01cfd36f1bf40"
+    },
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/02-note-saved.jpg",
+      "bytes": 119782,
+      "sha256": "0dc2b6850eb86ae596331bdd3175a5be2ba131e4d591fd247eda08541820df74"
+    },
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/03-note-after-reload.jpg",
+      "bytes": 50746,
+      "sha256": "3e6c0796698acb32345203f91f98db67e5b7936da25e1569ef4b4e3bf51bcb10"
+    },
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/04-raw-reference.jpg",
+      "bytes": 66782,
+      "sha256": "bba7eb80e13887492e6d46f75292ef5a07f0178484dc45bf2305c61d4b602fb5"
+    },
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/05-explanation-template.jpg",
+      "bytes": 57229,
+      "sha256": "e7023d404dfed5f76052a9989fbfdeb35ffa56c560f69b45911e131fcdfff686"
+    },
+    {
+      "path": "docs/assets/assistant-evidence-2026-10-15/06-preview-final-narrow.jpg",
+      "bytes": 62130,
+      "sha256": "3d53e21349da66fa7b7a8b650b7865a73f9025d2f05f8c765317e9d48ce725bd"
+    }
+  ],
+  "local_logs": [
+    {
+      "path": ".qa/assistant-full-backend-20261015.log",
+      "sha256": "7d20281f2dd5cbf625f3c165f6472a6c03eedbad6536246887aafc88fceb4f69"
+    },
+    {
+      "path": ".qa/assistant-full-ui-20261015.log",
+      "sha256": "fb37483af181b1921746314092db7c57c1a92995c73d1fc27522e6555fbe5f17"
+    },
+    {
+      "path": ".qa/assistant-full-ui-tsc-20261015.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qa/assistant-build-final-20261015.log",
+      "sha256": "17e8a5af417649bb9ee974c5d3b7eea66167fd20cefc0db611174f36e6a1acd7"
+    },
+    {
+      "path": ".qa/assistant-build-final-retry-20261015.log",
+      "sha256": "a3ad05c3310bf89148fe01258d9708741a8bb3e916eff287791cf35c27f73555"
+    },
+    {
+      "path": ".qa/assistant-native-20261015.log",
+      "sha256": "22155b7e6966187aa349cac4bf70385ba6663fd4d05f9e46e78706ed54665792"
+    }
+  ],
+  "implementation_commits": {
+    "backend": "d071e7a",
+    "ui": "f810c4c"
+  }
+}
