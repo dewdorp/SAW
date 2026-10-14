@@ -1,5 +1,11 @@
 # SAW 구현 진행 현황 (자동 재개용)
 
+## 2026-10-15 조사 기록과 오프라인 콘텐츠 증분
+
+조사 안내/Check/종결/Experience/선택 Golden과 데이터 전용 룰·파서 반입/시험/독립 적용/복구를 연결했다. 스키마0013과 예제/사용 안내를 추가했다. 최종 서버913통과2건너뜀, 화면162통과, tsc/build/Ruff 성공. 실제 PG16.15/OS2.19.6 59+4통과, 합성 HTTP 탐지1→2→1, Golden export와 재시작 보존을 확인했다.
+
+자세한 변경과 검증은 [STATE](STATE.md), [검증 기록](docs/GUIDANCE-CONTENT-VALIDATION-2026-10-15.md)에 있다. 브라우저 도구 장애로 콘텐츠 적용·복원/Golden 최종 클릭 및 캡처는 미완료이다. 기존 설치ZIP·깨끗한LTSC·모델품질·운영인수는 완료로 변경하지 않았다. [오프라인 실습](docs/OFFLINE-CONTENT-GUIDE.md)과 [조사·Golden 사용법](docs/GUIDANCE-GOLDEN-GUIDE.md)을 제공한다.
+
 > 이 파일은 **작업 재개의 기준점**이다. 새 세션/자동 실행은 이 파일을 먼저 읽고 `NEXT` 항목부터 이어간다.
 > 완료(✅) 항목은 재구현하지 않는다. 환경 미검증 항목은 [ENV-VERIFICATION.md](ENV-VERIFICATION.md)에 기록한다.
 > 사용자 지시(2026-10-06): 단계별 승인 대기 없이 남은 구현·테스트·브라우저 검증을 계속 수행.

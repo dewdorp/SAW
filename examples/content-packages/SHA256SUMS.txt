@@ -1,0 +1,2 @@
+06a39e586b0849cfe85ef5127cd35b0f9e4e8357d39013a33e3f0c44c8983b66  synthetic-rules-parsers.json
+bb3f05ae67808efc725ddf753f0bcb0d4f8c9c33e1d3b3ce78fa7362b7bcd8a2  synthetic-rules-parsers-r2.json

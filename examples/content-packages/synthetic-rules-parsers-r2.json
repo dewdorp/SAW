@@ -1,0 +1,105 @@
+{
+  "schema": "saw.content-package/1",
+  "package_id": "saw-synthetic-demo",
+  "revision": 2,
+  "requires": {
+    "content_engine": "saw-content-v1"
+  },
+  "entries": [
+    {
+      "kind": "sigma",
+      "source_id": "demo-sensitive-path",
+      "source_version": 2,
+      "content": {
+        "title": "합성 예제 v2: 제한 경로와 관리 내보내기 요청",
+        "data_source": "web",
+        "logic": "title: Synthetic restricted paths v2\nlogsource: {category: webserver}\ndetection:\n  selected:\n    cs-uri-stem:\n      - /saw-demo/restricted\n      - /saw-demo/admin-export\n  condition: selected\nlevel: medium\n"
+      },
+      "fixtures": [
+        {
+          "name": "양성 합성 요청",
+          "expected": "match",
+          "events": [
+            {
+              "data_source": "web",
+              "url_path": "/saw-demo/restricted"
+            }
+          ]
+        },
+        {
+          "name": "추가 경로 양성 요청",
+          "expected": "match",
+          "events": [
+            {
+              "data_source": "web",
+              "url_path": "/saw-demo/admin-export"
+            }
+          ]
+        },
+        {
+          "name": "정상 합성 요청",
+          "expected": "no_match",
+          "events": [
+            {
+              "data_source": "web",
+              "url_path": "/health"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "parser",
+      "source_id": "demo-appliance",
+      "source_version": 2,
+      "content": {
+        "name": "합성 장비 로그 파서 v2: 상태 코드 지원",
+        "spec": {
+          "format": "regex",
+          "pattern": "^demo src=(?P<ip>\\S+) path=(?P<path>\\S+)(?: status=(?P<status>\\d{3}))?$",
+          "mapping": {
+            "ip": "src_ip",
+            "path": "uri",
+            "status": "status_code"
+          },
+          "auto_map": false,
+          "data_source": "web",
+          "detect": {
+            "line_regex": "^demo src="
+          }
+        }
+      },
+      "fixtures": [
+        {
+          "name": "일치 합성 로그",
+          "expected": "parsed",
+          "sample": "demo src=192.0.2.10 path=/health",
+          "fields": [
+            {
+              "src_ip": "192.0.2.10",
+              "uri": "/health"
+            }
+          ]
+        },
+        {
+          "name": "상태 코드 포함 양성 로그",
+          "expected": "parsed",
+          "sample": "demo src=192.0.2.10 path=/saw-demo/admin-export status=403",
+          "fields": [
+            {
+              "src_ip": "192.0.2.10",
+              "uri": "/saw-demo/admin-export",
+              "status_code": 403
+            }
+          ]
+        },
+        {
+          "name": "관계없는 정상 로그",
+          "expected": "no_match",
+          "sample": "unrelated synthetic log"
+        }
+      ]
+    }
+  ],
+  "payload_sha256": "e972b3e7c37d01ff211a1db0bb9a6df82c21df5caae1d313190e0d55dfe99f96"
+}

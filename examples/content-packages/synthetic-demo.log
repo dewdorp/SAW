@@ -1,0 +1,3 @@
+demo src=192.0.2.10 path=/health
+demo src=192.0.2.10 path=/saw-demo/restricted
+demo src=192.0.2.10 path=/saw-demo/admin-export

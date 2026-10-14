@@ -1,3 +1,13 @@
+# 2026-10-15 최신 인계: 조사 안내와 오프라인 콘텐츠
+
+수정 대상은 **F:/codex/SAW-Claude-main**이다. [STATE](../STATE.md), [검증 기록](GUIDANCE-CONTENT-VALIDATION-2026-10-15.md), [콘텐츠 실습](OFFLINE-CONTENT-GUIDE.md), [조사·Golden 사용법](GUIDANCE-GOLDEN-GUIDE.md)을 먼저 읽는다.
+
+서버913/화면162, tsc/build, 실제 격리 PG/OS59+4 시험과 실제 HTTP r1→r2→복구(1→2→1), Golden 입력/정답 export, 앱 재시작 보존을 확인했다. **실제 브라우저는 사례A 종결/Experience 검토요청까지만**이며 콘텐츠/Golden 최종 클릭과 단계별 스크린샷은 도구 실행 시간 초과로 남았다. 테스트나 API 성공으로 그 화면 검증을 완료 표시하지 않는다.
+
+스키마0013이 필요하고 기존10/12 설치매체는 새 기능 미포함이다. install.ps1은 신규 설치용이다. 다음은 합성 전용57285 화면 검증·캡처, 새 매체와 기존설치 전환, 깨끗한LTSC17763/16GB공동부하/모델품질/운영인수다. 자격증명은 대화·문서에 출력하지 않는다. 원본/은행 운영자료/사용자 계정은 건드리지 않는다. 현재 모델 선택/학습 승인 경계도 유지한다.
+
+---
+
 # 2026-10-15 추가 인계: 선택 탐지 Assistant
 
 수정 대상은 계속 **F:/codex/SAW-Claude-main**이다. [최신 STATE](../STATE.md), [실제 화면/사용법](ASSISTANT-EVIDENCE-GUIDE.md), [새 검증 기록](ASSISTANT-EVIDENCE-VALIDATION-2026-10-15.md)을 먼저 읽는다. 이전 PASS를 복사하지 않는다.

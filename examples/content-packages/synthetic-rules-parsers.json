@@ -1,0 +1,82 @@
+{
+  "schema": "saw.content-package/1",
+  "package_id": "saw-synthetic-demo",
+  "revision": 1,
+  "requires": {
+    "content_engine": "saw-content-v1"
+  },
+  "entries": [
+    {
+      "kind": "sigma",
+      "source_id": "demo-sensitive-path",
+      "source_version": 1,
+      "content": {
+        "title": "합성 예제: 제한 경로 요청",
+        "data_source": "web",
+        "logic": "title: Synthetic restricted path\nlogsource: {category: webserver}\ndetection:\n  selected: {cs-uri-stem: /saw-demo/restricted}\n  condition: selected\nlevel: medium\n"
+      },
+      "fixtures": [
+        {
+          "name": "양성 합성 요청",
+          "expected": "match",
+          "events": [
+            {
+              "data_source": "web",
+              "url_path": "/saw-demo/restricted"
+            }
+          ]
+        },
+        {
+          "name": "정상 합성 요청",
+          "expected": "no_match",
+          "events": [
+            {
+              "data_source": "web",
+              "url_path": "/health"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "parser",
+      "source_id": "demo-appliance",
+      "source_version": 1,
+      "content": {
+        "name": "합성 장비 로그 파서",
+        "spec": {
+          "format": "regex",
+          "pattern": "^demo src=(?P<ip>\\S+) path=(?P<path>\\S+)$",
+          "mapping": {
+            "ip": "src_ip",
+            "path": "uri"
+          },
+          "auto_map": false,
+          "data_source": "web",
+          "detect": {
+            "line_regex": "^demo src="
+          }
+        }
+      },
+      "fixtures": [
+        {
+          "name": "일치 합성 로그",
+          "expected": "parsed",
+          "sample": "demo src=192.0.2.10 path=/health",
+          "fields": [
+            {
+              "src_ip": "192.0.2.10",
+              "uri": "/health"
+            }
+          ]
+        },
+        {
+          "name": "관계없는 정상 로그",
+          "expected": "no_match",
+          "sample": "unrelated synthetic log"
+        }
+      ]
+    }
+  ],
+  "payload_sha256": "5cebacd04912c79b53b8620e5fea249e2cb91c8c6a52c09376a4c64050a37fa2"
+}

@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-15",
+  "synthetic_only": true,
+  "transport": "actual_http_loopback",
+  "stores": "isolated SQLite and local objects",
+  "browser_validated": false,
+  "analysis": [
+    {
+      "step": "r1 적용 뒤 3건 분석",
+      "events": 3,
+      "parser_version": "1",
+      "sigma_matches": 1,
+      "sigma_version": 1
+    },
+    {
+      "step": "r2 적용 뒤 3건 분석",
+      "events": 3,
+      "parser_version": "2",
+      "sigma_matches": 2,
+      "sigma_version": 2
+    },
+    {
+      "step": "r2 상태코드 로그 분석",
+      "events": 2,
+      "parser_version": "2",
+      "sigma_matches": 1,
+      "sigma_version": 2
+    },
+    {
+      "step": "r2 되돌린 뒤 r1 내용으로 3건 분석",
+      "events": 3,
+      "parser_version": "1",
+      "sigma_matches": 1,
+      "sigma_version": 3
+    }
+  ],
+  "golden_exports": [
+    {
+      "format": "bundle",
+      "audience": "agent",
+      "bytes": 4227
+    },
+    {
+      "format": "jsonl",
+      "audience": "agent",
+      "bytes": 11478
+    },
+    {
+      "format": "jsonl",
+      "audience": "evaluator",
+      "bytes": 3748
+    },
+    {
+      "format": "csv",
+      "audience": "evaluator",
+      "bytes": 286
+    }
+  ],
+  "restart": {
+    "actual_http": true,
+    "restart_persistence": true,
+    "synthetic_only": true,
+    "ui_execution": false,
+    "checks": 3,
+    "content_r2": "rolled_back",
+    "golden": "adopted",
+    "agent_export_bytes": 11478,
+    "restored_events": 3,
+    "parser_version": "1"
+  }
+}

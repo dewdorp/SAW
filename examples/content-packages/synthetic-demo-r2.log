@@ -1,0 +1,2 @@
+demo src=192.0.2.10 path=/health status=200
+demo src=192.0.2.10 path=/saw-demo/admin-export status=403
