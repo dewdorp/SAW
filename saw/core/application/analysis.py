@@ -35,8 +35,9 @@ def all_detectors():
     from saw.detectors.signatures import SignatureMatch
     from saw.detectors.ndr_policy import NdrPolicy
     from saw.detectors.peer_behavior import PeerBehavior
+    from saw.detectors.temporal_behavior import TemporalBehavior
 
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior()]
 
 
 def _flow_roles(finding: Finding) -> dict[str, list[str]]:
