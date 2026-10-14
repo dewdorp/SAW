@@ -40,6 +40,50 @@ class EgressPolicyError(ValueError):
     pass
 
 
+def describe_baseline(value) -> str:
+    """Present stored comparison facts without exposing internal metadata as prose."""
+    if value is None:
+        return "없음"
+    if isinstance(value, list):
+        return f"비교값 {len(value)}개 · 탐지 상세 참조"
+    if not isinstance(value, dict):
+        return str(value)
+    parts, explained = [], set()
+    def scalar(key):
+        return value.get(key) is not None and isinstance(value[key], (str, int, float)) and not isinstance(value[key], bool)
+    if scalar("median"):
+        parts.append(f"중앙값 {value['median']}")
+        explained.add("median")
+    if scalar("min") and scalar("max"):
+        parts.append(f"참고 범위 {value['min']}~{value['max']}")
+        explained.update(("min", "max"))
+    else:
+        for key, label in (("min", "기준 최솟값"), ("max", "기준 최댓값")):
+            if scalar(key):
+                parts.append(f"{label} {value[key]}")
+                explained.add(key)
+    if scalar("mad"):
+        parts.append(f"변동 폭(MAD) {value['mad']}")
+        explained.add("mad")
+    if scalar("windows"):
+        parts.append(f"비교 {value['windows']}구간")
+        explained.add("windows")
+    if scalar("start") or scalar("end"):
+        start = str(value["start"]).replace("T", " ") if scalar("start") else "시작 미지정"
+        end = str(value["end"]).replace("T", " ") if scalar("end") else "끝 미지정"
+        parts.append(f"비교 기간 {start} ~ {end}")
+        explained.update(k for k in ("start", "end") if scalar(k))
+    if "source" in value:
+        source = {"relative:same_source_destination_service_prior_windows": "같은 출발지·목적지·서비스의 앞선 기록"}.get(
+            str(value["source"]))
+        parts.append(source or "기준 출처는 탐지 상세 참조")
+        explained.add("source")
+    remaining = len(set(value) - explained)
+    if remaining:
+        parts.append(f"추가 항목 {remaining}개는 탐지 상세 참조")
+    return " · ".join(parts) or "비교 기준 내용 없음"
+
+
 def assert_local_endpoint(url: str) -> None:
     """Allow loopback/private addresses only (Zone L). Public hosts are rejected (docs/29 §1)."""
     u = urlparse(url)
@@ -123,10 +167,45 @@ class TemplateProvider:
 
     name, model, is_llm = "template", "offline-template-v1", False
 
+    @staticmethod
+    def _selected_answer(ctx: dict, action: str) -> LLMResponse:
+        finding = ctx["findings"][0]
+        ref = finding["display_id"]
+        scope = ctx["scope"]
+        title = {"explain_finding": "선택한 이상행위의 근거 설명", "next_steps": "선택한 이상행위의 추가 확인",
+                 "report_draft": "선택한 탐지 보고서 초안 · 조사 전체 보고서 아님"}[action]
+        count_line = (f"근거 조건에 맞는 현재 로그 {scope['matched_events']}건." if scope["query_available"] else
+                      "유효한 근거 조회 범위가 없어 로그를 조회하지 않았습니다. 건수는 알 수 없습니다.")
+        lines = [title, f"\n[{ref}] {finding['title']}", "\n관측 내용", f"- {count_line} [{ref}]"]
+        if scope.get("time"):
+            bounds = scope["time"]
+            lines.append(f"- 조회 시간: {bounds.get('start') or '시작 미지정'} ~ {bounds.get('end') or '끝 미지정'}. [{ref}]")
+        for metric in finding.get("metrics", []):
+            baseline = describe_baseline(metric.get("baseline"))
+            lines.append(f"- {metric.get('label') or metric['name']}: 관측 {metric.get('observed') if metric.get('observed') is not None else '값 없음'}, "
+                         f"저장된 비교 기준 {baseline}. [{ref}]")
+        for check in finding.get("checks", []):
+            result = "충족" if check.get("passed") is True else "미충족" if check.get("passed") is False else "미확인"
+            lines.append(f"- {check['label']}: 탐지 조건 {result}, 값 {check.get('value') if check.get('value') is not None else '없음'}. [{ref}]")
+        lines += ["\n가능한 다른 설명 · 확인되지 않은 가설",
+                  "- 정상 배치·백업·자동 재시도·장애 가능성을 작업 일정과 대조하세요.",
+                  "- 악성 시도 가능성은 실행·파일 변경·통신 등 별도 근거가 필요합니다.",
+                  "\n추가 확인",
+                  "- 같은 시간대 원문, 수집 누락 여부, 자산 담당자의 승인된 작업을 확인하세요.",
+                  "- 차단된 악성 시도와 실제 실행 여부를 구분하세요. 차단되었다고 오탐은 아닙니다.",
+                  "- HTTP 200만으로 침해 성공, 단일 YARA 일치만으로 웹쉘을 확정하지 마세요.",
+                  "\n판단 범위와 한계"]
+        lines += [f"- {line}" for line in ctx.get("limitations", [])]
+        lines.append("\n※ 오프라인 템플릿 (LLM 아님). 분석가 검토용이며 판단·승인·조치를 변경하지 않습니다.")
+        return LLMResponse(json.dumps({"answer_md": "\n".join(lines), "citations": [ref]}, ensure_ascii=False),
+                           TemplateProvider.model)
+
     def generate(self, req: LLMRequest) -> LLMResponse:
         m = re.search(r"<trusted_context>\s*(\{.*?\})\s*</trusted_context>", req.user, re.S)
         ctx = json.loads(m.group(1)) if m else {}
         action = ctx.get("action", "ask")
+        if ctx.get("context_scope") == "selected_finding" and action in {"explain_finding", "next_steps", "report_draft"}:
+            return self._selected_answer(ctx, action)
         lines, cites = [], []
         for f in ctx.get("findings", [])[:5]:
             cites.append(f["display_id"])

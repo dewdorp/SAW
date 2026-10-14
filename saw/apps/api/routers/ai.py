@@ -33,6 +33,12 @@ def action(body: ActionIn, ctx: AuthContext = Depends(require_perm("ai.use")), s
                        session_id=ctx.session.id)
 
 
+@router.get("/context")
+def context(investigation_id: str, finding_id: str, ctx: AuthContext = Depends(require_perm("ai.use")),
+            s: Session = Depends(db, scope="function")):
+    return service.preview_context(s, ctx.principal, investigation_id, finding_id)
+
+
 @router.post("/{rid}/feedback")
 def feedback(rid: str, body: FeedbackIn, ctx: AuthContext = Depends(require_perm("ai.use")), s: Session = Depends(db, scope="function")):
     r = s.get(service.LlmInteraction, rid)

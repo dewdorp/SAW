@@ -13,13 +13,13 @@ from saw import container
 from saw.core.application import audit
 from saw.core.application.identity import principal_of
 from saw.core.application.analysis import finding_dict
-from saw.core.application.investigations import Forbidden, require
-from saw.core.schemas.query import Filter
+from saw.core.application.investigations import Forbidden, NotFound, require
+from saw.core.schemas.query import Filter, TimeRange
 from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_event, mask_text
 from saw.llm.context_policy import allowed_experiences, knowledge_snapshot, knowledge_still_allowed, mask_context
 from saw.llm.prompt import build, injection_signals
-from saw.llm.providers import LLMRequest, OllamaProvider, OpenAICompatibleProvider, TemplateProvider
+from saw.llm.providers import LLMRequest, OllamaProvider, OpenAICompatibleProvider, TemplateProvider, describe_baseline
 from saw.storage.db import Base, new_id, utcnow
 from saw.storage.models import AttackStory, Finding, Investigation, Note, User, UserSession
 
@@ -28,6 +28,8 @@ ACTIONS = {"explain_finding", "next_steps", "compare_cases", "ioc_summary", "hun
 SAMPLE_FIELDS = ["event_id", "timestamp", "data_source", "src_ip", "method", "uri", "status_code", "user_agent", "domain"]
 MAX_SAMPLES = 20
 MAX_FIELD = 512
+SELECTED_SAMPLE_LIMIT = 3
+SELECTED_ACTIONS = {"explain_finding", "next_steps", "report_draft"}
 
 
 class LlmInteraction(Base):
@@ -72,16 +74,137 @@ def provider_status() -> dict:
     return {**p.health(), "provider": p.name, "model": p.model, "is_llm": p.is_llm}
 
 
-def _samples(inv_id: str, flt: list[Filter]) -> list[dict]:
+def _samples(inv_id: str, flt: list[Filter], time_range: TimeRange | None = None, *, limit: int = MAX_SAMPLES) -> list[dict]:
     out = []
-    for e in container.get().events.search(inv_id, flt, limit=MAX_SAMPLES)["events"]:
+    for e in container.get().events.search(inv_id, flt, time_range, limit=limit)["events"]:
         m, _ = mask_event(e)
-        out.append({k: (str(m.get(k))[:MAX_FIELD] if m.get(k) is not None else None) for k in SAMPLE_FIELDS})
+        out.append({k: (mask_text(str(m.get(k))).text[:MAX_FIELD] if m.get(k) is not None else None) for k in SAMPLE_FIELDS})
     return out
+
+
+def _evidence_scope(refs: dict) -> tuple[list[Filter], TimeRange | None, bool]:
+    """Reject invalid scopes; absence of a scope must never select every event."""
+    try:
+        query = (refs or {}).get("query") or {}
+        if not isinstance(query, dict):
+            raise ValueError()
+        filters = [Filter(**row) for row in query.get("filters", [])]
+        time_range = TimeRange(**query["time"]) if query.get("time") else None
+        bounds = []
+        for raw in (time_range.start, time_range.end) if time_range else (None, None):
+            instant = datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
+            if instant is not None and instant.tzinfo is None:
+                raise ValueError()
+            bounds.append(instant)
+        if all(bounds) and bounds[0] > bounds[1]:
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("invalid finding evidence scope") from None
+    return filters, time_range, bool(filters or any(bounds))
+
+
+def _selected_finding(s: Session, inv_id: str, finding_id: str) -> Finding:
+    finding = s.get(Finding, finding_id)
+    if finding is None or finding.investigation_id != inv_id:
+        raise NotFound("finding not found")
+    return finding
+
+
+def _short(value, limit=120):
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = mask_text(str(value)).text
+    return text if len(text) <= limit else text[:limit] + "…[생략]"
+
+
+def _metric_value(value, depth=0):
+    if isinstance(value, dict):
+        if depth >= 3:
+            return "[깊은 값 생략]"
+        result = {str(key): _metric_value(item, depth + 1) for key, item in list(value.items())[:12]}
+        if len(value) > 12:
+            result["_omitted"] = len(value) - 12
+        return result
+    if isinstance(value, list):
+        if depth >= 3:
+            return "[깊은 값 생략]"
+        return [_metric_value(item, depth + 1) for item in value[:12]] + (["[나머지 생략]"] if len(value) > 12 else [])
+    return _short(value, 160)
+
+
+def _value_text(value):
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+
+
+def _selected_context(s: Session, p: Principal, inv_id: str, finding_id: str, *, sample_limit: int) -> dict:
+    require(s, p, "investigation.read", inv_id)
+    finding = _selected_finding(s, inv_id, finding_id)
+    filters, time_range, has_scope = _evidence_scope(finding.evidence_refs)
+    matched = container.get().events.count(inv_id, filters, time_range) if has_scope else None
+    samples = _samples(inv_id, filters, time_range, limit=sample_limit) if has_scope and sample_limit else []
+    metrics = [{"name": _short(m.get("name", "지표"), 64), "observed": _metric_value(m.get("observed")),
+                "baseline": _metric_value(m.get("baseline")),
+                **({"label": _short(m["label"], 100)} if m.get("label") else {}),
+                **({"unit": _short(m["unit"], 32)} if m.get("unit") else {})}
+               for m in (finding.metrics or [])[:4]]
+    checks = [{"label": _short(c.get("label", "확인"), 100), "passed": c.get("passed"),
+               "value": _short(c.get("value"))} for c in (finding.checks or [])[:4]]
+    scope = {"investigation_id": inv_id, "finding_id": finding_id, "finding_display_id": finding.display_id,
+             "time": time_range.model_dump() if time_range else None,
+             "query_available": has_scope, "matched_events": matched, "sampled_events": len(samples), "sample_limit": sample_limit,
+             "truncated": matched is not None and matched > len(samples)}
+    observations = [f"선택한 탐지의 근거 조건에 맞는 현재 로그는 {matched}건입니다."] if has_scope else []
+    for metric in metrics:
+        if metric["observed"] is not None:
+            baseline = f", 저장된 비교 기준 {describe_baseline(metric['baseline'])}" if metric["baseline"] is not None else ", 비교 기준 없음"
+            observations.append(f"{metric.get('label') or metric['name']}: 관측 {_value_text(metric['observed'])}{baseline}.")
+    for check in checks:
+        result = "충족" if check["passed"] is True else "미충족" if check["passed"] is False else "미확인"
+        observations.append(f"{check['label']}: 탐지 조건 {result} ({check['value'] if check['value'] is not None else '값 없음'}).")
+    limitations = ["선택한 탐지의 저장된 지표·체크만 설명합니다. 기준값은 정상 판정이 아니며 현재 로그 건수와 집계 시점이 다를 수 있습니다.",
+                   "침해 성공·정상·오탐 확정 근거가 아닙니다. 최종 판단과 조치는 분석가가 검토합니다."]
+    if not has_scope:
+        limitations.append("유효한 근거 조회 범위가 없어 로그를 조회하지 않았습니다.")
+    elif not matched:
+        limitations.append("근거 조건에 맞는 현재 로그가 없습니다. 수집·보관 상태와 탐지 시점을 확인하세요.")
+    if sample_limit == 0:
+        limitations.append("원문·이벤트 표본·조사 전체 메모·다른 탐지·과거 경험은 모델에 전달하지 않습니다.")
+    else:
+        limitations.append(f"표본 참조는 최대 {sample_limit}건이며 원문 내용은 이 미리보기에 포함하지 않습니다.")
+    if len(finding.metrics or []) > 4 or len(finding.checks or []) > 4 or len(finding.attack or []) > 4:
+        limitations.append("표시·전달은 지표·체크·ATT&CK 각각 앞 4개로 제한됩니다. 전체 근거는 탐지 상세에서 확인하세요.")
+    limitations.append("긴 글자 값과 중첩 값은 생략 표시로 제한합니다. 원문은 탐지 상세에서 확인하세요.")
+    return {"scope": scope,
+            "finding": {"display_id": finding.display_id, "title": _short(finding.title, 160),
+                        "risk_level": finding.risk_level, "metrics": metrics, "checks": checks,
+                        "attack": [_short(a.get("technique_id", ""), 32) for a in (finding.attack or [])[:4]]},
+            "observations": observations,
+            "alternatives": ["정상 배치·백업·자동 재시도·장애도 변화의 원인일 수 있으므로 작업 일정과 비교하세요.",
+                             "악성 시도 가능성은 실제 실행·파일 변경·통신 등 별도 근거와 비교해야 합니다."],
+            "next_checks": ["같은 시간대·같은 출발지의 원문과 수집 누락 여부를 확인하세요.",
+                            "자산 담당자의 승인된 작업 일정·정상 기준과 대조하세요.",
+                            "요청 결과와 프로세스·파일 변경을 연결해 차단된 시도와 실제 실행 여부를 구분하세요."],
+            "limitations": limitations,
+            "citations": [{"id": finding.display_id, "type": "finding", "finding_id": finding_id}] +
+                         [{"id": f"evt:{row['event_id']}", "type": "event", "event_id": row["event_id"]}
+                          for row in samples if row.get("event_id")]}
+
+
+def preview_context(s: Session, p: Principal, inv_id: str, finding_id: str) -> dict:
+    if not can(p, "ai.use"):
+        raise Forbidden("ai.use required")
+    return _selected_context(s, p, inv_id, finding_id, sample_limit=SELECTED_SAMPLE_LIMIT)
 
 
 def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id: str | None, *,
                   synthetic_only: bool = False) -> tuple[dict, list[dict], list[str]]:
+    if finding_id:
+        _selected_finding(s, inv_id, finding_id)
+    if finding_id and action in SELECTED_ACTIONS:
+        preview = _selected_context(s, p, inv_id, finding_id, sample_limit=0)
+        trusted = {"context_scope": "selected_finding", "scope": preview["scope"], "findings": [preview["finding"]],
+                   "limitations": preview["limitations"]}
+        return trusted, [], [preview["finding"]["display_id"]]
     inv = s.get(Investigation, inv_id)
     q = select(Finding).where(Finding.investigation_id == inv_id).order_by(Finding.risk_score.desc())
     if finding_id:
@@ -111,16 +234,25 @@ def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id
         for pb in playbooks_for(s, fs[0]["category"] if fs else None):
             checks += [st.get("check") for st in pb["steps"]]
         trusted["recommended_checks"] = list(dict.fromkeys(checks))[:10]
-    if action in ("summarize", "timeline_summary", "report_draft"):
+    if not finding_id and action in ("summarize", "timeline_summary", "report_draft"):
         st = s.execute(select(AttackStory).where(AttackStory.investigation_id == inv_id).order_by(AttackStory.version.desc())).scalars().first()
         if st:
             trusted["story"] = [{"stage": n["stage"], "title": n["title"]} for n in st.graph.get("nodes", [])][:12]
         trusted["notes"] = [mask_text(n.body_md).text[:300] for n in s.execute(select(Note).where(Note.investigation_id == inv_id)).scalars()][:10]
-    flt = []
+    flt, time_range, has_scope = [], None, True
     if fs:
-        flt = [Filter(**x) for x in (fs[0]["evidence_refs"].get("query") or {}).get("filters", [])]
-    untrusted = _samples(inv_id, flt)
+        flt, time_range, has_scope = _evidence_scope(fs[0]["evidence_refs"])
+    untrusted = _samples(inv_id, flt, time_range) if has_scope else []
     refs += [f"evt:{e['event_id']}" for e in untrusted if e.get("event_id")]
+    trusted["citation_ids"] = refs
+    if finding_id:
+        matched = container.get().events.count(inv_id, flt, time_range) if has_scope else None
+        trusted["context_scope"] = "selected_finding"
+        trusted["scope"] = {"investigation_id": inv_id, "finding_id": finding_id,
+                            "finding_display_id": fs[0]["display_id"], "time": time_range.model_dump() if time_range else None,
+                            "query_available": has_scope, "matched_events": matched,
+                            "sampled_events": len(untrusted), "sample_limit": MAX_SAMPLES,
+                            "truncated": matched is not None and matched > len(untrusted)}
     return mask_context(trusted), untrusted, refs
 
 
@@ -137,7 +269,8 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
         raise Forbidden("local_ai_synthetic_investigation_required")
     trusted, untrusted, refs = build_context(s, p, inv_id, action, finding_id, synthetic_only=synthetic_only)
     signals = injection_signals([json.dumps(untrusted, ensure_ascii=False), question])
-    system, user = build(action, mask_text(question).text[:2000], trusted, untrusted)
+    system, user = build(action, mask_text(question).text[:2000], trusted, untrusted,
+                         compact_selected=prov.is_llm and action in SELECTED_ACTIONS)
     knowledge_versions = knowledge_snapshot(s, [row["display_id"] for row in trusted.get("similar", [])])
     # Release the read transaction during bounded native execution.
     s.commit()
@@ -225,4 +358,8 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
             "execution_status": execution_status, "claim_support": claim_support,
             "runtime_receipt": getattr(prov, "last_receipt", None),
             "query": query, "context_size": {"findings": len(trusted["findings"]), "samples": len(untrusted)},
+            "context_scope": trusted.get("context_scope", "selected_finding" if finding_id else "investigation"),
+            "scope": trusted.get("scope"),
+            "context_projection": ("selected_finding_compact_v1" if finding_id and action in SELECTED_ACTIONS and prov.is_llm
+                                   else "selected_finding_template_v1" if finding_id and action in SELECTED_ACTIONS else "legacy_v1"),
             "latency_ms": latency}
