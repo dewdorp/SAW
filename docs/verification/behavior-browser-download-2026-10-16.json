@@ -1,0 +1,9 @@
+{
+  "source": "actual browser download",
+  "synthetic_only": true,
+  "filename": "golden-agent-evidence.zip",
+  "bytes": 35096,
+  "sha256": "dd3ca66e4732a68f88ad0af01575b5d30851a838cabba1f59550a318a3904b94",
+  "zip_integrity": true,
+  "evaluator_answer_marker_absent": true
+}

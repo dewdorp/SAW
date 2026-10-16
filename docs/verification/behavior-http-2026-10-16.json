@@ -1,0 +1,972 @@
+{
+  "transport": "actual_http_loopback",
+  "stores": "isolated SQLite + local object store",
+  "synthetic_only": true,
+  "ui_execution": false,
+  "cases": {
+    "A": {
+      "investigation_id": "60823fe7-38c5-48e1-af43-89ba7d6b6188",
+      "result_id": "36553d6f-a0ef-493f-931b-e0bccc839dfb",
+      "result_sha256": "886f983193c566f833a5fdd48b62b46390482cfc4ecefa67be4592481e085137",
+      "version": 1,
+      "summary": {
+        "count": 83,
+        "first": "2026-10-16T00:00:00.000000Z",
+        "last": "2026-10-16T00:20:00.000000Z",
+        "methods": {
+          "GET": 83
+        },
+        "services": [
+          "synthetic.example:443"
+        ],
+        "status_codes": {
+          "200": 43,
+          "404": 40
+        },
+        "actions": null,
+        "unique_paths": 83,
+        "user_agents": {
+          "curl/8.0": 83
+        }
+      },
+      "metrics": [
+        {
+          "id": "requests_10s",
+          "label": "10초 요청 수",
+          "window_seconds": 10,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:10.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "1d63c5cd-359f-5711-a5fa-ef9cd4b447ce",
+            "4ec2d097-127b-56b6-82ed-779a488862f6",
+            "c616b5a6-3b4a-5cb5-bf2d-05728b8e80ad",
+            "95102933-24b3-52a7-aa78-67b6a5317ba1",
+            "e6ebcad3-afd9-574f-9525-ff3d82aaebc2",
+            "111ffda7-6433-5c66-829f-0bed156f0205",
+            "1af64908-ba3b-5571-81be-bb252efd87aa",
+            "6ccf9318-9b8c-591a-b096-7fca1752f955",
+            "2c4ca0f7-56ce-503b-b718-13bc72251ea3",
+            "2a142eb2-94f9-565f-b9fd-c3416821e396",
+            "334a2785-3968-5fb5-8c4c-061fbb098664",
+            "e5f0d7bc-7431-5f1f-b9eb-b436fef4360c",
+            "267c3c47-9fae-5dfc-bd2e-73b4574b6190",
+            "d78caefc-788a-53a5-8ba6-5b2ffd8b6c5e",
+            "000d265e-3c13-50e2-a002-be6a1c2079ca",
+            "e4f1460b-5e1b-5674-b2dc-e1a05a155d35"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "paths_60s",
+          "label": "60초 고유 경로 수",
+          "window_seconds": 60,
+          "unit": "개",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "1d63c5cd-359f-5711-a5fa-ef9cd4b447ce",
+            "4ec2d097-127b-56b6-82ed-779a488862f6",
+            "c616b5a6-3b4a-5cb5-bf2d-05728b8e80ad",
+            "95102933-24b3-52a7-aa78-67b6a5317ba1",
+            "e6ebcad3-afd9-574f-9525-ff3d82aaebc2",
+            "111ffda7-6433-5c66-829f-0bed156f0205",
+            "1af64908-ba3b-5571-81be-bb252efd87aa",
+            "6ccf9318-9b8c-591a-b096-7fca1752f955",
+            "2c4ca0f7-56ce-503b-b718-13bc72251ea3",
+            "2a142eb2-94f9-565f-b9fd-c3416821e396",
+            "334a2785-3968-5fb5-8c4c-061fbb098664",
+            "e5f0d7bc-7431-5f1f-b9eb-b436fef4360c",
+            "267c3c47-9fae-5dfc-bd2e-73b4574b6190",
+            "d78caefc-788a-53a5-8ba6-5b2ffd8b6c5e",
+            "000d265e-3c13-50e2-a002-be6a1c2079ca",
+            "e4f1460b-5e1b-5674-b2dc-e1a05a155d35"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "status404_60s",
+          "label": "60초 404 응답 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 15,
+          "applied_threshold": 15,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "1d63c5cd-359f-5711-a5fa-ef9cd4b447ce",
+            "4ec2d097-127b-56b6-82ed-779a488862f6",
+            "c616b5a6-3b4a-5cb5-bf2d-05728b8e80ad",
+            "95102933-24b3-52a7-aa78-67b6a5317ba1",
+            "e6ebcad3-afd9-574f-9525-ff3d82aaebc2",
+            "111ffda7-6433-5c66-829f-0bed156f0205",
+            "1af64908-ba3b-5571-81be-bb252efd87aa",
+            "6ccf9318-9b8c-591a-b096-7fca1752f955",
+            "2c4ca0f7-56ce-503b-b718-13bc72251ea3",
+            "2a142eb2-94f9-565f-b9fd-c3416821e396",
+            "334a2785-3968-5fb5-8c4c-061fbb098664",
+            "e5f0d7bc-7431-5f1f-b9eb-b436fef4360c",
+            "267c3c47-9fae-5dfc-bd2e-73b4574b6190",
+            "d78caefc-788a-53a5-8ba6-5b2ffd8b6c5e",
+            "000d265e-3c13-50e2-a002-be6a1c2079ca",
+            "e4f1460b-5e1b-5674-b2dc-e1a05a155d35"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "repeats_60s",
+          "label": "60초 동일 요청 후보 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 20,
+          "applied_threshold": 20,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "d2fd7c5f-8fc6-55ea-9693-a005f61731f3"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "ua_600s",
+          "label": "10분 고유 User-Agent 수",
+          "window_seconds": 600,
+          "unit": "개",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:10:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 2,
+          "applied_threshold": 2,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "d2fd7c5f-8fc6-55ea-9693-a005f61731f3"
+          ],
+          "missing_count": 0,
+          "status404_in_window": 40,
+          "required_status404": 2,
+          "qualifying_window": null
+        }
+      ],
+      "quality": {
+        "user_agent": {
+          "present": 83,
+          "recorded_empty": 0,
+          "not_collected": 0,
+          "unknown": 0
+        },
+        "timestamp_precision": {
+          "seconds": 0,
+          "subseconds": 83,
+          "unknown": 0
+        },
+        "field_denominator": 83,
+        "producer_observation_denominator": 83,
+        "data_sources": {
+          "web": 83
+        },
+        "timestamp_ties": 0,
+        "missing_timestamp": 0,
+        "missing_src_ip": 0,
+        "missing_service": 0,
+        "field_coverage": {
+          "method": 83,
+          "uri": 83,
+          "status_code": 83,
+          "user_agent": 83,
+          "enforcement_action": 0
+        },
+        "categorical_unique_counts": {
+          "method": 1,
+          "status_code": 2,
+          "enforcement_action": 0,
+          "user_agent": 1
+        },
+        "multi_source_duplicate_risk": false,
+        "collection_continuity": "unknown"
+      }
+    },
+    "B": {
+      "investigation_id": "07f61b52-9130-4d08-b8ec-64270d7272ee",
+      "result_id": "c630013c-b397-467d-a3a1-05a3e20db7cd",
+      "result_sha256": "6a64d71b0e953644c043d6b8c492506bfd30b9628eedbb54e67e64664e67d24e",
+      "version": 1,
+      "summary": {
+        "count": 83,
+        "first": "2026-10-16T00:00:00.000000Z",
+        "last": "2026-10-16T00:20:00.000000Z",
+        "methods": {
+          "GET": 83
+        },
+        "services": [
+          "synthetic.example:443"
+        ],
+        "status_codes": {
+          "200": 43,
+          "404": 40
+        },
+        "actions": {
+          "blocked": 79,
+          "allowed": 4
+        },
+        "unique_paths": 83,
+        "user_agents": {
+          "curl/8.0": 42,
+          "norma/0.4": 41
+        }
+      },
+      "metrics": [
+        {
+          "id": "requests_10s",
+          "label": "10초 요청 수",
+          "window_seconds": 10,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:10.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "106c2564-7d8c-5b14-b689-8daf33c9e610",
+            "63b4f0e8-97bb-53a4-955a-e5003e91bf41",
+            "38dd1f3a-a3ae-53e6-8f05-ee14c566822f",
+            "54303dbb-b905-51a1-bb2c-9ec6980b51dc",
+            "6c017dfe-4228-5ea1-bc53-dfeb248513e1",
+            "86e0277a-3c95-5b7c-9ec0-d45c02d29c30",
+            "c72b9ee2-e432-50f4-b1b0-443465c0b8e6",
+            "aa549bed-6b3e-56ab-b86b-853637187482",
+            "805d4e9d-434c-5aa8-8af7-fb83fbd1653c",
+            "de1d0f13-affb-5fee-a8b6-2d698d7d725a",
+            "6f1f548d-2c66-54cd-862e-913d3ca97b35",
+            "e06eba82-0b4f-5eb8-a1e2-b8f549729b2f",
+            "216f179a-c5d6-578a-96a9-8b6dce687602",
+            "3199220c-fe26-51d9-a513-e6e4d9061816",
+            "5d12c769-5f4d-5eea-b288-d6c67e557ada",
+            "d8814cb9-0366-52c9-9801-f1eedb548460"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "paths_60s",
+          "label": "60초 고유 경로 수",
+          "window_seconds": 60,
+          "unit": "개",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "106c2564-7d8c-5b14-b689-8daf33c9e610",
+            "63b4f0e8-97bb-53a4-955a-e5003e91bf41",
+            "38dd1f3a-a3ae-53e6-8f05-ee14c566822f",
+            "54303dbb-b905-51a1-bb2c-9ec6980b51dc",
+            "6c017dfe-4228-5ea1-bc53-dfeb248513e1",
+            "86e0277a-3c95-5b7c-9ec0-d45c02d29c30",
+            "c72b9ee2-e432-50f4-b1b0-443465c0b8e6",
+            "aa549bed-6b3e-56ab-b86b-853637187482",
+            "805d4e9d-434c-5aa8-8af7-fb83fbd1653c",
+            "de1d0f13-affb-5fee-a8b6-2d698d7d725a",
+            "6f1f548d-2c66-54cd-862e-913d3ca97b35",
+            "e06eba82-0b4f-5eb8-a1e2-b8f549729b2f",
+            "216f179a-c5d6-578a-96a9-8b6dce687602",
+            "3199220c-fe26-51d9-a513-e6e4d9061816",
+            "5d12c769-5f4d-5eea-b288-d6c67e557ada",
+            "d8814cb9-0366-52c9-9801-f1eedb548460"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "status404_60s",
+          "label": "60초 404 응답 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 15,
+          "applied_threshold": 15,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "106c2564-7d8c-5b14-b689-8daf33c9e610",
+            "63b4f0e8-97bb-53a4-955a-e5003e91bf41",
+            "38dd1f3a-a3ae-53e6-8f05-ee14c566822f",
+            "54303dbb-b905-51a1-bb2c-9ec6980b51dc",
+            "6c017dfe-4228-5ea1-bc53-dfeb248513e1",
+            "86e0277a-3c95-5b7c-9ec0-d45c02d29c30",
+            "c72b9ee2-e432-50f4-b1b0-443465c0b8e6",
+            "aa549bed-6b3e-56ab-b86b-853637187482",
+            "805d4e9d-434c-5aa8-8af7-fb83fbd1653c",
+            "de1d0f13-affb-5fee-a8b6-2d698d7d725a",
+            "6f1f548d-2c66-54cd-862e-913d3ca97b35",
+            "e06eba82-0b4f-5eb8-a1e2-b8f549729b2f",
+            "216f179a-c5d6-578a-96a9-8b6dce687602",
+            "3199220c-fe26-51d9-a513-e6e4d9061816",
+            "5d12c769-5f4d-5eea-b288-d6c67e557ada",
+            "d8814cb9-0366-52c9-9801-f1eedb548460"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "repeats_60s",
+          "label": "60초 동일 요청 후보 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 20,
+          "applied_threshold": 20,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "562a63b4-c0bf-5d11-ba0e-2278970a4f4a"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "ua_600s",
+          "label": "10분 고유 User-Agent 수",
+          "window_seconds": 600,
+          "unit": "개",
+          "value": 2,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:10:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 2,
+          "applied_threshold": 2,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "562a63b4-c0bf-5d11-ba0e-2278970a4f4a",
+            "437ddeb1-7317-58e3-8457-a205feabbd59"
+          ],
+          "missing_count": 0,
+          "status404_in_window": 40,
+          "required_status404": 2,
+          "qualifying_window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:10:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443",
+            "value": 2,
+            "status404": 40,
+            "evidence_ids": [
+              "562a63b4-c0bf-5d11-ba0e-2278970a4f4a",
+              "106c2564-7d8c-5b14-b689-8daf33c9e610",
+              "63b4f0e8-97bb-53a4-955a-e5003e91bf41",
+              "38dd1f3a-a3ae-53e6-8f05-ee14c566822f",
+              "54303dbb-b905-51a1-bb2c-9ec6980b51dc",
+              "6c017dfe-4228-5ea1-bc53-dfeb248513e1",
+              "86e0277a-3c95-5b7c-9ec0-d45c02d29c30",
+              "c72b9ee2-e432-50f4-b1b0-443465c0b8e6",
+              "aa549bed-6b3e-56ab-b86b-853637187482",
+              "805d4e9d-434c-5aa8-8af7-fb83fbd1653c",
+              "de1d0f13-affb-5fee-a8b6-2d698d7d725a",
+              "6f1f548d-2c66-54cd-862e-913d3ca97b35",
+              "e06eba82-0b4f-5eb8-a1e2-b8f549729b2f",
+              "216f179a-c5d6-578a-96a9-8b6dce687602",
+              "3199220c-fe26-51d9-a513-e6e4d9061816",
+              "5d12c769-5f4d-5eea-b288-d6c67e557ada"
+            ]
+          }
+        }
+      ],
+      "quality": {
+        "user_agent": {
+          "present": 83,
+          "recorded_empty": 0,
+          "not_collected": 0,
+          "unknown": 0
+        },
+        "timestamp_precision": {
+          "seconds": 0,
+          "subseconds": 83,
+          "unknown": 0
+        },
+        "field_denominator": 83,
+        "producer_observation_denominator": 83,
+        "data_sources": {
+          "waf": 83
+        },
+        "timestamp_ties": 0,
+        "missing_timestamp": 0,
+        "missing_src_ip": 0,
+        "missing_service": 0,
+        "field_coverage": {
+          "method": 83,
+          "uri": 83,
+          "status_code": 83,
+          "user_agent": 83,
+          "enforcement_action": 83
+        },
+        "categorical_unique_counts": {
+          "method": 1,
+          "status_code": 2,
+          "enforcement_action": 2,
+          "user_agent": 2
+        },
+        "multi_source_duplicate_risk": false,
+        "collection_continuity": "unknown"
+      }
+    },
+    "C": {
+      "investigation_id": "a8f2be6f-bbfd-4ea0-8dd1-daefb74856b0",
+      "result_id": "d40f9941-c693-4aef-855a-ee870c4d5c0d",
+      "result_sha256": "4296e1b81c813a1da57c8a6c6e57b606268c8d6e3f118e2ebf9e24fd27933c9f",
+      "version": 1,
+      "summary": {
+        "count": 83,
+        "first": "2026-10-16T00:00:00.000000Z",
+        "last": "2026-10-16T00:20:00.000000Z",
+        "methods": {
+          "GET": 83
+        },
+        "services": [
+          "synthetic.example:443"
+        ],
+        "status_codes": {
+          "200": 83
+        },
+        "actions": null,
+        "unique_paths": 83,
+        "user_agents": {
+          "ApprovedBatch/1.0": 83
+        }
+      },
+      "metrics": [
+        {
+          "id": "requests_10s",
+          "label": "10초 요청 수",
+          "window_seconds": 10,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:10.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "d325e61a-3663-570a-b2aa-eb922ec89fae",
+            "0bfab4e8-3ccb-5ecb-84c1-9e7a68bedb9b",
+            "5b6740e8-31b2-5c65-b461-c934acd573d7",
+            "aed8826e-6ea3-57ad-b156-3a19ad2c08b7",
+            "971f965c-3a95-528a-97d2-a762eaa57ea8",
+            "88d8ae6e-67f9-5a21-adf9-cc66db8467c1",
+            "364e6a1c-026a-5ef7-9310-14efa6fa8585",
+            "e2741bcf-1b8a-5375-89ea-48b36bd4253f",
+            "0a690a64-482f-5aa6-b655-19d610900f6d",
+            "998259fd-fcf0-549e-97ba-df9b1f4852e3",
+            "39fbca03-ada9-5244-ab1f-0550e23f406a",
+            "22749a2e-6f67-559f-82c1-dff01efd244e",
+            "057f87c8-1218-53d4-a66d-3fafeac82359",
+            "94842fa8-0694-511a-afa9-34eeee9e9b91",
+            "94866fd2-458c-5803-94cd-f76dacae4c50",
+            "e14d2629-1fdb-56f3-b2ac-4a6afa5b656c"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "paths_60s",
+          "label": "60초 고유 경로 수",
+          "window_seconds": 60,
+          "unit": "개",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "d325e61a-3663-570a-b2aa-eb922ec89fae",
+            "0bfab4e8-3ccb-5ecb-84c1-9e7a68bedb9b",
+            "5b6740e8-31b2-5c65-b461-c934acd573d7",
+            "aed8826e-6ea3-57ad-b156-3a19ad2c08b7",
+            "971f965c-3a95-528a-97d2-a762eaa57ea8",
+            "88d8ae6e-67f9-5a21-adf9-cc66db8467c1",
+            "364e6a1c-026a-5ef7-9310-14efa6fa8585",
+            "e2741bcf-1b8a-5375-89ea-48b36bd4253f",
+            "0a690a64-482f-5aa6-b655-19d610900f6d",
+            "998259fd-fcf0-549e-97ba-df9b1f4852e3",
+            "39fbca03-ada9-5244-ab1f-0550e23f406a",
+            "22749a2e-6f67-559f-82c1-dff01efd244e",
+            "057f87c8-1218-53d4-a66d-3fafeac82359",
+            "94842fa8-0694-511a-afa9-34eeee9e9b91",
+            "94866fd2-458c-5803-94cd-f76dacae4c50",
+            "e14d2629-1fdb-56f3-b2ac-4a6afa5b656c"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "status404_60s",
+          "label": "60초 404 응답 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 0,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 15,
+          "applied_threshold": 15,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [],
+          "missing_count": 0
+        },
+        {
+          "id": "repeats_60s",
+          "label": "60초 동일 요청 후보 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 20,
+          "applied_threshold": 20,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "8a85b5e5-bba3-57ec-9f67-65b2dd7051f2"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "ua_600s",
+          "label": "10분 고유 User-Agent 수",
+          "window_seconds": 600,
+          "unit": "개",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:10:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 2,
+          "applied_threshold": 2,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "8a85b5e5-bba3-57ec-9f67-65b2dd7051f2"
+          ],
+          "missing_count": 0,
+          "status404_in_window": 0,
+          "required_status404": 2,
+          "qualifying_window": null
+        }
+      ],
+      "quality": {
+        "user_agent": {
+          "present": 83,
+          "recorded_empty": 0,
+          "not_collected": 0,
+          "unknown": 0
+        },
+        "timestamp_precision": {
+          "seconds": 0,
+          "subseconds": 83,
+          "unknown": 0
+        },
+        "field_denominator": 83,
+        "producer_observation_denominator": 83,
+        "data_sources": {
+          "web": 83
+        },
+        "timestamp_ties": 0,
+        "missing_timestamp": 0,
+        "missing_src_ip": 0,
+        "missing_service": 0,
+        "field_coverage": {
+          "method": 83,
+          "uri": 83,
+          "status_code": 83,
+          "user_agent": 83,
+          "enforcement_action": 0
+        },
+        "categorical_unique_counts": {
+          "method": 1,
+          "status_code": 1,
+          "enforcement_action": 0,
+          "user_agent": 1
+        },
+        "multi_source_duplicate_risk": false,
+        "collection_continuity": "unknown"
+      }
+    },
+    "D": {
+      "investigation_id": "6fe5483f-e67d-460f-aa6d-3c23eb5d33dc",
+      "result_id": "d03853bb-41db-4c5c-98e4-a5f232313398",
+      "result_sha256": "d42d2a9cb0b3dcffae47c0a6f71627d431a19749c0244ce468e224f766348efe",
+      "version": 1,
+      "summary": {
+        "count": 83,
+        "first": "2026-10-16T00:00:00.000000Z",
+        "last": "2026-10-16T00:20:00.000000Z",
+        "methods": {
+          "GET": 83
+        },
+        "services": [
+          "synthetic.example:443"
+        ],
+        "status_codes": {
+          "200": 43,
+          "404": 40
+        },
+        "actions": null,
+        "unique_paths": 83,
+        "user_agents": null
+      },
+      "metrics": [
+        {
+          "id": "requests_10s",
+          "label": "10초 요청 수",
+          "window_seconds": 10,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:10.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "187283d1-8b35-5a3a-be75-fada88890737",
+            "23fab5c0-ab85-5f23-ab49-1d1af9c442e8",
+            "4e345037-6201-5900-a615-8465e95eca55",
+            "4f926a9f-0a57-5f3a-b6f1-ee008791c3da",
+            "95b63d4e-e959-5c1e-a98a-473f02f1c659",
+            "b8ad7bd8-17b2-550d-8a4a-7a58807c191a",
+            "bf7afc4f-4a50-5d1a-a6f9-3b901b850ffd",
+            "c28b9dca-f5e9-5246-812a-ad55cbd42835",
+            "d0bcd4d7-bc6d-5ec1-8ee9-0e1919e69ba6",
+            "ea6651af-f1d9-5464-9a9f-5022264deb6d",
+            "3f294b00-2ea0-5be9-931e-1f2c5e8a980a",
+            "414954ac-c5be-5ac6-953f-d473d2273a7b",
+            "4cb26653-343f-534d-8894-628f54ecbe54",
+            "4d00462b-50f3-51a5-9385-5f881ea7baa8",
+            "6ac6efac-9619-5fd9-8dcb-59d240aa3835",
+            "838192d4-ce50-523f-b780-594a3afb9e97"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "paths_60s",
+          "label": "60초 고유 경로 수",
+          "window_seconds": 60,
+          "unit": "개",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 30,
+          "applied_threshold": 30,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "187283d1-8b35-5a3a-be75-fada88890737",
+            "23fab5c0-ab85-5f23-ab49-1d1af9c442e8",
+            "4e345037-6201-5900-a615-8465e95eca55",
+            "4f926a9f-0a57-5f3a-b6f1-ee008791c3da",
+            "95b63d4e-e959-5c1e-a98a-473f02f1c659",
+            "b8ad7bd8-17b2-550d-8a4a-7a58807c191a",
+            "bf7afc4f-4a50-5d1a-a6f9-3b901b850ffd",
+            "c28b9dca-f5e9-5246-812a-ad55cbd42835",
+            "d0bcd4d7-bc6d-5ec1-8ee9-0e1919e69ba6",
+            "ea6651af-f1d9-5464-9a9f-5022264deb6d",
+            "3f294b00-2ea0-5be9-931e-1f2c5e8a980a",
+            "414954ac-c5be-5ac6-953f-d473d2273a7b",
+            "4cb26653-343f-534d-8894-628f54ecbe54",
+            "4d00462b-50f3-51a5-9385-5f881ea7baa8",
+            "6ac6efac-9619-5fd9-8dcb-59d240aa3835",
+            "838192d4-ce50-523f-b780-594a3afb9e97"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "status404_60s",
+          "label": "60초 404 응답 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 40,
+          "data_state": "available",
+          "result": "threshold_met",
+          "window": {
+            "start": "2026-10-16T00:01:00.000000Z",
+            "end_exclusive": "2026-10-16T00:02:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 15,
+          "applied_threshold": 15,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "187283d1-8b35-5a3a-be75-fada88890737",
+            "23fab5c0-ab85-5f23-ab49-1d1af9c442e8",
+            "4e345037-6201-5900-a615-8465e95eca55",
+            "4f926a9f-0a57-5f3a-b6f1-ee008791c3da",
+            "95b63d4e-e959-5c1e-a98a-473f02f1c659",
+            "b8ad7bd8-17b2-550d-8a4a-7a58807c191a",
+            "bf7afc4f-4a50-5d1a-a6f9-3b901b850ffd",
+            "c28b9dca-f5e9-5246-812a-ad55cbd42835",
+            "d0bcd4d7-bc6d-5ec1-8ee9-0e1919e69ba6",
+            "ea6651af-f1d9-5464-9a9f-5022264deb6d",
+            "3f294b00-2ea0-5be9-931e-1f2c5e8a980a",
+            "414954ac-c5be-5ac6-953f-d473d2273a7b",
+            "4cb26653-343f-534d-8894-628f54ecbe54",
+            "4d00462b-50f3-51a5-9385-5f881ea7baa8",
+            "6ac6efac-9619-5fd9-8dcb-59d240aa3835",
+            "838192d4-ce50-523f-b780-594a3afb9e97"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "repeats_60s",
+          "label": "60초 동일 요청 후보 수",
+          "window_seconds": 60,
+          "unit": "건",
+          "value": 1,
+          "data_state": "available",
+          "result": "below_threshold",
+          "window": {
+            "start": "2026-10-16T00:00:00.000000Z",
+            "end_exclusive": "2026-10-16T00:01:00.000000Z",
+            "src_ip": "203.0.113.44",
+            "service": "synthetic.example:443"
+          },
+          "reference_threshold": 20,
+          "applied_threshold": 20,
+          "excluded_count": 0,
+          "eligible_count": 83,
+          "partial_window": false,
+          "evidence_ids": [
+            "12e6f173-cb9f-559e-8d75-2e9fcfc78418"
+          ],
+          "missing_count": 0
+        },
+        {
+          "id": "ua_600s",
+          "label": "10분 고유 User-Agent 수",
+          "window_seconds": 600,
+          "unit": "개",
+          "value": null,
+          "data_state": "not_collected",
+          "result": "unavailable",
+          "window": null,
+          "reference_threshold": 2,
+          "applied_threshold": 2,
+          "excluded_count": 0,
+          "eligible_count": 0,
+          "partial_window": true,
+          "evidence_ids": [],
+          "missing_count": 83,
+          "status404_in_window": null,
+          "required_status404": 2,
+          "qualifying_window": null
+        }
+      ],
+      "quality": {
+        "user_agent": {
+          "present": 0,
+          "recorded_empty": 0,
+          "not_collected": 83,
+          "unknown": 0
+        },
+        "timestamp_precision": {
+          "seconds": 83,
+          "subseconds": 0,
+          "unknown": 0
+        },
+        "field_denominator": 83,
+        "producer_observation_denominator": 83,
+        "data_sources": {
+          "web": 83
+        },
+        "timestamp_ties": 80,
+        "missing_timestamp": 0,
+        "missing_src_ip": 0,
+        "missing_service": 0,
+        "field_coverage": {
+          "method": 83,
+          "uri": 83,
+          "status_code": 83,
+          "user_agent": 0,
+          "enforcement_action": 0
+        },
+        "categorical_unique_counts": {
+          "method": 1,
+          "status_code": 2,
+          "enforcement_action": 0,
+          "user_agent": 0
+        },
+        "multi_source_duplicate_risk": false,
+        "collection_continuity": "unknown"
+      }
+    }
+  },
+  "steps": [
+    {
+      "step": "full_http_lifecycle",
+      "saved_metrics_equal_golden": true,
+      "result_hash_preserved": true,
+      "agent_answer_separation": true,
+      "report_sha256": "2b9b451927876cd60a215400e7742557dc2b9cceb14cc612dbe2fe6a568301cc",
+      "report_html": "docs/examples/behavior-case-A-report.html"
+    },
+    {
+      "step": "restart_verification",
+      "saved_metrics_equal_golden": true,
+      "result_hash_preserved": true,
+      "agent_answer_separation": true,
+      "report_sha256": "2b9b451927876cd60a215400e7742557dc2b9cceb14cc612dbe2fe6a568301cc",
+      "report_html": "docs/examples/behavior-case-A-report.html"
+    }
+  ],
+  "lifecycle": {
+    "case": "A",
+    "check_id": "0d87ada9-9b03-41e0-8d87-32bfcaaae127",
+    "experience_id": "557ba679-561c-43b8-be78-207884e6a539",
+    "experience_rev": 1,
+    "golden_id": "777d976f-a0d6-4203-b62f-c4a1875f4dae",
+    "split": "dev",
+    "self_approval_rejected": true,
+    "independent_review": true,
+    "answer_marker": "BEHAVIOR_EVALUATOR_ONLY_20261016"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+  "run_path": "F:\\codex\\SAW-Claude-main\\.qa\\infra\\feature-20261014-3b858ce13a",
+  "postgresql_port": 64807,
+  "opensearch_port": 64808,
+  "transport_port": 64809,
+  "target_os_acceptance": false,
+  "cluster_name": "saw-feature-3b858ce13a",
+  "postgresql_version": "16.15",
+  "opensearch_version": "2.19.6",
+  "java_pid": 11724,
+  "postgresql_pid": 14068,
+  "ready": true,
+  "test_files": [
+    "tests/api/test_behavior.py",
+    "tests/api/test_behavior_diff.py",
+    "tests/api/test_behavior_jobs.py",
+    "tests/api/test_guidance.py",
+    "tests/api/test_golden.py",
+    "tests/unit/test_migrations.py"
+  ],
+  "pytest_exit_code": 0,
+  "test_seconds": 633.641,
+  "pytest_summary": [
+    "64 passed, 1 warning in 631.53s (0:10:31)"
+  ],
+  "opensearch_flush_failed_shards": 0,
+  "opensearch_stopped": true,
+  "postgresql_stopped": true,
+  "ports_closed": {
+    "64807": true,
+    "64808": true,
+    "64809": true
+  }
+}

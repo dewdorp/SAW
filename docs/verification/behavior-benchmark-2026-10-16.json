@@ -1,0 +1,28 @@
+{
+  "wall_seconds": 10.047,
+  "execution": {
+    "scanned": 100000,
+    "processed": 100000,
+    "deduplicated": 0,
+    "truncated": false,
+    "reason": null,
+    "elapsed_ms": 9734.0,
+    "estimated_input_bytes": 35233190,
+    "limits": {
+      "max_events": 100000,
+      "max_seconds": 120,
+      "max_partitions": 4096,
+      "max_buckets": 400,
+      "max_evidence": 200,
+      "max_input_bytes": 67108864,
+      "max_summary_values": 100,
+      "max_field_length": 4096
+    }
+  },
+  "count": 100000,
+  "bucket_count": 100,
+  "evidence_count": 51,
+  "output_bytes": 51707,
+  "process_peak_working_set_bytes": 180514816,
+  "memory_measurement": "Windows GetProcessMemoryInfo PeakWorkingSetSize; whole Python process"
+}
