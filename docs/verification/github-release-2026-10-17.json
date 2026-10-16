@@ -1,0 +1,74 @@
+{
+  "state": "PUBLISHED_PRERELEASE_ASSETS_VERIFIED",
+  "repo": "dewdorp/SAW",
+  "private": true,
+  "release_id": 415213633,
+  "tag": "v0.1.0-pilot.20261017",
+  "source_commit": "b4d81386d05a675a15c438f3ed3190ae831f5e75",
+  "assets": [
+    {
+      "name": "SAW-0.1.0-pilot.20261017-model-free-win-x64.zip",
+      "bytes": 1444582845,
+      "sha256": "e2a09af4aee877a7d1c2f1fdf87de915a2a11491ae5010ac17aefe022fe90fe8",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 120232,
+      "sha256": "2733c2a539780b096a69799808b858b6a7e8e7d4bab0141ec8af293d5a8856e8",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 72356,
+      "sha256": "6df9d905f501ac4e05274e783b20cb7562a104ff2bb85940faf88e9d33e53dce",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "START-HERE.md",
+      "bytes": 5189,
+      "sha256": "b879661884611d0c2952bee7355249871bc0a232a057b3d2595f789918adff42",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "OFFLINE-UPDATE-GUIDE.md",
+      "bytes": 5965,
+      "sha256": "e2dcc776140bc46a8a4ef5dc5c988161189b7367ab555aa734f90abf1159e4a9",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "MODEL-8B-KOREAN-SECURITY-GUIDE.md",
+      "bytes": 32850,
+      "sha256": "34c7d027779741fa459017f66210578aae859eee66e51684ee0e05a62c285742",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "LOCAL-MODEL-GUIDE.md",
+      "bytes": 7046,
+      "sha256": "4b45a6f2a1e3905f635c25290539d6225135c989aae0a091d77af8294182c55a",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "OFFLINE-RELEASE-VALIDATION-2026-10-17.md",
+      "bytes": 8266,
+      "sha256": "0a08e096aa4692ec47e5bd0501ae8c8122fc9e06aa3fb756b644343189b7617d",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-verification.json",
+      "bytes": 555,
+      "sha256": "b953befbfd8c6f0d99378bf8c0d1026fa0176a1d6d1d9bb5e4d45e1feba41250",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "RELEASE-SHA256SUMS.txt",
+      "bytes": 848,
+      "sha256": "aa625c15b4418bd32ff0ea8414ff19d80e9675811e7b29ddb94398fcc2c4f5a0",
+      "remote_digest_equal": true
+    }
+  ],
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261017",
+  "published_at": "2026-10-16T17:37:01Z",
+  "target_ltsc_verified": false,
+  "production_acceptance": false
+}

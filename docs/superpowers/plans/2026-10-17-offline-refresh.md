@@ -45,5 +45,5 @@ Consumes: verified candidate and final source commit.
 Produces: ZIP, sha256, receipt, guides and private GitHub prerelease.
 - [x] Independent final review and fix important findings with regression tests.
 - [x] Full checks; preserve known unresolved History503/model/LTSC gates.
-- [ ] Seal archive, compare tested executable payload and every ZIP entry hash.
-- [ ] Publish to existing private repository; verify remote asset digests and source commit.
+- [x] Seal archive, compare tested executable payload and every ZIP entry hash.
+- [x] Publish to existing private repository; verify remote asset digests and source commit.
