@@ -128,6 +128,9 @@ def set_parser(ev_id: str, fid: str, body: ParserIn, ctx: AuthContext = Depends(
     require(s, ctx.principal, "investigation.write", e.investigation_id)
     from saw.parsers.library import check_use
 
+    from saw.core.application.data_deletion import lock_investigation
+    lock_investigation(s, e.investigation_id)
+    s.refresh(f)
     check_use(s, ctx.principal, body.parser_id)  # drafts: author only
     get_parser(body.parser_id)  # validates
     if f.parse_status in ("done", "degraded"):
@@ -147,10 +150,10 @@ def set_parser(ev_id: str, fid: str, body: ParserIn, ctx: AuthContext = Depends(
                                                           "action": "parser_override", "parser_id": body.parser_id}}
     waiting = s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id,
                                                    EvidenceFile.parse_status == "waiting_input")).scalars().all()
-    s.commit()
     if job and not waiting:
         job.state = "PARSING"
-        s.commit()
+    s.commit()
+    if job and not waiting:
         container.get().runner.submit("ingest.resume", job_id=job.id)
     return {"ok": True, "remaining_waiting": len(waiting)}
 
@@ -187,6 +190,9 @@ def get_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(
 def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
+    from saw.core.application.data_deletion import lock_investigation
+    lock_investigation(s, j.investigation_id)
+    s.refresh(j)
     j.cancel_requested = True
     if j.state in ("QUEUED", "WAITING_INPUT", "UPLOADING"):
         j.state = "CANCELLED"
@@ -199,6 +205,14 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
 def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
+    from saw.core.application.data_deletion import lock_investigation
+    lock_investigation(s, j.investigation_id)
+    s.refresh(j)
+    if j.state not in ("FAILED", "CANCELLED", "WAITING_INPUT"):
+        raise HTTPException(409, "Only failed, cancelled or waiting jobs can be retried")
+    if j.kind == "behavior":
+        from saw.behavior.service import ensure_source_idle
+        ensure_source_idle(s, j.investigation_id)
     for f in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == j.evidence_id,
                                                   EvidenceFile.parse_status == "failed")).scalars():
         f.parse_status = "pending"
@@ -206,7 +220,8 @@ def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depend
     j.stages = {**(j.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
                                                   "action": "retry"}}
     s.commit()
-    container.get().runner.submit("ingest.resume", job_id=j.id)
+    task_name = "behavior.run" if j.kind == "behavior" else "analyze.run" if j.kind == "reanalyze" else "ingest.resume"
+    container.get().runner.submit(task_name, job_id=j.id)
     return job_out(j)
 
 

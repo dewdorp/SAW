@@ -1,6 +1,7 @@
 """Sensitive data masking (docs/12 §3.1). Applied at display / export / LLM layers."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -11,12 +12,14 @@ _EMAIL = re.compile(r"\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b")
 _BEARER = re.compile(r"(?i)\b(bearer|basic)\s+([A-Za-z0-9._~+/=-]{8,})")
 _COOKIE = re.compile(r"(?i)\b(set[_-]?cookie|cookie)(\s*[=:]\s*)([^\r\n\",]+)")
-_SECRET_NAMES = r"password|passwd|pwd|secret|token|api_?key|access_?key"
+_SECRET_NAMES = r"password|passwd|pwd|secret|token|api_?key|access_?key|cookie|authorization"
+_SECRET_JSON_KEY = re.compile(rf"(?i)(?:{_SECRET_NAMES})")
 # name=value, also when the "=" is still percent-encoded (once or more): a decoded parameter keeps its value hidden
-_SECRET_PARAM = re.compile(rf"(?i)\b({_SECRET_NAMES})(=|%(?:25)*3d)([^&\s\"']+)")
+_SECRET_PARAM_NAMES = r"password|passwd|pwd|secret|token|api_?key|access_?key"
+_SECRET_PARAM = re.compile(rf"(?i)\b({_SECRET_PARAM_NAMES})(=|%(?:25)*3d)([^&\s\"']+)")
 # "name": "value" in JSON bodies (the key may carry a prefix/suffix: user_password, accessToken, ...)
 _SECRET_JSON = re.compile(
-    rf"""(?i)("[\w.-]{{0,40}}(?:{_SECRET_NAMES})[\w.-]{{0,40}}"\s*:\s*)("(?:[^"\\]|\\.)*"|[^\s,}}\]]+)""")
+    rf"""(?i)("[\w.-]{{0,40}}(?:{_SECRET_NAMES})[\w.-]{{0,40}}"\s*:\s*)("(?:[^"\\]|\\.)*(?:"|$)|[\[{{][\s\S]*|[^\s,}}\]]+)""")
 
 
 def luhn_ok(digits: str) -> bool:
@@ -48,6 +51,35 @@ def _mask_card(m: re.Match) -> str:
 
 def mask_text(text: str) -> MaskResult:
     kinds: list[str] = []
+    # Mask complete JSON structurally, including nested/array header values.
+    # The regex below also handles truncated quoted previews conservatively.
+    if text.lstrip().startswith(("{", "[")):
+        try:
+            structured = json.loads(text)
+            changed = False
+            def walk(value, depth=0):
+                nonlocal changed
+                if depth > 64:
+                    changed = True
+                    return "●●●●"
+                if isinstance(value, dict):
+                    safe = {}
+                    for key, item in value.items():
+                        if _SECRET_JSON_KEY.search(key) and isinstance(item, (dict, list)):
+                            safe[key] = "●●●●"
+                            changed = True
+                        else:
+                            safe[key] = walk(item, depth + 1)
+                    return safe
+                if isinstance(value, list):
+                    return [walk(item, depth + 1) for item in value]
+                return value
+            safe = walk(structured)
+            if changed:
+                text = json.dumps(safe, ensure_ascii=False)
+                kinds.append("secret_param")
+        except (ValueError, RecursionError):
+            pass
 
     def track(kind: str, pattern: re.Pattern, repl) -> None:
         nonlocal text
@@ -56,6 +88,14 @@ def mask_text(text: str) -> MaskResult:
             kinds.append(kind)
             text = new
 
+    # Decode escaped sensitive member names even in incomplete JSON previews.
+    def normalize_secret_key(match):
+        try:
+            key = json.loads(match.group(0))
+            return json.dumps(key, ensure_ascii=False) if _SECRET_JSON_KEY.search(key) else match.group(0)
+        except ValueError:
+            return match.group(0)
+    text = re.sub(r'"(?:\\u[0-9a-fA-F]{4}|[\w.-]){1,240}"(?=\s*:)', normalize_secret_key, text)
     track("jwt", _JWT, lambda m: f"eyJ…[JWT len={len(m.group(0))}]")
     track("cookie", _COOKIE, lambda m: f"{m.group(1)}{m.group(2)}●●●●[len={len(m.group(3))}]")
     track("auth_header", _BEARER, lambda m: f"{m.group(1)} ●●●●[len={len(m.group(2))}]")

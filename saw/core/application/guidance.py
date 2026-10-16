@@ -514,6 +514,12 @@ def build_closure_draft(s, p, inv_id):
             limits.extend(x["reason"] for x in g.get("data_states", []) if x.get("reason") and x["state"] not in ("available", "not_applicable"))
             if g.get("answer_status") == "follow_up":
                 follow.append({"check_id": c.id, **g["follow_up"]})
+        b = (c.scope or {}).get("behavior") or {}
+        if b:
+            if b.get("answer_status") == "follow_up":
+                follow.append({"check_id": c.id, **b.get("follow_up", {})})
+            scopes.append({"scope_key": b["result_sha256"], "behavior_result_id": b["result_id"],
+                           **((c.scope or {}).get("query") or {})})
         if (c.scope or {}).get("coverage") == "sample":
             limits.append("표본을 확인한 기록이 있으며 조사 전체의 확인을 의미하지 않습니다.")
     return {"methodology_version": VERSION, "behavior_assessment": "\n".join(dict.fromkeys(behavior)),

@@ -68,7 +68,7 @@ def zeek_record(d: dict[str, Any], path: str | None = None) -> tuple[str, dict, 
         ds, et = "zeek_ssl", "tls_handshake"
     elif kind == "http":
         f.update(method=_num(d.get("method")), hostname=_num(d.get("host")), uri=_num(d.get("uri")),
-                 status_code=_num(d.get("status_code")), user_agent=_num(d.get("user_agent")),
+                 status_code=_num(d.get("status_code")), user_agent=d.get("user_agent"),
                  bytes_out=_num(d.get("request_body_len")), bytes_in=_num(d.get("response_body_len")))
         if d.get("host_is_ip") and d.get("host"):
             f["hostname"] = d["host"]
@@ -156,7 +156,7 @@ class ZeekTsvParser(BaseParser):
             return Failed("field count mismatch")
         d: dict[str, Any] = {}
         for k, v in zip(self.fields, vals, strict=True):
-            if v in ("-", "(empty)"):
+            if v in ("-", "(empty)") and k != "user_agent":
                 continue
             if k in ("orig_bytes", "resp_bytes", "id.orig_p", "id.resp_p", "status_code", "request_body_len",
                      "response_body_len", "orig_pkts", "resp_pkts", "missed_bytes", "seen_bytes", "trans_depth"):

@@ -60,6 +60,10 @@ def create(s: Session, p: Principal, data: dict, source_inv: str | None = None) 
         from saw.core.application.investigations import require
         require(s, p, "investigation.read", source_inv)
     d = _clean(data)
+    if source_inv:
+        from saw.behavior.service import closure_references
+        source = s.get(Investigation, source_inv)
+        d["behavior_results"] = (source.close_detail or {}).get("behavior_results", closure_references(s, source_inv))
     if not d.get("title"):
         raise ValueError("title is required")
     e = Experience(display_id=next_display_id(s, "EXP", daily=False, width=4), data=d, analyst_id=p.user_id,
@@ -162,7 +166,10 @@ def _contributors(s: Session, e: Experience) -> set[str]:
     rows = s.execute(select(KnowledgeRevision.actor, KnowledgeRevision.note).where(
         KnowledgeRevision.kind == "experience", KnowledgeRevision.ref_id == e.id,
         KnowledgeRevision.rev > (e.approved_rev or 0)))
-    return {actor for actor, note in rows if (note or "").startswith(("created", "edited", "auto-draft"))}
+    names = {actor for actor, note in rows if (note or "").startswith(("created", "edited", "auto-draft"))}
+    from saw.storage.models import User
+    ids = {r.get(key) for r in (e.data or {}).get("behavior_results", []) for key in ("created_by", "check_author_id")} - {None}
+    return names | set(s.scalars(select(User.username).where(User.id.in_(ids))))
 
 
 def approve(s: Session, p: Principal, eid: str, comment: str = "", fp_conflict_ack: bool = False) -> Experience:

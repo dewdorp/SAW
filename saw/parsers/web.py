@@ -112,7 +112,7 @@ class IISParser(BaseParser):
         ext: dict = {}
         for k, v in row.items():
             if k in self.MAP:
-                f[self.MAP[k]] = None if v == "-" else v
+                f[self.MAP[k]] = v if self.MAP[k] == "user_agent" else (None if v == "-" else v)
             elif k not in ("date", "time"):
                 ext[k] = v
         if "date" in row and "time" in row:

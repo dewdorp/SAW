@@ -69,7 +69,8 @@ def _recover_orphaned_jobs(runner: InProcessRunner) -> None:
 
     with session_scope() as s:
         orphans = s.execute(select(Job).where(Job.state.in_(["QUEUED", "PARSING", "INDEXING", "ANALYZING"]))).scalars().all()
-        todo = [(j.id, "analyze.run" if j.kind == "reanalyze" or j.state == "ANALYZING" else "ingest.run") for j in orphans]
+        todo = [(j.id, "behavior.run" if j.kind == "behavior" else
+                 "analyze.run" if j.kind == "reanalyze" or j.state == "ANALYZING" else "ingest.run") for j in orphans]
         for j in orphans:
             j.current_item = "recovered after restart"
     for job_id, name in todo:

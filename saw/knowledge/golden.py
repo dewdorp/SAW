@@ -41,12 +41,33 @@ ANSWER_KEYS = {"required_facts_actions", "judgement", "followups", "forbidden_cl
 _SECRET_KEY = re.compile(r"(?i)(password|passwd|cookie|authorization|api.?key|secret|token)")
 
 
-def masked(value):
+_REFERENCE_KEYS = {"sha256", "digest", "run_digest", "evidence_refs", "evidence_ids",
+                   "event_id", "result_id", "check_id", "check_ids", "job_id", "id",
+                   "evidence_id", "file_id", "created_by", "check_author_id"}
+_HEX_DIGEST = re.compile(r"^[a-fA-F0-9]{64}$")
+_UUID = re.compile(r"^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$")
+
+
+def masked(value, _key=None):
     if isinstance(value, dict):
-        return {k: "[MASKED]" if _SECRET_KEY.search(str(k)) else masked(v) for k, v in value.items()}
+        if _key in {"user_agents", "methods", "status_codes", "actions"} and all(type(v) is int for v in value.values()):
+            counts = {}
+            for key, count in value.items():
+                safe_key = mask_text(str(key)).text
+                counts[safe_key] = counts.get(safe_key, 0) + count
+            return counts
+        return {mask_text(str(k)).text: "[MASKED]" if _SECRET_KEY.search(str(k)) else masked(v, str(k))
+                for k, v in value.items()}
     if isinstance(value, list):
-        return [masked(v) for v in value]
-    return mask_text(value).text if isinstance(value, str) else value
+        return [masked(v, _key) for v in value]
+    # Opaque server references can accidentally contain phone/card-shaped digits.
+    # Preserve only strictly shaped metadata identifiers, never arbitrary free text.
+    if isinstance(value, str):
+        reference = _key in _REFERENCE_KEYS or bool(_key and _key.endswith("_sha256"))
+        if reference and (_HEX_DIGEST.fullmatch(value) or _UUID.fullmatch(value)):
+            return value
+        return mask_text(value).text
+    return value
 
 
 def _aware(value) -> datetime:
@@ -198,36 +219,54 @@ def prepare(s: Session, p: Principal, eid: str, expected_experience_rev: int, ch
         if len(checks) != len(set(check_ids)):
             raise ValueError("golden_check_outside_source")
     else:
-        checks = [c for c in checks if (c.context or {}).get("guidance")]
+        checks = [c for c in checks if (c.context or {}).get("guidance") or (c.scope or {}).get("behavior")]
     if not checks or len(checks) > 100:
         raise ValueError("golden_recorded_guidance_required")
     manifests, observations, contributors, methods, cutoffs = [], [], {e.analyst_id}, set(), []
     records, followups, required_facts, forbidden = [], [], [], []
     event_ids = set()
+    pinned = {(r["check_id"], r["result_id"], r["result_sha256"])
+              for r in (e.data or {}).get("behavior_results", [])}
+    methodologies = []
     for c in checks:
-        capture, safe, events = _capture(s, e.source_investigation_id, c)
-        row = _blob(s, safe, "observation")
-        manifests.append(row)
-        observations.append(row["sha256"])
+        captures = []
+        if (c.context or {}).get("guidance"):
+            capture, safe, events = _capture(s, e.source_investigation_id, c)
+            captures.append((safe, events, capture["methodology"], capture["as_of"], (c.scope or {}).get("guidance") or {}))
+        if (c.scope or {}).get("behavior"):
+            from saw.behavior.service import golden_capture
+            meta = c.scope["behavior"]
+            if (c.id, meta["result_id"], meta["result_sha256"]) not in pinned:
+                raise ValueError("golden_behavior_not_in_experience_revision")
+            result, safe, events = golden_capture(s, e.source_investigation_id, c)
+            contributors.add(result.created_by)
+            captures.append((safe, events, safe["methodology"], safe["captured_at"], meta))
+        if not captures:
+            raise ValueError("golden_temporal_snapshot_required")
+        for safe, events, method, cutoff, meta in captures:
+            row = _blob(s, safe, "observation")
+            manifests.append(row)
+            observations.append(row["sha256"])
+            methods.add(method.get("version") or method["definitions_version"])
+            methodologies.append(method)
+            cutoffs.append(_aware(cutoff))
+            for item in events:
+                event = mask_event(item["event"])[0]
+                projection = {k: v for k, v in event.items() if k in EVENT_KEYS}
+                manifests.append(_blob(s, {"schema": "saw.golden.event.v1", "event": projection,
+                                         "known_at": item["known_at"]}, "event"))
+                event_ids.add(item["event_id"])
+            follow = meta.get("follow_up")
+            if follow:
+                followups.extend(follow if isinstance(follow, list) else [follow])
+            facts = safe.get("facts", safe.get("observations", {}).get("metrics", []))
+            required_facts.extend({"text": f"{r.get('label', '')}: {r.get('value')}",
+                                   "evidence_refs": [row["sha256"]]} for r in facts)
+            forbidden.extend(meta.get("forbidden_claims") or [])
         contributors.add(c.author_id)
-        methods.add(capture["methodology"]["version"])
-        cutoffs.append(_aware(capture["as_of"]))
-        for item in events:
-            event = mask_event(item["event"])[0]
-            projection = {k: v for k, v in event.items() if k in EVENT_KEYS}
-            manifests.append(_blob(s, {"schema": "saw.golden.event.v1", "event": projection,
-                                     "known_at": item["known_at"]}, "event"))
-            event_ids.add(item["event_id"])
         records.append({"check_id": c.id, "questions": c.questions, "judgement": c.judgement, "note": c.note,
                         "evidence_refs": c.evidence, "recorded_at": c.created_at.isoformat()})
-        meta = (c.scope or {}).get("guidance") or {}
-        follow = meta.get("follow_up")
-        if follow:
-            followups.extend(follow if isinstance(follow, list) else [follow])
-        required_facts.extend({"text": f"{r.get('label', '')}: {r.get('value')}",
-                               "evidence_refs": [row["sha256"]]} for r in safe["facts"])
-        forbidden.extend(meta.get("forbidden_claims") or [])
-    if len(event_ids) > MAX_EVENTS or len(methods) != 1:
+    if len(event_ids) > MAX_EVENTS or not methods:
         raise ValueError("golden_capture_limit_or_methodology_conflict")
     unique = {m["sha256"]: m for m in manifests}
     manifests = list(unique.values())
@@ -248,13 +287,14 @@ def prepare(s: Session, p: Principal, eid: str, expected_experience_rev: int, ch
     # Preparing an automatic projection adds no new interpretation.
     number = (s.scalar(select(func.max(GoldenVersion.version)).where(GoldenVersion.experience_id == eid)) or 0) + 1
     g = GoldenVersion(experience_id=eid, experience_rev=e.rev, version=number,
-        source_investigation_id=e.source_investigation_id, status="draft", methodology_version=next(iter(methods)),
+        source_investigation_id=e.source_investigation_id, status="draft", methodology_version=next(iter(methods)) if len(methods) == 1 else "saw.mixed-observations/1",
         as_of=max(cutoffs), input={"schema": "saw.golden.agent-input.v1", "observations": observations,
                                  "evidence": [m["sha256"] for m in manifests if m["kind"] == "event"],
                                  "retrieval": "snapshot_only"},
         answers=masked(answers), manifest=manifests, metadata_json=masked({
             "title": approved.get("title", ""), "category": approved.get("category", ""),
-            "verdict": approved.get("final_verdict", "unknown"), "check_ids": [c.id for c in checks]}),
+            "verdict": approved.get("final_verdict", "unknown"), "check_ids": [c.id for c in checks],
+            "methodologies": list({digest(m): m for m in methodologies}.values())}),
         author_id=e.analyst_id, contributor_ids=sorted(contributors))
     _seal(g)
     s.add(g)
@@ -286,6 +326,10 @@ def _verify(s, g):
     allowed = set(blobs)
     if not set(g.input.get("observations", []) + g.input.get("evidence", [])).issubset(allowed):
         raise ValueError("golden_input_snapshot_missing")
+    for sha in g.input.get("observations", []):
+        if blobs[sha].get("schema") == "saw.golden.behavior-observation.v1":
+            from saw.behavior.service import verify_golden_reference
+            verify_golden_reference(s, g.source_investigation_id, blobs[sha])
     return blobs
 
 

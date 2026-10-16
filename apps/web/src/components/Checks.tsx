@@ -21,6 +21,11 @@ export type Target = {
   /** search-result targets: the query, how many records match and the ids of the first loaded rows */
   set?: { query: unknown; total: number | null; loaded: string[] };
 };
+export type BehaviorResponse = {
+  result_id: string; result_sha256: string; metric_ids: string[];
+  answer_status: "answered" | "follow_up" | "not_applicable";
+  follow_up?: { target: string; due_at?: string | null; needed_data: string[]; items: string[]; priority: string };
+};
 export type Mark = { id: string; questions: string[]; judgement: string | null; author: string; kind: string; coverage: string; shared: boolean; source_state: string; guidance_status?: string };
 export type Marks = { events: Record<string, Mark[]>; entities: Record<string, Mark[]>; findings: Record<string, Mark[]> };
 
@@ -41,9 +46,10 @@ export function MarkBadges({ own, parent }: { own?: Mark[]; parent?: Mark[] }) {
 }
 
 /** "확인 기록" window: the question(s), an optional judgement with a one-line reason, the range, optional sharing. */
-export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evidenceOptions = [], onClose }: { inv: string; target: Target; edit?: any; guidance?: GuidanceResponse; evidenceOptions?: string[]; onClose: () => void }) {
+export function CheckDialog({ inv, target, edit, guidance: initialGuidance, behavior: initialBehavior, evidenceOptions = [], onClose }: { inv: string; target: Target; edit?: any; guidance?: GuidanceResponse; behavior?: BehaviorResponse; evidenceOptions?: string[]; onClose: () => void }) {
   const qc = useQueryClient();
   const [selectedEvidence, setSelectedEvidence] = useState<string[]>(edit?.evidence || target.evidence || []);
+  const [behavior, setBehavior] = useState<BehaviorResponse | undefined>(edit?.behavior || initialBehavior);
   const [guidance, setGuidance] = useState<GuidanceResponse | undefined>(edit?.guidance || initialGuidance);
   const editEvidence = useQuery<{ queries: { evidence_refs?: string[] }[] }>({
     queryKey: ["guidance-edit-evidence", inv, edit?.id, guidance?.scope],
@@ -51,8 +57,8 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
     enabled: !!edit && !!guidance, retry: false,
   });
   const availableEvidence = [...new Set([...evidenceOptions, ...(editEvidence.data?.queries || []).flatMap(q => q.evidence_refs || [])])];
-  const [questions, setQuestions] = useState<string[]>(edit?.questions || []);
-  const [judgement, setJudgement] = useState<string>(edit?.judgement || (guidance ? "undetermined" : ""));
+  const [questions, setQuestions] = useState<string[]>(edit?.questions || (behavior ? ["nature"] : []));
+  const [judgement, setJudgement] = useState<string>(edit?.judgement || (guidance || behavior ? "undetermined" : ""));
   const [note, setNote] = useState<string>(edit?.note || "");
   const [coverage, setCoverage] = useState<string>(edit?.coverage || (target.type === "set" ? "sample" : "one"));
   const [sample, setSample] = useState<number>(Math.min(30, target.set?.loaded.length || 30));
@@ -61,6 +67,14 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
   const save = useMutation({
     mutationFn: () => {
       const body: any = { questions, judgement: judgement || null, note, shared, share };
+      if (behavior) {
+        body.evidence = selectedEvidence;
+        body.scope = { ...(edit?.scope || {}), coverage: "selected", event_ids: selectedEvidence, checked: selectedEvidence.length };
+        const f = behavior.follow_up;
+        body.behavior = { result_id: behavior.result_id, result_sha256: behavior.result_sha256,
+          metric_ids: behavior.metric_ids, answer_status: behavior.answer_status,
+          follow_up: f ? { ...f, needed_data: f.needed_data.map(x => x.trim()).filter(Boolean), items: f.items.map(x => x.trim()).filter(Boolean) } : undefined };
+      }
       if (guidance) {
         body.evidence = selectedEvidence;
         const f = guidance.follow_up;
@@ -70,8 +84,8 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
       }
       if (!edit) {
         Object.assign(body, { target_type: target.type, target_key: target.key, target_label: target.label,
-          time_start: target.time?.[0] || null, time_end: target.time?.[1] || null, evidence: guidance ? selectedEvidence : target.evidence || [] });
-        if (target.set) body.scope = coverage === "sample"
+          time_start: target.time?.[0] || null, time_end: target.time?.[1] || null, evidence: guidance || behavior ? selectedEvidence : target.evidence || [] });
+        if (target.set && !behavior) body.scope = coverage === "sample"
           ? { coverage, query: target.set.query, total: target.set.total, checked: sample, event_ids: target.set.loaded.slice(0, sample) }
           : { coverage: "all", query: target.set.query, total: target.set.total, checked: target.set.total };
       }
@@ -82,17 +96,30 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
   const toggle = (k: string) => setQuestions(questions.includes(k) ? questions.filter((x) => x !== k) : [...questions, k]);
   const needNote = judgement === "normal" || judgement === "malicious";
   const followOk = !guidance || (guidance.answer_status || "follow_up") !== "follow_up" || (!!guidance.follow_up?.target.trim() && guidance.follow_up.items.some(x => x.trim()) && guidance.follow_up.needed_data.some(x => x.trim()));
-  const ok = (guidance ? !!note.trim() && followOk && (guidance.answer_status !== "answered" || selectedEvidence.length > 0) : questions.length > 0) && (!needNote || note.trim()) && (!shared || (share.fact?.trim() && share.confirmed_scope?.trim()));
+  const behaviorFollowOk = !behavior || behavior.answer_status !== "follow_up" || (!!behavior.follow_up?.target.trim() && behavior.follow_up.items.some(x => x.trim()) && behavior.follow_up.needed_data.some(x => x.trim()));
+  const behaviorOk = !behavior || (selectedEvidence.length <= 20 && !!note.trim() && behaviorFollowOk && (behavior.answer_status !== "answered" || selectedEvidence.length > 0));
+  const ok = behaviorOk && (guidance ? !!note.trim() && followOk && (guidance.answer_status !== "answered" || selectedEvidence.length > 0) : questions.length > 0) && (!needNote || note.trim()) && (!shared || (share.fact?.trim() && share.confirmed_scope?.trim()));
   return (
     <>
       <div className="overlay" onClick={onClose} />
       <div className="modal panel" role="dialog" aria-label="확인 기록" style={{ width: 580 }}>
         <div className="ph"><span className="grow">{edit ? "판단 변경" : "확인 기록"}</span><button className="btn ghost sm" onClick={onClose}>닫기</button></div>
         <div className="pb col" style={{ gap: 12 }}>
-        {guidance && <>
-          <GuidanceResponseFields value={guidance} onChange={setGuidance} />
-          <details open={guidance.answer_status === "answered"}><summary className="small">선택 근거 {selectedEvidence.length}건</summary>
-            <div className="small muted">조회 표본 중 실제로 확인한 기록만 선택하세요. 답변 기록 상태는 근거 선택이 필요합니다.</div>
+        {behavior && <div className="col" style={{ gap: 7 }}>
+          <b>행위 결과 확인 · {behavior.result_id}</b>
+          <div className="small muted">해석은 확인 기록에 저장하며 계산된 관측값을 변경하지 않습니다.</div>
+          <label className="col small">답변 상태<select className="input" aria-label="행위 답변 상태" value={behavior.answer_status}
+            onChange={e => setBehavior({ ...behavior, answer_status: e.target.value as BehaviorResponse["answer_status"] })}>
+            {Object.entries(ANSWER_STATES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select></label>
+          {behavior.answer_status === "follow_up" && <GuidanceResponseFields value={{ methodology_version: "", rule_id: "", scope: {} as any,
+            title: "행위 후속확인", answer_status: "follow_up", data_states: [], follow_up: behavior.follow_up }}
+            onChange={v => setBehavior({ ...behavior, answer_status: (v.answer_status || "follow_up") as BehaviorResponse["answer_status"], follow_up: v.follow_up })} />}
+        </div>}
+        {(guidance || behavior) && <>
+          {guidance && <GuidanceResponseFields value={guidance} onChange={setGuidance} />}
+          <details open={(guidance || behavior)?.answer_status === "answered"}><summary className="small">선택 근거 {selectedEvidence.length}건</summary>
+            <div className="small muted">조회 표본 중 실제로 확인한 기록만 선택하세요. 답변 기록 상태는 근거 선택이 필요합니다.{behavior && " 행위 근거는 최대 20건입니다."}</div>
             {[...new Set([...selectedEvidence, ...availableEvidence])].map(id => <label key={id} className="row small" style={{ overflowWrap: "anywhere" }}><input type="checkbox" aria-label={`근거 선택 ${id}`} checked={selectedEvidence.includes(id)} onChange={e => setSelectedEvidence(e.target.checked ? [...selectedEvidence, id] : selectedEvidence.filter(x => x !== id))} />{id}</label>)}
             <ErrorBox error={editEvidence.error} />
             {editEvidence.isFetching && <div className="small muted">기존 범위에서 새 근거를 조회합니다…</div>}
@@ -112,8 +139,8 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
             {JUDGEMENTS.map(([k, l]) => <label key={k} className={`chip-check ck ${k} ${judgement === k ? "on" : ""}`}><input type="radio" name="ck-j" checked={judgement === k} onChange={() => setJudgement(k)} />{l}</label>)}
           </div>
         </div>
-        <input className="input" aria-label="근거" placeholder={guidance ? "현재 확인한 내용과 판단 근거 (필수)" : needNote ? "근거 한 줄 (필수) 예) DB팀 확인: 02시 정산 배치" : "근거·메모 한 줄 (선택)"} value={note} onChange={(e) => setNote(e.target.value)} />
-        {target.set && !edit && (
+        <input className="input" aria-label="근거" placeholder={guidance || behavior ? "현재 확인한 내용과 판단 근거 (필수)" : needNote ? "근거 한 줄 (필수) 예) DB팀 확인: 02시 정산 배치" : "근거·메모 한 줄 (선택)"} value={note} onChange={(e) => setNote(e.target.value)} />
+        {target.set && !edit && !behavior && (
           <div className="col" style={{ gap: 4 }}>
             <div className="small muted">어디까지 봤나요? (검색 결과 {target.set.total != null ? `${fmtNum(target.set.total)}건` : "건수 미확인"})</div>
             <label className="row small"><input type="radio" name="ck-c" checked={coverage === "sample"} onChange={() => setCoverage("sample")} /> 일부만 봤음(표본)
@@ -122,7 +149,7 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, evid
             <div className="small muted">표본 확인은 전체 확인으로 세지 않으며, 보고용 요약의 유의할 점에 표시됩니다.</div>
           </div>
         )}
-        {target.type === "entity" && !guidance && (
+        {target.type === "entity" && !guidance && !behavior && (
           <div className="col" style={{ gap: 4 }}>
             <label className="row small"><input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} /> 다른 조사에도 공유 (같은 대상이 나오면 참고로 표시됩니다. 그 조사의 판정을 바꾸지 않습니다)</label>
             {shared && (<>
@@ -152,7 +179,7 @@ function CheckRow({ inv, c, me, canEdit, target }: { inv: string; c: any; me: st
   return (
     <div className="ck-item" style={old ? { opacity: 0.55 } : undefined}>
       <div className="row wrap small">
-        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : c.guidance ? <span className="tag">{ANSWER_STATES[c.guidance.answer_status] || "답변 기록"}</span> : <span className="tag ok">직접 확인</span>}
+        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : c.behavior ? <span className="tag">행위 · {ANSWER_STATES[c.behavior.answer_status] || "확인 기록"}</span> : c.guidance ? <span className="tag">{ANSWER_STATES[c.guidance.answer_status] || "답변 기록"}</span> : <span className="tag ok">직접 확인</span>}
         <b>{c.question_labels.join(" · ")}</b>
         {c.judgement ? <span className={`ck ${c.judgement}`}>{c.judgement_ko}</span> : <span className="muted">판단 없음</span>}
         {c.coverage === "sample" && <span className="tag warn">표본 {fmtNum(c.checked)} / {fmtNum(c.total)}건</span>}

@@ -269,6 +269,8 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
         return
     from saw.knowledge.similar import KnowledgeDoc
     from saw.llm.service import LlmInteraction
+    from saw.behavior.models import BehaviorResult
+    s.execute(delete(BehaviorResult).where(BehaviorResult.investigation_id == iid))
     fids = select(Finding.id).where(Finding.investigation_id == iid)
     s.execute(delete(FindingFeedback).where(FindingFeedback.finding_id.in_(fids)))
     for model in (Finding, Pattern, ParameterProfile, Entity, Relation, AttackStory, Correlation, LlmInteraction):

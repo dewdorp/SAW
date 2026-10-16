@@ -34,6 +34,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "ja4": ["ja4", "ja4hash", "ja4_hash"],
     "domain": ["domain", "query", "sni", "server_name_indication"],
     "session_id": ["session_id", "sessionid", "sid"],
+    "request_id": ["request_id", "requestid", "x_request_id"],
     "protocol": ["protocol", "proto", "clientrequestprotocol"],
     "hash": ["sha256", "hash", "file_hash"],
     "process": ["process", "process_name", "image"],
@@ -91,7 +92,7 @@ def map_fields(d: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     ext: dict[str, Any] = {}
     for k, v in d.items():
         ces = alias_for(k)
-        if ces and ces not in f and v not in (None, "", "-"):
+        if ces and ces not in f and (ces == "user_agent" or v not in (None, "", "-")):
             f[ces] = v if not isinstance(v, (dict, list)) else orjson.dumps(v).decode()
         else:
             ext[k] = v

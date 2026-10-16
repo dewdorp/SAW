@@ -8,6 +8,7 @@ import { useInv, useInvTabs } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../../lib/format";
 import { AttackTab } from "./AttackTab";
+import { BehaviorTab } from "./BehaviorTab";
 import { ChecksTab } from "./ChecksTab";
 import { CloseDialog } from "./CloseDialog";
 import { ConnectorImport } from "./ConnectorImport";
@@ -27,7 +28,7 @@ import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
 const TABS: [string, string][] = [
-  ["overview", "개요"], ["statistics", "로그 통계"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
+  ["overview", "개요"], ["statistics", "로그 통계"], ["behavior", "행위 분석"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
   ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"],
   ["raw", "원본 로그"], ["checks", "확인·검토"], ["notes", "메모"],
 ];
@@ -57,6 +58,7 @@ export function Workbench() {
     queryFn: async () => Object.fromEntries(await Promise.all(FACETS.map(async (f) => [f, (await api.post(`/investigations/${id}/query/aggregate`, { ...fq, agg: { type: "terms", field: f, size: 6 } }))]))),
   });
   useEffect(() => { if (inv.data) tabs.open(id, `${inv.data.display_id} ${inv.data.title}`); }, [inv.data?.display_id, inv.data?.title]); // eslint-disable-line
+  useEffect(() => { const tab = sp.get("tab"); if (tab && TABS.some(([key]) => key === tab)) ctx.set({ tab }); }, [sp.get("tab")]); // eslint-disable-line
   useEffect(() => { const f = sp.get("finding"); if (f) ctx.set({ tab: "findings", findingId: f }); }, [sp.get("finding")]); // eslint-disable-line
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -105,8 +107,8 @@ export function Workbench() {
         <div className="row wrap small">
           <span className="muted">필터</span>
           {ctx.filters.map((f, k) => (
-            <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
-              {f.op === "is_not" ? "− " : ""}{f.field} = {JSON.stringify(f.value)} ×
+            <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
+              {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건` : `${f.field} = ${JSON.stringify(f.value)}`} ×
             </span>
           ))}
           {ctx.time && <span className="tag" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)} ×</span>}
@@ -165,6 +167,7 @@ export function Workbench() {
           <div className="tab-body">
             {ctx.tab === "overview" && <OverviewTab inv={id} />}
             {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
+            {ctx.tab === "behavior" && <BehaviorTab inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}
             {ctx.tab === "story" && <StoryTab inv={id} />}
             {ctx.tab === "timeline" && <TimelineTab inv={id} />}

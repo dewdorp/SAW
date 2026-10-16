@@ -152,6 +152,8 @@ def start_processing(s: Session, p: Principal, evidence_id: str, idempotency_key
     existing job (created=False) so double clicks and client retries never start a second ingest.
     """
     e = _evidence_for_write(s, p, evidence_id)
+    from saw.core.application.data_deletion import lock_investigation
+    lock_investigation(s, e.investigation_id)
     if idempotency_key:
         prev = s.execute(select(Job).where(Job.requested_by == p.user_id, Job.idempotency_key == idempotency_key)).scalars().first()
         if prev is not None:

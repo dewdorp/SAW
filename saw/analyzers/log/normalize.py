@@ -161,8 +161,14 @@ def _int(v) -> int | None:
         return None
 
 
-def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: str = "Asia/Seoul") -> dict:
+def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: str = "Asia/Seoul",
+             observation: dict | None = None) -> dict:
     """Fill derived/enrichment fields on a CES event in place."""
+    from saw.behavior.observation import observe_fields
+
+    # Metadata is producer-owned: uploaded ext objects never supply this trust boundary.
+    trusted = dict(observation) if observation is not None else observe_fields(ev)
+    ev["ext"] = {**(ev.get("ext") if isinstance(ev.get("ext"), dict) else {}), "saw_observation": trusted}
     en = enricher or default_enricher()
     # Explicit appliance actions only: an HTTP status never proves blocking or allowing.
     action_keys = {"action", "securityaction", "wafaction", "차단여부", "조치", "대응"}
@@ -187,7 +193,7 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
         if k in ev:
             ev[k] = _int(ev[k])
     for k in ("user_agent", "user", "method", "uri", "hostname", "src_ip", "dst_ip", "domain"):
-        if ev.get(k) in ("-", ""):
+        if ev.get(k) in ("-", "", "(empty)"):
             ev[k] = None
     if ev.get("method"):
         ev["method"] = str(ev["method"]).upper()[:16]

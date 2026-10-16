@@ -14,7 +14,7 @@ export function HttpTab({ inv }: { inv: string }) {
   const params = useQuery({ queryKey: ["parameters", inv], queryFn: () => api.get(`/investigations/${inv}/parameters`) });
   const [src, setSrc] = useState("");
   const [path, setPath] = useState("");
-  const diff = useMutation({ mutationFn: () => api.post(`/investigations/${inv}/diff`, { src_ip: src, url_path: path || null }) });
+  const diff = useMutation({ mutationFn: () => api.post(`/investigations/${inv}/diff`, { src_ip: src, url_path: path || null, filters: ctx.filters, time: ctx.time }) });
   const [open, setOpen] = useState<number | null>(0);
   return (
     <div className="col">

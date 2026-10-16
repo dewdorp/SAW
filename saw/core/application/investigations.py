@@ -79,7 +79,8 @@ def close(s: Session, p: Principal, inv_id: str, verdict: str, reason: str, deta
         raise ValueError("analyst comment is required")
     inv.verdict = str(Verdict(verdict))
     inv.verdict_reason = reason
-    inv.close_detail = detail
+    from saw.behavior.service import closure_references
+    inv.close_detail = {**detail, "behavior_results": closure_references(s, inv_id)}
     inv.status = InvestigationStatus.CLOSED
     inv.closed_at = utcnow()
     audit.record(s, "investigation.close", actor_id=p.user_id, actor_name=p.username,

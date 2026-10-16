@@ -119,7 +119,7 @@ def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: st
         ev["ext"] = {parser.product: {k: v for k, v in list(res.ext.items())[:200]}}
     if ev.get("timestamp_raw") is None:
         ev["timestamp_quality"] = "ingest_time"
-    return finalize(ev, assumed_tz=tz_override or assumed_tz)
+    return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation)
 
 
 def parse_text(text: str, *, investigation_id: str = "adhoc", parser_id: str | None = None,

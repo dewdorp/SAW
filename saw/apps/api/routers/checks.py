@@ -28,6 +28,7 @@ class CheckIn(BaseModel):
     shared: bool | None = None
     share: dict[str, Any] | None = None
     guidance: dict[str, Any] | None = None
+    behavior: dict[str, Any] | None = None
 
 
 class LookupIn(BaseModel):

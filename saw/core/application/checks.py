@@ -78,11 +78,13 @@ def to_dict(c: Check, full: bool = True) -> dict[str, Any]:
         "state_by": c.state_by, "supersedes_id": c.supersedes_id, "author_id": c.author_id, "author": c.author_name,
         "created_at": c.created_at, "time_start": c.time_start, "time_end": c.time_end,
         "guidance_status": scope.get("guidance", {}).get("answer_status"),
+        "behavior_status": scope.get("behavior", {}).get("answer_status"),
     }
     if full:
         d |= {"share": {k: mask_text(str(v)).text for k, v in (c.share or {}).items()}, "evidence": c.evidence or [],
               "scope": {k: v for k, v in scope.items() if k != "event_ids"}, "context": c.context or {},
-              "guidance": scope.get("guidance"), "capture": (c.context or {}).get("guidance")}
+              "guidance": scope.get("guidance"), "capture": (c.context or {}).get("guidance"),
+              "behavior": scope.get("behavior")}
     return d
 
 
@@ -226,9 +228,13 @@ def create(s: Session, p: Principal, inv_id: str, data: dict) -> Check:
     from saw.core.application.guidance import attach_capture, prepare_check
     if data.get("guidance"):
         data = prepare_check(data)
+    from saw.behavior.service import prepare_check as prepare_behavior, attach_check as attach_behavior
+    if data.get("behavior"):
+        data = prepare_behavior(s, p, inv_id, data)
     c = Check(investigation_id=inv_id, author_id=p.user_id, author_name=p.username, **_clean(data, inv_id))
     _share_fields(c, data, inv_id)
     attach_capture(s, p, inv_id, c, data)
+    attach_behavior(s, p, inv_id, c, data)
     s.add(c)
     s.flush()
     audit.record(s, "check.create", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
@@ -267,10 +273,14 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
               "scope": old.scope, "questions": old.questions, "judgement": old.judgement, "note": old.note,
               "evidence": old.evidence, "time_start": old.time_start, "time_end": old.time_end,
               "shared": old.shared, "share": old.share, **data}
+    from saw.behavior.service import prepare_check as prepare_behavior, attach_check as attach_behavior
+    if data.get("behavior"):
+        merged = prepare_behavior(s, p, inv_id, merged)
     new = Check(investigation_id=inv_id, author_id=p.user_id, author_name=p.username, kind=old.kind,
                 source_check_id=old.source_check_id, supersedes_id=old.id, **_clean(merged, inv_id))
     _share_fields(new, merged, inv_id)
     attach_capture(s, p, inv_id, new, data, previous=old)
+    attach_behavior(s, p, inv_id, new, merged if data.get("behavior") else data, previous=old)
     old.state, old.state_by, old.updated_at = "superseded", p.username, utcnow()
     s.add(new)
     s.flush()

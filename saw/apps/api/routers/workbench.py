@@ -545,39 +545,85 @@ def feedback(inv_id: str, fid: str, body: FeedbackIn, ctx: AuthContext = Depends
     return {"ok": True, "status": f.status, "review_needed": need.id if need else None}
 
 
-class EventDiffIn(BaseModel):
+class EventDiffIn(FiltersIn):
+    behavior_result_id: str | None = Field(None, max_length=36)
+    result_sha256: str | None = Field(None, pattern="^[a-f0-9]{64}$")
     src_ip: str | None = None
     url_path: str | None = None
     event_ids: list[str] = Field(default_factory=list, max_length=200)
+    ips: list[str] = Field(default_factory=list, max_length=100)
+    role: Literal["src", "dst", "either"] = "src"
+    filters: list[Filter] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def valid_time(self):
+        StatisticsIn(filters=[], time=self.time)
+        return self
 
 
 @router.post("/diff")
 def event_diff(inv_id: str, body: EventDiffIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    """Request Diff over log events (partial requests: no headers/body) (docs/18 §1)."""
+    """Compare observed requests within the same explicit investigation scope."""
     from saw.analyzers.diff.request_diff import evolution, from_event
+    from saw.storage.eventstore import ts_epoch
 
     _read(s, ctx, inv_id)
     es = _es()
-    if body.event_ids:
-        evs = [hydrate_raw(e) for e in (es.get(inv_id, i) for i in body.event_ids) if e]
-        evs.sort(key=lambda e: e.get("timestamp") or "")
+    if body.behavior_result_id:
+        from saw.behavior.service import get as get_behavior
+        row = get_behavior(s, ctx.principal, inv_id, body.behavior_result_id)
+        if row.result_sha256 != body.result_sha256:
+            raise ValueError("behavior_result_hash_mismatch")
+        supplied_scope = {k: body.model_dump()[k] for k in ("filters", "time", "ips", "role")}
+        if supplied_scope != row.result["scope"] or body.src_ip or body.url_path:
+            raise ValueError("behavior_comparison_scope_mismatch")
+        snapshots = {x["event_id"]: x["event"] for x in row.result["selected_evidence"]}
+        if not body.event_ids or not set(body.event_ids).issubset(snapshots):
+            raise ValueError("behavior_comparison_evidence_missing")
+        by_id = {eid: snapshots[eid] for eid in body.event_ids}
+        total = len(by_id)
     else:
-        if not body.src_ip:
-            raise ValueError("src_ip or event_ids required")
-        flt = [Filter(field="src_ip", value=body.src_ip), Filter(field="data_source", op="in", value=["web", "waf"])]
+        if not (body.src_ip or body.ips or body.event_ids):
+            raise ValueError("src_ip, ips or event_ids required")
+        base = list(body.filters)
+        if body.event_ids:
+            base.append(Filter(field="event_id", op="in", value=body.event_ids))
+        else:
+            base.append(Filter(field="data_source", op="in", value=["web", "waf", "zeek_http", "ndr_http"]))
+        if body.src_ip:
+            base.append(Filter(field="src_ip", value=body.src_ip))
         if body.url_path:
-            flt.append(Filter(field="url_path", value=body.url_path))
-        evs = es.search(inv_id, flt, limit=200)["events"]
-    # collapse consecutive identical requests so the evolution shows changes, not repetition
+            base.append(Filter(field="url_path", value=body.url_path))
+        branches = [base]
+        if body.ips:
+            fields = ["src_ip", "dst_ip"] if body.role == "either" else [body.role + "_ip"]
+            branches = [base + [Filter(field=f, op="in", value=body.ips)] for f in fields]
+        by_id = {}
+        total = 0
+        for filters in branches:
+            found = es.search(inv_id, filters, time=body.time, limit=200)
+            total += len(found["events"]) + (1 if found.get("next_cursor") else 0)
+            by_id.update((e["event_id"], e) for e in found["events"])
+    evs = sorted(by_id.values(), key=lambda e: (ts_epoch(e.get("timestamp")) or 0, e["event_id"]))[:200]
+    # Keep query values and observed UA/service changes; templates are too coarse.
     canons, last = [], None
-    for e in evs:
-        k = (e.get("method"), e.get("uri_template"), e.get("status_code"))
-        if k != last:
-            canons.append(from_event(e, len(canons)))
-            last = k
+    for event in evs:
+        identity = tuple(event.get(k) for k in
+            ("method", "uri", "url_path", "url_query", "status_code", "user_agent", "src_ip",
+             "dst_ip", "dst_port", "hostname", "action", "bytes_out"))
+        if identity != last:
+            safe, _ = mask_event(event if body.behavior_result_id else hydrate_raw(event))
+            canons.append(from_event(safe, len(canons)))
+            last = identity
     if len(canons) < 2:
-        raise ValueError("need at least two distinct requests")
-    return evolution(canons[:200])
+        raise ValueError("need at least two distinct requests within the selected scope")
+    result = evolution(canons)
+    result["scope"] = body.model_dump()
+    result["sampled"] = total > 200
+    result["saved_projection"] = bool(body.behavior_result_id)
+    result["limits"] = ["로그에 관측된 요청 필드만 비교합니다. 본문 동일성·공격 성공·행위자 동일성을 확정하지 않습니다.",
+                        "최대 200건을 시각·이벤트 ID 순으로 비교하며 같은 시각의 선후관계는 알 수 없습니다."]
+    return result
 
 
 @router.get("/correlations")

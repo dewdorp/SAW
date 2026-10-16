@@ -23,6 +23,12 @@ class Parsed:
     ext: dict[str, Any] = field(default_factory=dict)
     raw: str | None = None  # stored raw_event replacing the line (the original file is kept)
     redact: bool = False  # line carries secrets (cookies): mask it whenever it is stored or shown
+    observation: dict[str, str] = field(init=False)
+
+    def __post_init__(self):
+        from saw.behavior.observation import observe_fields
+
+        self.observation = observe_fields(self.fields)
 
 
 @dataclass

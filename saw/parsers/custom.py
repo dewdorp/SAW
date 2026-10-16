@@ -227,7 +227,12 @@ class DefinedParser(BaseParser):
         elif self.spec.timezone and f.get("timestamp_raw"):
             f["_tz"] = self.spec.timezone
         f["data_source"], f["event_type"] = self.spec.data_source, self.spec.event_type
-        return Parsed(f, ext, redact=bool(self.mask or self.drop))
+        result = Parsed(f, ext, redact=bool(self.mask or self.drop))
+        if self.spec.time_format and f.get("timestamp_raw"):
+            result.observation["timestamp_precision"] = (
+                "subseconds" if "%f" in self.spec.time_format else
+                "seconds" if "%S" in self.spec.time_format else "unknown")
+        return result
 
 
 # ---------------------------------------------------------------------- suggestions for the wizard

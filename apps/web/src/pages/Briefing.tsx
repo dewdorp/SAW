@@ -46,6 +46,7 @@ export function Briefing() {
     <div className="page report-page">
       <div className="row wrap no-print" style={{ marginBottom: 14 }}>
         <Link to={`/inv/${id}`} className="btn ghost sm">← 조사 작업대</Link>
+        <Link to={`/inv/${id}?tab=behavior`} className="btn ghost sm">행위 분석·근거 보고서</Link>
         <div className="grow" />
         <label className="row small" title="끄면 IP 주소를 끝자리까지 표시합니다 (내부 검토용)"><input type="checkbox" checked={mask} onChange={(e) => { setMask(e.target.checked); setDraft(null); }} /> IP 끝자리 가리기</label>
         {b.can_edit && !draft && <button className="btn sm" onClick={() => setDraft({ ...t })}>문구 고치기</button>}

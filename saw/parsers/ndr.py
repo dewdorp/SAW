@@ -135,7 +135,7 @@ class NdrMetaCsvParser(BaseParser):
         m = rec["meta"]
         f, ext = self._base(rec)
         f.update(event_type="http_access", method=m.get("method") if m.get("method") != "request" else None,
-                 hostname=m.get("hostname") or None, uri=m.get("path") or None, user_agent=m.get("ua") or None)
+                 hostname=m.get("hostname") or None, uri=m.get("path") or None, user_agent=m.get("ua"))
         for k, name in (("refer", "referer"), ("content_type", "request_content_type"), ("xfwd", "x_forwarded_for"),
                         ("accept_language", "accept_language"), ("multi_attname", "upload_filename")):
             if m.get(k):

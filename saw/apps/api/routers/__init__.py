@@ -27,6 +27,8 @@ from saw.apps.api.routers import (
 
 from saw.content_packages.router import router as content_packages_router
 
-ROUTERS = [content_packages_router, guidance.router, golden.router, auth.router, admin.router, admin_data.router, investigations.router, analyze.router, evidence.router, workbench.router,
+from saw.behavior.router import router as behavior_router
+
+ROUTERS = [behavior_router, content_packages_router, guidance.router, golden.router, auth.router, admin.router, admin_data.router, investigations.router, analyze.router, evidence.router, workbench.router,
            cases.router, attack.router, network.router, forensics.router, knowledge.router, connectors.router, ai.router, hunting.router, detection.router,
            parser_library.router, provenance.router, briefing.router, checks.router, reviews.router, local_models.router]
