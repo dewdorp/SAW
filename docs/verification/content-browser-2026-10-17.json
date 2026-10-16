@@ -1,0 +1,54 @@
+{
+  "schema": "saw.browser-validation/1",
+  "date": "2026-10-17",
+  "environment": "isolated synthetic SQLite and local objects on Windows11",
+  "url": "http://127.0.0.1:57286/content-packages",
+  "package_id": "saw-synthetic-demo",
+  "revision": 1,
+  "payload_sha256": "5cebacd04912c79b53b8620e5fea249e2cb91c8c6a52c09376a4c64050a37fa2",
+  "actions": [
+    "actual_file_chooser_import",
+    "preview",
+    "draft_saved",
+    "four_fixture_tests_passed",
+    "independent_reviewer_applied",
+    "different_user_rollback_preview",
+    "initial_content_disabled",
+    "reload_preserved_history"
+  ],
+  "r2_browser_replay": false,
+  "r2_http_replay": "see guidance-content-http-2026-10-15.json",
+  "production_data": false,
+  "screenshots": [
+    {
+      "path": "docs/assets/content-20261017/01-import-preview.jpg",
+      "bytes": 92941,
+      "sha256": "56544351d1842369bc9c983c86ecce0439bf36e3256b4c7fa914e693e62e455a"
+    },
+    {
+      "path": "docs/assets/content-20261017/02-fixtures-pass.jpg",
+      "bytes": 85715,
+      "sha256": "720023c5678d6b4747f99870612683962e0a8605156d393af355623630bd2030"
+    },
+    {
+      "path": "docs/assets/content-20261017/03-independent-review.jpg",
+      "bytes": 95813,
+      "sha256": "4847d76a3fa4298c93bff0775937f5744ca19f0a8b3faef6909dcf498f1a3c84"
+    },
+    {
+      "path": "docs/assets/content-20261017/04-applied.jpg",
+      "bytes": 97207,
+      "sha256": "87873ab90e0b1d53ed29ef586e9f73357ab6f85281174622fab1f3970d08715b"
+    },
+    {
+      "path": "docs/assets/content-20261017/05-rollback-impact.jpg",
+      "bytes": 106871,
+      "sha256": "aec67a23c7dfc3387f94765d2d5c538d83f09340e689d89914ad10e90426dcc9"
+    },
+    {
+      "path": "docs/assets/content-20261017/06-rolled-back.jpg",
+      "bytes": 96362,
+      "sha256": "25b0c51684b3b97a17f574a9d3339f05c6931dc42a4deb2adeffad014c72c9f2"
+    }
+  ]
+}

@@ -6,7 +6,7 @@
 # Analyst PC WITHOUT administrator rights (normal PowerShell; no services, installs under %LOCALAPPDATA%\SAW,
 # started/stopped with saw-ctl.ps1 or the Start-menu shortcuts):
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoAdmin [-AutoStartAtLogon]
-# Fresh installation only. Existing installations use saw-ctl.ps1; upgrades require a reviewed procedure.
+# Fresh installation only. Use the verified new media update.ps1 for a stopped existing installation.
 [CmdletBinding()]
 param(
     [string]$BundleDir = "",                        # default: the folder containing this script
@@ -27,7 +27,7 @@ param(
     [int]$OpenSearchPort = 9200,
     [int]$OpenSearchTransportPort = 9300,
     [switch]$SkipShortcuts,
-    [switch]$NoServices,                            # developer dry run (no services, firewall, ACLs)
+    [switch]$NoServices,                            # developer dry run (no services or firewall; root remains private)
     [switch]$DevNoAcl
 )
 $ErrorActionPreference = "Stop"
@@ -99,8 +99,11 @@ if ($OpenSearchHeapGB -gt [math]::Floor($ramGB / 2)) { throw "OpenSearch heap ($
 if ($freeGB -lt 20) { throw "At least 20 GB free disk is required on $drive (evidence and indices need more)." }
 # Verify all files and required payloads; no bypass switch is provided.
 & (Join-Path $BundleDir "verify-bundle.ps1") -BundleDir $BundleDir
-if (Test-Path -LiteralPath (Join-Path $InstallRoot "app\.env")) { throw "An installation already exists. Use saw-ctl.ps1 restart; upgrades require a separate reviewed procedure." }
+if (Test-Path -LiteralPath (Join-Path $InstallRoot "app\.env")) { throw "An installation already exists. Use saw-ctl.ps1 restart; use the verified new media update.ps1 for upgrades." }
 if (@($PostgresPort, $OpenSearchPort, $OpenSearchTransportPort, $Port | Select-Object -Unique).Count -ne 4) { throw "Ports must be distinct" }
+# Establish exact private inheritance before creating code, configuration, or keys.
+. (Join-Path $BundleDir 'app\deploy\windows\install-paths.ps1')
+$InstallRoot = Initialize-SawInstallRoot -InstallRoot $InstallRoot -BundleDir $BundleDir -NoAdmin:$NoAdmin
 $dirs = @{ app = "app"; data = "data\saw"; objects = "data\objects"; logs = "logs\saw"; tls = "tls"; secrets = "secrets";
            service = "service"; backup = "backup" }
 foreach ($k in @($dirs.Keys)) { $dirs[$k] = Join-Path $InstallRoot $dirs[$k]; New-Item -ItemType Directory -Force $dirs[$k] | Out-Null }
@@ -284,6 +287,8 @@ if (-not $NoServices -and -not $NoAdmin) {
     if (-not $ok) { throw "SAW did not become healthy; see $($dirs.logs) and $InstallRoot\logs\opensearch" }
     Write-Host $r
 }
+
+Copy-Item -LiteralPath (Join-Path $BundleDir "release-manifest.json") -Destination (Join-Path $InstallRoot "installed-release-manifest.json")
 
 Step "Done"
 Write-Host "URL:            https://$($HostName):$Port/"

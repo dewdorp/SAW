@@ -1,8 +1,8 @@
-> 2026-10-12 최신 모델 제외 사전 배포는 [별도 설치 안내](OFFLINE-RELEASE-2026-10-12.md)를 먼저 확인하세요. 내장 Python ZIP과 62개 wheel을 사용하며 신규 설치 전용입니다. 아래의 과거 서비스 방식 설명은 실제 서비스 인수 완료를 뜻하지 않습니다.
+> 최신 모델 제외 매체는 [2026-10-17 설치 안내](OFFLINE-RELEASE-2026-10-17.md)를 먼저 확인하세요. 내장 Python ZIP과 62개 wheel을 사용합니다. install.ps1은 신규 설치, update.ps1은 중지한 기존 설치의 앱 업데이트·전체 시점 복구용입니다. [업데이트 안내](OFFLINE-UPDATE-GUIDE.md)와 [실제 검증 범위](OFFLINE-RELEASE-VALIDATION-2026-10-17.md)를 함께 확인하세요. 서비스 방식 설명은 실제 서비스 인수 완료를 뜻하지 않습니다.
 
 # SAW 설치 설명서 — Windows 폐쇄망 서버
 
-대상: **Windows 10 Enterprise LTSC 2019 x64** (Windows Server 2016 이상도 동일), **인터넷 차단(폐쇄망)**, 저사양 서버.
+설치 대상: **Windows 10 Enterprise LTSC 2019 x64** (깨끗한 대상 OS 인수는 미완료), **인터넷 차단(폐쇄망)**, 저사양 서버.
 설계 근거: [ADR-0016](adr/0016-windows-airgapped-deployment-and-builtin-pcap.md)
 
 ---
@@ -62,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoAdmin -AutoStartAtLogo
 | 실행 방식 | 서비스 대신 사용자 프로세스. 시작 메뉴 **SAW → SAW start / SAW stop / SAW status / SAW open** |
 | 접속 주소 | `https://localhost:8443/` (127.0.0.1에만 열림) |
 | 자동 시작 | `-AutoStartAtLogon`을 주면 로그온할 때 자동 시작. 주지 않으면 재부팅 후 **SAW start**를 눌러야 함 |
-| Python | 묶음의 Python을 **사용자 전용**으로 설치(권한 상승 없음). 이미 Python 3.12가 설치된 PC는 `-PythonExe <python.exe 경로>`로 그것을 쓰세요(같은 버전 이중 설치 방지) |
+| Python | 매체의 Python 3.12.10 embeddable과 고정 wheel을 설치 폴더 안에서 사용합니다. 시스템 Python의 사전 설치가 필요하지 않습니다. |
 | 제거 | `uninstall.ps1 -InstallRoot "$env:LOCALAPPDATA\SAW"` (관리자 권한 불필요) |
 
 명령으로 제어하려면:
@@ -84,7 +84,7 @@ SAW 화면은 **Chrome 또는 Microsoft Edge(최신, Chromium)** 에서 동작�
 |---|---|
 | 저장 크기 | 웹·네트워크·NDR처럼 필드로 나뉘는 로그는 **원본 줄을 인덱스에 넣지 않고** 원본 파일 위치만 저장. 이벤트 상세를 열 때 원본 파일에서 읽어 옴 (`SAW_RAW_STORE=auto`, 기본). 텍스트 로그(분류되지 않는 로그)는 원본 줄을 저장해 검색·패턴 분석에 사용 |
 | 압축 | OpenSearch `best_compression`, 단일 노드 복제본 0 |
-| 저장 확정 | **여럿이 쓰는 서버(기본 설치)**: 저장한 묶음을 디스크에 기록한 뒤에 "완료"로 처리(`SAW_OPENSEARCH_DURABILITY=request`). **혼자 쓰는 분석 PC(`-LocalOnly`/`-NoAdmin`)**: 10초마다 기록(`async`, 느린 디스크 대응 — 갑자기 꺼지면 마지막 몇 초가 빠질 수 있어 그 증거를 다시 처리해야 함) |
+| 저장 확정 | 기본 설치와 `-LocalOnly`/`-NoAdmin` 모두 `SAW_OPENSEARCH_DURABILITY=request`를 사용합니다. 저장한 묶음의 기록을 확인한 뒤 완료로 처리하며, 저사양을 이유로 자동으로 async로 낮추지 않습니다. |
 | 저장 거부·일시 장애 | 검색엔진이 받지 않은 이벤트는 "완료"로 세지 않음. 형식 문제로 거부된 건수는 작업 화면 **처리 범위 › 저장 거부**에 표시. 검색엔진이 잠시 바쁜 경우(429 등)는 작업이 실패로 멈추고 **다시 시도**를 누르면 멈춘 곳부터 이어서 처리 |
 | 진행 표시 | 작업 화면에 **바이트 기준 진행률·남은 시간**. 색인이 끝나면 분석 중에도 조사 화면에서 검색 가능 |
 | 중단 후 재개 | PC 재부팅·서비스 재시작 시 작업이 자동으로 다시 시작되고, **이미 색인한 이벤트는 다시 넣지 않음** |
@@ -110,27 +110,29 @@ SAW 화면은 **Chrome 또는 Microsoft Edge(최신, Chromium)** 에서 동작�
 
 > 이미 받은 설치 묶음(`offline-bundle` 폴더)이 있으면 3장으로 넘어가세요.
 
-인터넷 PC(Windows 64bit, Python 3.12, Node.js)에서 SAW 소스 폴더를 열고 실행합니다.
+이 절은 매체 제작자용입니다. 설치 대상에서 실행하지 않습니다. 빌드 PC에서 UI를 미리 빌드하고, provenance.json으로 고정한 실제 의존성 파일과 검증된 정적 CPU 실행기를 준비한 뒤 조립합니다. 조립 스크립트 자체는 내려받기를 수행하지 않습니다.
 
 ```bash
-powershell -ExecutionPolicy Bypass -File deploy\windows\build-bundle.ps1
+powershell -ExecutionPolicy Bypass -File deploy\windows\build-bundle.ps1 -InputDir C:\build-inputs -NativeRuntime C:\llama-runtime -OutDir C:\SAW-media-new
 ```
 
-다음이 `offline-bundle` 폴더에 모입니다 (약 1.4GB).
+다음이 지정한 새 `-OutDir` 폴더에 모입니다. 정확한 파일별 크기는 release-manifest.json에 기록됩니다.
 
 | 폴더/파일 | 내용 | 무결성 확인 |
 |---|---|---|
 | `opensearch\` | OpenSearch 2.19.6 Windows, 한글 분석기(nori) | 공식 SHA-512 대조 |
 | `postgresql\` | PostgreSQL 16.15 Windows 바이너리 | SHA-256 기록 |
-| `python\` | Python 3.12.10 설치 파일 | 디지털 서명(Python Software Foundation) 확인 |
+| `python\` | Python 3.12.10 embeddable ZIP | 고정 SHA-256 대조 |
 | `winsw\` | Windows 서비스 등록 도구 (MIT) | SHA-256 기록 |
-| `wheels\` | SAW가 쓰는 Python 패키지 63개 | SHA-256 기록 |
+| `wheels\` | SAW가 쓰는 Python wheel 62개 | SHA-256 기록 |
+| `llm-runtime\` | 고정 llama.cpp CPU 실행기(모델 가중치는 별도) | runtime manifest·SHA-256 대조 |
 | `app\` | SAW 프로그램 (웹 화면 빌드 포함) | SHA-256 기록 |
 | `install.ps1` 등 | 설치·백업·제거 스크립트 | — |
 | `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` | 구성 요소 목록(SBOM, CycloneDX 1.5)과 라이선스 고지 — 반입 심사용 | — |
-| `SHA256SUMS.txt` | 모든 파일의 SHA-256 목록 | 설치 시 자동 검증 |
+| `SHA256SUMS.txt` | 파일과 manifest의 SHA-256 참고 목록 | 공개 값과 별도 대조 |
+| `release-manifest.json` | 필수 파일·크기·SHA-256 계약 | 설치 시 전체 파일 자동 대조 |
 
-마지막에 출력되는 **SHA256SUMS.txt의 해시값을 반입 기록에 적어두세요.**
+빌드 결과의 **manifest_sha256(release-manifest.json의 SHA-256)을 반입 기록에 적어두세요.** ZIP의 공개 SHA-256도 함께 보관합니다.
 폴더를 회사의 매체 반입 절차(악성코드 검사 등)에 따라 서버로 옮깁니다.
 
 ---
@@ -163,9 +165,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -HostName saw.corp.local 
 | `-CertFile`, `-KeyFile` | 회사에서 발급한 인증서(PEM)가 있을 때 | — |
 | `-InstallRoot` | 설치 위치. 공백·`&`·한글 폴더 이름은 사용할 수 있음. `% " ' ; ^ ! # $` 와 백틱은 설정 파일의 뜻을 바꾸므로 설치가 거부됨 | `C:\SAW` (기본) |
 
-설치는 5~10분 걸립니다. 다음을 자동으로 처리합니다.
+설치 시간은 CPU·디스크에 따라 달라집니다. 다음을 자동으로 처리합니다.
 
-1. 설치 묶음 **무결성 검사** (SHA256SUMS 대조, 하나라도 다르면 중단)
+1. 설치 묶음 **무결성 검사** (release-manifest.json의 전체 파일·크기·SHA-256 대조, 누락·추가·불일치 시 중단)
 2. Python 설치 → 패키지 오프라인 설치
 3. PostgreSQL 설치 (암호 자동 생성, 서버 내부 전용)
 4. OpenSearch 설치 (불필요한 플러그인 제거, 한글 분석기 설치, 서버 내부 전용)
@@ -184,7 +186,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -HostName saw.corp.local 
 | `C:\SAW\data` | 증거 원본, DB, 검색 인덱스 | 관리자·SYSTEM(·DB 서비스 계정)만 |
 | `C:\SAW\secrets` | DB 암호, 최초 관리자 암호 | 관리자·SYSTEM만 |
 | `C:\SAW\tls` | HTTPS 인증서·개인키 | 관리자·SYSTEM만 |
-| `C:\SAW\logs` | 서비스 로그 | 관리자·SYSTEM만 |
+| `C:\SAW\logs` | 서비스 로그 | 관리자·SYSTEM, `postgresql` 하위 폴더는 Network Service 수정 권한 추가 |
 | `C:\SAW\backup` | 백업 | 관리자·SYSTEM만 |
 
 Windows 서비스 (`services.msc`에서 확인):
@@ -286,7 +288,7 @@ curl.exe -sk https://localhost/api/v1/health
 |---|---|
 | SAW | `C:\SAW\logs\saw\` |
 | OpenSearch | `C:\SAW\logs\opensearch\` |
-| PostgreSQL | Windows 이벤트 뷰어 → 응용 프로그램 |
+| PostgreSQL | `C:\SAW\logs\postgresql\` |
 
 ### 사용자 문제 해결 (서버에서, 관리자 PowerShell)
 
@@ -310,7 +312,7 @@ C:\SAW\venv\Scripts\python.exe -m saw.cli set-password 사용자ID
 ### 업그레이드
 
 현재 `install.ps1`은 신규 설치 전용이며 기존 설치를 발견하면 중단합니다. 같은 경로에 다시 실행하여 업그레이드하지 마세요.
-프로그램·DB 스키마 업데이트에는 별도로 검토한 백업·호환성·전환·복구 절차가 필요합니다. 기존 운영 설치의 자동 업그레이드는 제공하지 않습니다.
+동일한 고정 런타임 조합의 중지한 설치는 새 매체의 `update.ps1`으로 사전 검사·전체 복구본 생성·앱 교체·명시적 시점 복구를 수행합니다. [업데이트·복구 안내](OFFLINE-UPDATE-GUIDE.md)를 따르세요. 실행 중 자동 업데이트나 런타임/DB 제품 버전 변경은 지원하지 않습니다. 실제 서비스 운영 전환은 별도 인수가 필요합니다.
 변경 전에는 `backup.ps1`으로 백업하고 별도 위치의 복원 가능성을 확인하세요. 데이터로 된 룰·파서 변경은 [오프라인 콘텐츠 안내](OFFLINE-CONTENT-GUIDE.md)의 검증·시험·승인·적용 절차를 사용합니다.
 
 ### 제거
@@ -329,7 +331,7 @@ powershell -ExecutionPolicy Bypass -File C:\SAW\app\deploy\windows\uninstall.ps1
 |---|---|
 | 설치 중 `checksum mismatch` | 반입 중 파일 손상. 묶음을 다시 복사하세요. |
 | `saw` 서비스가 계속 재시작 | `C:\SAW\logs\saw\` 확인. OpenSearch가 2분 안에 안 뜨면 실패합니다 → `saw-opensearch` 서비스와 `C:\SAW\logs\opensearch` 확인 |
-| OpenSearch가 바로 종료 | 힙이 너무 큼(메모리 부족) → `install.ps1 -OpenSearchHeapGB 1`로 재실행 |
+| OpenSearch가 바로 종료 | 로그에서 메모리 부족 여부 확인 → 전체 중지 후 관리자가 `opensearch-2.19.6\config\jvm.options.d\saw-heap.options`의 `-Xms`·`-Xmx`를 같은 값(예: `1g`)으로 조정하고 기존 시작 절차로 재시작. 기존 설치에 install.ps1 재실행 금지 |
 | 디스크 부족 경고 후 검색 불가 | 디스크 사용률 95% 초과 시 OpenSearch가 쓰기를 막습니다. 공간 확보 후 `saw-opensearch` 재시작 |
 | 브라우저 "안전하지 않음" | 4.3절 인증서 신뢰 설정 |
 | 분석가 PC에서 접속 불가 | `-AllowFrom` 대역 확인, 서버에서 `curl.exe -sk https://localhost/api/v1/health` 확인 |

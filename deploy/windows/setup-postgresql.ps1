@@ -150,6 +150,8 @@ if ($UserMode) {
     $pgLog = Join-Path $InstallRoot 'logs\postgresql'
     New-Item -ItemType Directory -Force $serviceDir, $pgLog | Out-Null
     if (-not $DevNoAcl) {
+        . (Join-Path $PSScriptRoot 'install-paths.ps1')
+        Grant-SawPostgresqlRuntimeAccess -InstallRoot $InstallRoot
         & icacls $serviceDir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL service directory ACL failed' }
         & icacls $pgLog /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null

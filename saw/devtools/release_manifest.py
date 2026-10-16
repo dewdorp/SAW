@@ -53,7 +53,10 @@ def inventory(root: Path) -> list[dict]:
         raise BundleError("invalid media directory")
     rows = []
     seen = set()
-    for parent, dirs, files in os.walk(root, followlinks=False):
+    def enumeration_failed(_error):
+        raise BundleError("Cannot enumerate every media directory; complete verification is required") from None
+
+    for parent, dirs, files in os.walk(root, followlinks=False, onerror=enumeration_failed):
         for name in dirs + files:
             p = Path(parent) / name
             if p.is_symlink() or getattr(p.lstat(), "st_file_attributes", 0) & 0x400:

@@ -1,0 +1,202 @@
+{
+  "schema": "saw.native-release-validation/1",
+  "state": "DEVELOPMENT_NATIVE_PASS_TARGET_PENDING",
+  "date": "2026-10-17",
+  "environment": {
+    "os": "Windows 11 Pro",
+    "build": 26200,
+    "ram_gib": 31.7,
+    "mode": "isolated synthetic user processes"
+  },
+  "candidate": {
+    "fresh_name": "model-free-20261017-candidate4",
+    "fresh_manifest_sha256": "9fc26f79668e4dc77f7543df9f6f056dd8aa6cdec6fd1ec1da669aca8f09b388",
+    "recovery_and_reapply_name": "model-free-20261017-candidate5",
+    "final_candidate_manifest_sha256": "2484b98a30eccd47ee073c39f0892a81363c650349ca24a4605ba461cbc246a9"
+  },
+  "fresh": {
+    "seconds": 259.06,
+    "schema": "0014",
+    "tls_chain_and_san_verified": true,
+    "mfa": true,
+    "jobs_completed": 2,
+    "events": 9,
+    "findings": 10,
+    "notes": 1,
+    "restart_persistence": true,
+    "synthetic_account_disabled": true,
+    "whole_tree_owner_and_dacl_gate": true
+  },
+  "upgrade": {
+    "recovery_reapply_seconds": 765.46,
+    "phases": {
+      "updated_behavior": {
+        "phase": "behavior",
+        "schema": "0014",
+        "tls_verified": true,
+        "mfa_preserved": true,
+        "legacy_events": 9,
+        "legacy_findings": 8,
+        "legacy_note_preserved": true,
+        "frozen_files_preserved": true,
+        "new_investigation": "67d795a3-9929-494d-855a-1e8a25b45555",
+        "result_id": "0e997219-2107-4825-bbfe-3e0c87c1ae40",
+        "result_sha256": "526f2017979f4a884706a234d3b0a42e3e582d5f196e830aaa1ddc303155d5a6",
+        "report_sha256": "1f44d11a645ab270428722409963e5a6aeca7761c5c62de87e7c5c91f44aaf1a"
+      },
+      "updated_restart": {
+        "phase": "verify",
+        "schema": "0014",
+        "tls_verified": true,
+        "mfa_preserved": true,
+        "legacy_events": 9,
+        "legacy_findings": 8,
+        "legacy_note_preserved": true,
+        "frozen_files_preserved": true,
+        "behavior_result_preserved": true
+      },
+      "restored": {
+        "phase": "restore",
+        "schema": "0011",
+        "tls_verified": true,
+        "mfa_preserved": true,
+        "legacy_events": 9,
+        "legacy_findings": 8,
+        "legacy_note_preserved": true,
+        "frozen_files_preserved": true,
+        "post_update_investigation_not_in_restored_point": true
+      },
+      "reapplied_behavior": {
+        "phase": "behavior",
+        "schema": "0014",
+        "tls_verified": true,
+        "mfa_preserved": true,
+        "legacy_events": 9,
+        "legacy_findings": 8,
+        "legacy_note_preserved": true,
+        "frozen_files_preserved": true,
+        "new_investigation": "d0ca6751-0317-4dde-8215-8c314ec5d877",
+        "result_id": "389eddea-7c18-4df9-985a-58aae3f58752",
+        "result_sha256": "9fe0009038d1bf87e8a11f272ca69ad534a5f2213d5b1152fd808d036785d9ae",
+        "report_sha256": "9ba5e7ab5b1a15287c51f520f529a3f4551eed9359e28b8fc63c19f4ee978777"
+      },
+      "reapplied_restart": {
+        "phase": "verify",
+        "schema": "0014",
+        "tls_verified": true,
+        "mfa_preserved": true,
+        "legacy_events": 9,
+        "legacy_findings": 8,
+        "legacy_note_preserved": true,
+        "frozen_files_preserved": true,
+        "behavior_result_preserved": true
+      }
+    },
+    "snapshot_files": 27672,
+    "snapshot_bytes": 1559873128,
+    "whole_installation_restore": true,
+    "post_update_tree_retained": true,
+    "synthetic_legacy_acl_preparation": {
+      "scope": "isolated synthetic legacy QA only",
+      "file_content_hashes_preserved": true,
+      "old_application_hashes_preserved": true,
+      "root_protected": true,
+      "root_contains_broad_group_alias": false,
+      "production_permissions_changed": false
+    }
+  },
+  "behavior_metrics": [
+    {
+      "id": "requests_10s",
+      "value": 40,
+      "result": "threshold_met",
+      "eligible_count": 83
+    },
+    {
+      "id": "paths_60s",
+      "value": 40,
+      "result": "threshold_met",
+      "eligible_count": 83
+    },
+    {
+      "id": "status404_60s",
+      "value": 40,
+      "result": "threshold_met",
+      "eligible_count": 83
+    },
+    {
+      "id": "repeats_60s",
+      "value": 1,
+      "result": "below_threshold",
+      "eligible_count": 83
+    },
+    {
+      "id": "ua_600s",
+      "value": 1,
+      "result": "below_threshold",
+      "eligible_count": 83
+    }
+  ],
+  "tests": {
+    "server": {
+      "passed": 1079,
+      "skipped": 2,
+      "warnings": 1,
+      "seconds": 559.62
+    },
+    "ui": {
+      "passed": 177,
+      "files": 31,
+      "seconds": 41.69
+    },
+    "typescript": true,
+    "ui_build": true,
+    "targeted_ruff_errors": true,
+    "powershell_syntax_files": 4
+  },
+  "fresh_payload_comparison": {
+    "state": "PASS",
+    "changed_executable_paths": [
+      "app/saw/devtools/offline_update.py"
+    ],
+    "fresh_installer_engine_ui_runtime_identical": true,
+    "candidate5_has_tested_path_fix": true
+  },
+  "browser_receipt": "content-browser-2026-10-17.json",
+  "failures_retained": [
+    {
+      "candidate": 4,
+      "result": "restore_refused_before_root_switch",
+      "winerror": 206,
+      "directory_utf16_units": 251,
+      "reason": "long staging basename",
+      "resolved_with_short_sibling_and_preflight": true
+    },
+    {
+      "candidate": 2,
+      "result": "refused_before_application_switch",
+      "reason": "DACL AUTO_INHERITED mismatch",
+      "resolved_with_native_regression": true
+    },
+    {
+      "run": "initial_server",
+      "passed": 1003,
+      "failed": 1,
+      "skipped": 2,
+      "reason": "guide expectation edited during run"
+    },
+    {
+      "run": "intermediate_acl_server",
+      "result": "cancelled_for_confirmed_review_fixes"
+    }
+  ],
+  "no_install_time_download_calls": true,
+  "network_physically_disconnected": false,
+  "target_ltsc_verified": false,
+  "admin_service_install_verified": false,
+  "ram16gb_multiuser_verified": false,
+  "production_acceptance": false,
+  "model_inference_this_run": false,
+  "sft_this_run": false,
+  "operational_data_used": false
+}

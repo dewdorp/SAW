@@ -78,7 +78,7 @@ def test_public_guides_are_required_and_copied_with_start_here(tmp_path, monkeyp
         path.write_text(rel, encoding="utf-8")
     monkeypatch.setattr(build_release, "ROOT", source)
     build_release.copy_public_guides(out)
-    assert (out / "START-HERE.md").read_text() == "docs/OFFLINE-RELEASE-2026-10-12.md"
+    assert (out / "START-HERE.md").read_text() == "docs/OFFLINE-RELEASE-2026-10-17.md"
     assert all((out / "app" / rel).is_file() for rel in build_release.PUBLIC_DOCS)
     (source / build_release.PUBLIC_DOCS[-1]).unlink()
     with pytest.raises(BundleError, match="public guide missing"):
@@ -106,3 +106,88 @@ def test_source_assembly_ships_guidance_rules_but_not_unlisted_data(tmp_path, mo
     shipped = {p.relative_to(out / "app").as_posix() for p in (out / "app").rglob("*") if p.is_file()}
     assert shipped == set(list(files)[:3])
     assert (out / "app/saw/core/application/guidance_rules.yaml").read_text() == "version: test"
+
+
+def test_current_offline_guides_are_included_for_installed_users(tmp_path):
+    from saw.devtools import build_release
+    build_release.copy_public_guides(tmp_path / "media")
+    docs = tmp_path / "media/app/docs"
+    for name in ("OFFLINE-RELEASE-2026-10-17.md", "OFFLINE-UPDATE-GUIDE.md",
+                 "MODEL-8B-KOREAN-SECURITY-GUIDE.md", "STATISTICS-TEMPORAL-GUIDE.md",
+                 "ASSISTANT-EVIDENCE-GUIDE.md", "ADMIN-RULES-ANALYTICS-GUIDE.md"):
+        assert (docs / name).is_file(), name
+
+
+def test_shipped_guides_keep_local_links_inside_complete_media(tmp_path):
+    import re
+    from saw.devtools import build_release
+    root = tmp_path / "media"
+    build_release.copy_public_guides(root)
+    for source in root.rglob("*.md"):
+        for link in re.findall(r"\]\(([^)]+)\)", source.read_text(encoding="utf-8")):
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", link) or link.startswith("#"):
+                continue
+            relative = link.split("#")[0].split(' "')[0].strip("<>")
+            target = (source.parent / relative).resolve()
+            assert target.is_relative_to(root.resolve()), (source.name, relative)
+            assert target.is_file(), (source.name, relative)
+
+def test_inventory_directory_error_fails_closed_without_exposing_error_path(tmp_path, monkeypatch):
+    from saw.devtools import release_manifest as manifest
+
+    def inaccessible(path, *, followlinks=False, onerror=None):
+        yield str(path), [], []
+        if onerror is not None:
+            onerror(PermissionError("synthetic confidential filename"))
+
+    monkeypatch.setattr(manifest.os, "walk", inaccessible)
+    with pytest.raises(BundleError, match="enumerat") as caught:
+        inventory(tmp_path)
+    assert "synthetic confidential filename" not in str(caught.value)
+
+
+def _set_native_list_denial(path, denied):
+    literal = "'" + str(path).replace("'", "''") + "'"
+    operation = "AddAccessRule" if denied else "RemoveAccessRuleSpecific"
+    script = f"""
+$ErrorActionPreference='Stop'
+$path={literal}
+$acl=[IO.Directory]::GetAccessControl($path, [Security.AccessControl.AccessControlSections]::Access)
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,'ListDirectory','None','None','Deny')
+$acl.{operation}($rule)
+[IO.Directory]::SetAccessControl($path,$acl)
+"""
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", script],
+                            capture_output=True, timeout=30, check=False)
+    assert result.returncode == 0, (result.stdout + result.stderr).decode(errors="replace")
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows directory-list denial")
+@pytest.mark.parametrize("operation", ["inventory", "seal", "verify"])
+def test_native_unlisted_inaccessible_payload_cannot_be_silently_omitted(tmp_path, operation):
+    root = minimal(tmp_path / "bundle")
+    seal(root, {"test": "synthetic"})
+    manifest_before = (root / "release-manifest.json").read_bytes()
+    sums_before = (root / "SHA256SUMS.txt").read_bytes()
+    blocked = root / "optional-payload"
+    blocked.mkdir()
+    payload = blocked / "unlisted.dll"
+    payload.write_bytes(b"synthetic unlisted payload")
+    _set_native_list_denial(blocked, True)
+    try:
+        with pytest.raises(PermissionError):
+            list(blocked.iterdir())
+        # Deny only LIST on the directory; this is not a file-read or missing-required-file error.
+        assert payload.read_bytes() == b"synthetic unlisted payload"
+        with pytest.raises(BundleError, match="enumerat"):
+            if operation == "inventory":
+                inventory(root)
+            elif operation == "seal":
+                seal(root, {})
+            else:
+                verify(root)
+        assert (root / "release-manifest.json").read_bytes() == manifest_before
+        assert (root / "SHA256SUMS.txt").read_bytes() == sums_before
+    finally:
+        _set_native_list_denial(blocked, False)

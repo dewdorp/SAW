@@ -12,6 +12,53 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
  'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
 PUBLIC_DOCS = (
+ 'docs/verification/offline-release-2026-10-17.json',
+ 'docs/detection-rule-sources.md',
+ 'docs/adr/0016-windows-airgapped-deployment-and-builtin-pcap.md',
+ 'docs/verification/content-browser-2026-10-17.json',
+ 'docs/assets/content-20261017/01-import-preview.jpg',
+ 'docs/assets/content-20261017/02-fixtures-pass.jpg',
+ 'docs/assets/content-20261017/03-independent-review.jpg',
+ 'docs/assets/content-20261017/04-applied.jpg',
+ 'docs/assets/content-20261017/05-rollback-impact.jpg',
+ 'docs/assets/content-20261017/06-rolled-back.jpg',
+ 'docs/ADMIN-RULES-ANALYTICS-GUIDE.md',
+ 'docs/ADMIN-RULES-ANALYTICS-VALIDATION-2026-10-14.md',
+ 'docs/ASSISTANT-EVIDENCE-GUIDE.md',
+ 'docs/ASSISTANT-EVIDENCE-VALIDATION-2026-10-15.md',
+ 'docs/DETECTION-RULES-HOWTO.md',
+ 'docs/MODEL-16GB-KOREAN-GUIDE.md',
+ 'docs/MODEL-8B-KOREAN-SECURITY-GUIDE.md',
+ 'docs/STATISTICS-TEMPORAL-GUIDE.md',
+ 'docs/STATISTICS-TEMPORAL-VALIDATION-2026-10-14.md',
+ 'docs/assets/admin-rules-analytics-2026-10-14/01-source-statistics.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/02-source-table.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/03-peer-evidence.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/04-rule-help.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/05-rule-export.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/06-delete-preview.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/07-delete-completed.jpg',
+ 'docs/assets/admin-rules-analytics-2026-10-14/08-raw-drilldown.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/01-evidence-preview.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/02-note-saved.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/03-note-after-reload.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/04-raw-reference.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/05-explanation-template.jpg',
+ 'docs/assets/assistant-evidence-2026-10-15/06-preview-final-narrow.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/01-overview.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/02-statistics-controls.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/03-statistics-values.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/04-temporal-finding.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/05-evidence-80.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/06-original-line.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/07-status-chart.jpg',
+ 'docs/assets/statistics-temporal-2026-10-14/08-filtered-raw.jpg',
+ 'docs/samples/assistant-korean-security-evaluation.json',
+ 'docs/samples/temporal-behavior-160.jsonl',
+ 'docs/verification/assistant-evidence-2026-10-15.json',
+ 'docs/verification/statistics-temporal-2026-10-14.json',
+ 'docs/OFFLINE-RELEASE-2026-10-17.md', 'docs/OFFLINE-UPDATE-GUIDE.md',
+ 'docs/OFFLINE-RELEASE-VALIDATION-2026-10-17.md',
  'docs/BEHAVIOR-ANALYSIS-GUIDE.md',
  'docs/BEHAVIOR-VALIDATION-2026-10-16.md',
  'docs/examples/behavior-case-A-report.html',
@@ -65,7 +112,7 @@ PUBLIC_DOCS = (
  'docs/assets/detection-validation-2026-10-12/04-ndr-policy.jpg',
  'docs/assets/detection-validation-2026-10-12/05-flow.jpg',
  'docs/assets/detection-validation-2026-10-12/06-investigation.jpg')
-WINDOWS_FILES = ('install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
+WINDOWS_FILES = ('install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
  'saw-ctl.ps1','saw-service.xml','postgresql-service.xml','setup-opensearch.ps1','setup-postgresql.ps1')
 
 def copy_file(source, destination):
@@ -79,8 +126,12 @@ def copy_public_guides(out: Path):
         if not (ROOT / rel).is_file():
             raise BundleError('public guide missing: ' + rel)
         copy_file(ROOT / rel, out / 'app' / rel)
-    copy_file(ROOT / 'docs/INSTALL-WINDOWS.md', out / 'INSTALL-WINDOWS.md')
-    copy_file(ROOT / 'docs/OFFLINE-RELEASE-2026-10-12.md', out / 'START-HERE.md')
+    (out / 'INSTALL-WINDOWS.md').write_text(
+        '# SAW 설치 안내\n\n[최신 매체 시작 안내](START-HERE.md)와 '
+        '[전체 설치 설명서](app/docs/INSTALL-WINDOWS.md)를 확인하세요.\n\n'
+        '기존 설치는 [업데이트·복구 안내](app/docs/OFFLINE-UPDATE-GUIDE.md)를 따릅니다.\n',
+        encoding='utf-8')
+    copy_file(ROOT / 'docs/OFFLINE-RELEASE-2026-10-17.md', out / 'START-HERE.md')
 
 
 def copy_app_sources(out: Path):
@@ -120,7 +171,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     for p in (ROOT/'apps/web/dist').rglob('*'):
         if p.is_file() and p.suffix in {'.html','.js','.css','.svg','.ico','.png','.woff','.woff2'}:
             copy_file(p,out/'app/apps/web/dist'/p.relative_to(ROOT/'apps/web/dist'))
-    for name in ['install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1']:
+    for name in ['install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','update.ps1']:
         copy_file(ROOT/'deploy/windows'/name,out/name)
     copy_public_guides(out)
     if native:
@@ -146,8 +197,9 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
                             copy_file(p,out/'licenses/web'/name/p.name)
     from saw.devtools.sbom import build
     build(out,str(inputs/'npm-licenses.json') if (inputs/'npm-licenses.json').exists() else None)
+    from saw.storage.migrate import head
     version=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-    return seal(out,{'source_commit':version,'source_worktree_included':True,
+    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),
         'target':'Windows 10 Enterprise LTSC 2019 x64 build17763','target_validation':'PENDING_CLEAN_LTSC',
         'model_weights':'EXCLUDED','native_ai_runtime':'INCLUDED' if native else 'NOT_INCLUDED',
         'python_wheels':len(list((out/'wheels').glob('*.whl'))),'python':'3.12.10',
