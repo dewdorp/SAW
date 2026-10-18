@@ -1,3 +1,15 @@
+## 2026-10-18 더블클릭 업데이트·복구 실제 검증
+
+- 새 매체의 UPDATE-SAW.cmd와 한글 WinForms 창으로 점검·중지·전체 복구본·앱 교체·재기동·복구를 실행한다. 사용자의 명령 입력/수동 해시 비교는 없다. 자동 전체 매체 검증, 동일 유지보수 잠금, 계정·권한·MFA·DB·색인·원본·설정 보존을 유지한다.
+- 실제 Windows11/PS5.1 NoAdmin 합성 설치에서 후보2의 업데이트 474.55초 / 전체 복구 406.54초 PASS. 업데이트 전후·복구 후 계정2/이벤트9/Finding10/증거2/노트1/완료작업2, 암호hash·역할·MFA·원본·설정·키·TLS 동일 확인. 같은 계정/MFA로 HTTPS 로그인 PASS.
+- 업데이트 뒤 만든 가상 파일98bytes가 복구된 설치에서는 빠지고 별도 보관 폴더에 그대로 남는 것을 확인했다. 합성 계정 비활성·세션 취소와 PG/검색/API 전체 종료까지 완료했다.
+- 첫 후보는 PG slash 경로와 JVM의 System32 conhost 검사에서 중지 전에 실패했다. 경로 동등성 및 정확한 부모/자식·실행파일·인자·생성시각/보유handle 검증으로 고친 후 새 후보에서 실제 성공했다. 실패 기록도 유지한다.
+- 기존 서버1232 PASS/5skip, UI177 PASS/tsc0, native GUI59 PASS/worker17 PASS, 최종 core68 PASS, media61 PASS. offline+core102 및 최종 독립 소유권 회귀21도 별도 PASS. 기존 Starlette 경고. 실제 시험은 WinForms 버튼 이벤트→worker→native 런타임이며 물리 마우스 더블클릭과 구분한다.
+- [더블클릭 안내](docs/DOUBLE-CLICK-UPDATE-GUIDE.md), [단일 HTML 그림 안내](docs/DOUBLE-CLICK-UPDATE-GUIDE.html), [검증 기록](docs/verification/desktop-update-2026-10-18.json). 다음은 검증 후보와 실행payload가 같은 최종 매체 봉인 및 별도 비공개 사전배포다.
+- 원본 Claude/사용자 C: 설치/운영 자료 미변경. 깨끗한 LTSC17763·실제 관리자서비스/UAC/재부팅·물리폐쇄망·공동부하·강제전원중단·운영 인수는 별도 게이트로 남긴다. 새 로그/PCAP 재분석은 이번 작업에서 실행하지 않았고 저장된 결과 보존을 검증했다.
+
+---
+
 ## 2026-10-18 업데이트 안내 r2: 수동 해시 대조 제거
 
 - 사용자 요청으로 세 업데이트 안내서의 Get-FileHash·SHA256 눈대조 단계를 제거했다. verify-bundle/update.ps1 자동 무결성 검증과 계정·분석 자료 보존 계약은 그대로다. 제품·설치 코드는 변경하지 않았다.

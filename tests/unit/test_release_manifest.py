@@ -191,3 +191,141 @@ def test_native_unlisted_inaccessible_payload_cannot_be_silently_omitted(tmp_pat
         assert (root / "SHA256SUMS.txt").read_bytes() == sums_before
     finally:
         _set_native_list_denial(blocked, False)
+
+
+# Literal fixture paths keep the new-media contract independent of implementation constants.
+DESKTOP_UPDATE_PATHS = (
+    "UPDATE-SAW.cmd", "update-ui.ps1", "update-ui.psm1", "update-worker.ps1",
+    "app/deploy/windows/UPDATE-SAW.cmd", "app/deploy/windows/update-ui.ps1",
+    "app/deploy/windows/update-ui.psm1", "app/deploy/windows/update-worker.ps1",
+    "app/saw/devtools/desktop_update.py",
+)
+
+def desktop_media(root):
+    minimal(root)
+    for relative in DESKTOP_UPDATE_PATHS:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("synthetic desktop payload: " + relative, encoding="utf-8")
+    return root
+
+def run_powershell_verifier(root):
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(ROOT / "deploy/windows/verify-bundle.ps1"), "-BundleDir", str(root)],
+        capture_output=True, timeout=30, check=False,
+    )
+
+@pytest.mark.parametrize("missing", DESKTOP_UPDATE_PATHS)
+def test_desktop_contract_cannot_seal_missing_ui_or_controller(tmp_path, missing):
+    root = desktop_media(tmp_path / "new")
+    (root / missing).unlink()
+    with pytest.raises(BundleError, match="desktop update"):
+        seal(root, {"desktop_update_ui": 1})
+    assert not (root / "release-manifest.json").exists()
+
+def test_desktop_contract_records_required_payload_and_old_baseline_stays_usable(tmp_path):
+    from saw.devtools import offline_update
+    modern = desktop_media(tmp_path / "modern")
+    seal(modern, {"desktop_update_ui": 1})
+    document = json.loads((modern / "release-manifest.json").read_text(encoding="utf-8"))
+    assert set(DESKTOP_UPDATE_PATHS) <= set(document["required"].values())
+    original = minimal(tmp_path / "original")
+    seal(original, {"source_commit": "synthetic legacy revision"})
+    installed = tmp_path / "installed"
+    installed.mkdir()
+    baseline = offline_update._baseline(installed, original)
+    assert baseline["metadata"] == {"source_commit": "synthetic legacy revision"}
+    assert verify(original)["verified"] is True
+
+@pytest.mark.parametrize("value", [0, 2, True, "1", 1.0, None])
+def test_desktop_contract_rejects_unknown_or_ambiguous_versions(tmp_path, value):
+    root = desktop_media(tmp_path / "new")
+    with pytest.raises(BundleError, match="desktop update"):
+        seal(root, {"desktop_update_ui": value})
+    assert not (root / "release-manifest.json").exists()
+
+@pytest.mark.parametrize("change", ["missing", "modified", "unlisted", "removed_from_manifest"])
+@pytest.mark.parametrize("validator", ["python", "powershell"])
+def test_desktop_payload_changes_are_refused_by_both_validators(tmp_path, change, validator):
+    if validator == "powershell" and __import__("os").name != "nt":
+        pytest.skip("PowerShell 5.1 media validator")
+    root = desktop_media(tmp_path / "new")
+    seal(root, {"desktop_update_ui": 1})
+    target = root / "update-ui.psm1"
+    if change == "missing":
+        target.unlink()
+    elif change == "modified":
+        target.write_text("changed desktop code", encoding="utf-8")
+    elif change == "unlisted":
+        (root / "last-used-path.json").write_text("synthetic unwanted UI state", encoding="utf-8")
+    else:
+        target.unlink()
+        path = root / "release-manifest.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["files"] = [row for row in document["files"] if row["path"] != "update-ui.psm1"]
+        # Changing the manifest's advisory table must not bypass the verifier's known contract.
+        document["required"] = {key: value for key, value in document["required"].items()
+                                if value != "update-ui.psm1"}
+        path.write_text(json.dumps(document), encoding="utf-8")
+    if validator == "python":
+        with pytest.raises(BundleError):
+            verify(root)
+    else:
+        assert run_powershell_verifier(root).returncode != 0
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="PowerShell 5.1 media validator")
+@pytest.mark.parametrize("profile", ["legacy", "desktop", "unknown", "string_version"])
+def test_desktop_and_legacy_media_validation_agrees_with_powershell(tmp_path, profile):
+    root = desktop_media(tmp_path / "new") if profile != "legacy" else minimal(tmp_path / "old")
+    seal(root, {} if profile == "legacy" else {"desktop_update_ui": 1})
+    if profile in ("unknown", "string_version"):
+        path = root / "release-manifest.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["metadata"]["desktop_update_ui"] = 2 if profile == "unknown" else "1"
+        path.write_text(json.dumps(document), encoding="utf-8")
+    result = run_powershell_verifier(root)
+    assert (result.returncode == 0) is (profile in ("legacy", "desktop")), (result.stdout + result.stderr).decode(errors="replace")
+
+def windows_source_fixture(source, module):
+    names = set(module.WINDOWS_FILES) | set(DESKTOP_UPDATE_PATHS[:4])
+    for name in names:
+        path = source / "deploy/windows" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("synthetic Windows source: " + name, encoding="utf-8")
+
+def test_desktop_windows_sources_ship_in_both_media_and_app_locations(tmp_path, monkeypatch):
+    from saw.devtools import build_release
+    source, out = tmp_path / "source", tmp_path / "out"
+    windows_source_fixture(source, build_release)
+    (source / "deploy/windows/unlisted-local.ps1").write_text("not approved for shipping", encoding="utf-8")
+    monkeypatch.setattr(build_release, "ROOT", source)
+    build_release.copy_windows_sources(out)
+    for name in DESKTOP_UPDATE_PATHS[:4]:
+        expected = ("synthetic Windows source: " + name).encode("utf-8")
+        assert (out / name).read_bytes() == expected
+        assert (out / "app/deploy/windows" / name).read_bytes() == expected
+    assert not (out / "unlisted-local.ps1").exists()
+    assert not (out / "app/deploy/windows/unlisted-local.ps1").exists()
+
+@pytest.mark.parametrize("missing", DESKTOP_UPDATE_PATHS[:4])
+def test_desktop_windows_source_omission_fails_build(tmp_path, monkeypatch, missing):
+    from saw.devtools import build_release
+    source = tmp_path / "source"
+    windows_source_fixture(source, build_release)
+    (source / "deploy/windows" / missing).unlink()
+    monkeypatch.setattr(build_release, "ROOT", source)
+    with pytest.raises(FileNotFoundError):
+        build_release.copy_windows_sources(tmp_path / "out")
+
+def test_desktop_operator_guide_is_copied_by_public_allowlist(tmp_path, monkeypatch):
+    from saw.devtools import build_release
+    source, out = tmp_path / "source", tmp_path / "out"
+    required_guide = "docs/DOUBLE-CLICK-UPDATE-GUIDE.md"
+    for relative in set(build_release.PUBLIC_DOCS) | {required_guide}:
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("public example: " + relative, encoding="utf-8")
+    monkeypatch.setattr(build_release, "ROOT", source)
+    build_release.copy_public_guides(out)
+    assert (out / "app" / required_guide).read_text(encoding="utf-8") == "public example: " + required_guide

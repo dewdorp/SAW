@@ -21,6 +21,17 @@ REQUIRED = {
     "pip": "bootstrap/pip-25.1.1-py3-none-any.whl",
     "ui": "app/apps/web/dist/index.html", "requirements": "app/deploy/windows/requirements.txt",
 }
+DESKTOP_UPDATE_REQUIRED = {
+    "desktop_launcher": "UPDATE-SAW.cmd",
+    "desktop_ui": "update-ui.ps1",
+    "desktop_ui_module": "update-ui.psm1",
+    "desktop_worker": "update-worker.ps1",
+    "desktop_app_launcher": "app/deploy/windows/UPDATE-SAW.cmd",
+    "desktop_app_ui": "app/deploy/windows/update-ui.ps1",
+    "desktop_app_ui_module": "app/deploy/windows/update-ui.psm1",
+    "desktop_app_worker": "app/deploy/windows/update-worker.ps1",
+    "desktop_controller": "app/saw/devtools/desktop_update.py",
+}
 EXCLUDED = {"release-manifest.json", "SHA256SUMS.txt"}
 class BundleError(ValueError):
     """Media is incomplete, unsafe, or changed."""
@@ -73,17 +84,29 @@ def inventory(root: Path) -> list[dict]:
             rows.append({"path": rel, "bytes": p.stat().st_size, "sha256": digest(p)})
     return sorted(rows, key=lambda r: r["path"])
 
-def _required(rows):
+def _required(rows, metadata=None):
     found = {r["path"] for r in rows}
-    if not set(REQUIRED.values()) <= found:
+    required = dict(REQUIRED)
+    if not set(required.values()) <= found:
         raise BundleError("required payload missing")
+    metadata = {} if metadata is None else metadata
+    if not isinstance(metadata, dict):
+        raise BundleError("invalid release metadata")
+    if "desktop_update_ui" in metadata:
+        version = metadata["desktop_update_ui"]
+        if type(version) is not int or version != 1:
+            raise BundleError("unsupported desktop update contract")
+        if not set(DESKTOP_UPDATE_REQUIRED.values()) <= found:
+            raise BundleError("desktop update payload missing")
+        required.update(DESKTOP_UPDATE_REQUIRED)
+    return required
 
 def seal(root: Path, metadata: dict) -> dict:
     root = Path(root)
     rows = inventory(root)
-    _required(rows)
+    required = _required(rows, metadata)
     doc = {"schema": "saw.offline-release/1", "model_weights_included": False,
-           "required": REQUIRED, "metadata": metadata, "files": rows}
+           "required": required, "metadata": metadata, "files": rows}
     (root / "release-manifest.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     sums = rows + [{"path": "release-manifest.json", "sha256": digest(root / "release-manifest.json")}]
     (root / "SHA256SUMS.txt").write_text("".join(f"{r['sha256']} *{r['path']}\n" for r in sums), encoding="ascii")
@@ -105,7 +128,7 @@ def verify(root: Path) -> dict:
             if rel in EXCLUDED or rel.casefold() in seen or type(r["bytes"]) is not int or r["bytes"] < 0 or not re.fullmatch(r"[0-9a-f]{64}", r["sha256"]):
                 raise BundleError("invalid file entry")
             seen.add(rel.casefold())
-        _required(expected)
+        _required(expected, doc.get("metadata"))
         actual = inventory(root)
         if actual != sorted(expected, key=lambda r: r["path"]):
             raise BundleError("media missing, changed, or contains unexpected files")

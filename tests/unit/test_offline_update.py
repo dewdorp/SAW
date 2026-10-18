@@ -607,3 +607,28 @@ def test_restore_preflights_newer_retained_records_before_staging(installation):
     assert set(root.parent.iterdir()) == before
     assert (deep / "evidence").read_text() == "new evidence remains accessible"
     assert (root / "app/saw/main.py").read_text() == "new app"
+
+
+def test_whole_restore_recovers_interrupted_application_directory_move(installation):
+    mod = updater()
+    root, bundle, baseline, recovery = installation
+    mod.apply(root, bundle, recovery, baseline)
+    stranded = root.parent / 'stranded-app'
+    (root / 'app').rename(stranded)
+    result = mod.restore(root, recovery, confirm=True)
+    assert result['status'] == 'restored_stopped'
+    assert (root / 'app/saw/main.py').read_text() == 'old app'
+    assert (stranded / 'saw/main.py').read_text() == 'new app'
+    assert Path(result['retained_installation']).is_dir()
+
+
+def test_missing_application_does_not_bypass_corrupt_snapshot(installation):
+    mod = updater()
+    root, bundle, baseline, recovery = installation
+    mod.apply(root, bundle, recovery, baseline)
+    (root / 'app').rename(root.parent / 'stranded-app')
+    write(recovery, 'installation/app/.env', 'SAW_DATABASE_URL=postgresql+psycopg://synthetic@external/saw')
+    with pytest.raises(mod.UpdateError):
+        mod.restore(root, recovery, confirm=True)
+    assert not (root / 'app').exists()
+    assert root.is_dir()

@@ -7,6 +7,19 @@ $manifest = Join-Path $root 'release-manifest.json'
 $doc = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($doc.schema -ne 'saw.offline-release/1' -or $doc.model_weights_included -ne $false) { throw 'Unsupported release manifest' }
 $required = @('llm-runtime/runtime-manifest.json','llm-runtime/llama-completion.exe','llm-runtime/llama-tokenize.exe','llm-runtime/licenses/LLAMA-MIT.txt','llm-runtime/licenses/GCC-RUNTIME-EXCEPTION.txt','install.ps1','verify-bundle.ps1','python/python-3.12.10-embed-amd64.zip','postgresql/postgresql-16.15-1-windows-x64-binaries.zip','opensearch/opensearch-2.19.6-windows-x64.zip','opensearch/analysis-nori-2.19.6.zip','winsw/WinSW-x64.exe','bootstrap/pip-25.1.1-py3-none-any.whl','app/apps/web/dist/index.html','app/deploy/windows/requirements.txt')
+# Older media remains valid; only new desktop media requires these entry points.
+$desktopProperty = $null
+if ($null -ne $doc.metadata) { $desktopProperty = $doc.metadata.PSObject.Properties['desktop_update_ui'] }
+if ($null -ne $desktopProperty) {
+    $desktopVersion = $desktopProperty.Value
+    if (($desktopVersion -isnot [int] -and $desktopVersion -isnot [long]) -or $desktopVersion -ne 1) {
+        throw 'Unsupported desktop update contract'
+    }
+    $required += @('UPDATE-SAW.cmd','update-ui.ps1','update-ui.psm1','update-worker.ps1',
+        'app/deploy/windows/UPDATE-SAW.cmd','app/deploy/windows/update-ui.ps1',
+        'app/deploy/windows/update-ui.psm1','app/deploy/windows/update-worker.ps1',
+        'app/saw/devtools/desktop_update.py')
+}
 function File-Hash([string]$path) {
     $stream = [IO.File]::OpenRead($path)
     $sha = [Security.Cryptography.SHA256]::Create()

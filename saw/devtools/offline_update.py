@@ -374,9 +374,18 @@ def _json(path, data):
         stream.write("\n")
     os.replace(temp, path)
 
-def _config(root):
+def _config(root, *, verified_application_config=None):
+    application_config = root / "app/.env"
+    if verified_application_config is not None:
+        # Only restore callers that already verified the full recovery inventory may
+        # supply this fallback for the app-directory rename interruption window.
+        if (root / "app").exists():
+            raise UpdateError("Recovery configuration fallback requires a missing application directory")
+        application_config = _path(verified_application_config, existing=False)
+        if not application_config.is_file() or application_config.name != ".env":
+            raise UpdateError("Invalid verified recovery configuration")
     values = {}
-    for raw in (root / "app/.env").read_text(encoding="utf-8-sig").splitlines():
+    for raw in application_config.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -807,7 +816,8 @@ def restore(install_root, recovery_point, *, confirm=False):
     if _inventory(snapshot) != receipt["files"]:
         raise UpdateError("Recovery point files or access policies changed")
     _tree_paths(root)
-    _, cfg = _config(root)
+    fallback = snapshot / "app/.env" if not (root / "app").exists() else None
+    _, cfg = _config(root, verified_application_config=fallback)
     _stopped(root, cfg)
     if shutil.disk_usage(root.parent).free < sum(row.get("bytes", 0) for row in receipt["files"]) + 64 * 1024 * 1024:
         raise UpdateError("Insufficient free space to stage complete recovery")

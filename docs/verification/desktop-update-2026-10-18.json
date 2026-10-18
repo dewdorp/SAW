@@ -1,0 +1,301 @@
+{
+  "state": "PASS_WINDOWS11_NOADMIN_SYNTHETIC",
+  "date": "2026-10-18",
+  "target": "Windows 10 Enterprise LTSC 2019 x64 build17763",
+  "target_verified": false,
+  "admin_service_verified": false,
+  "production_acceptance": false,
+  "implementation": "PowerShell 5.1 WinForms offline updater",
+  "synthetic_only": true,
+  "tests": {
+    "existing_server": {
+      "passed": 1232,
+      "skipped": 5,
+      "warnings": 1,
+      "seconds": 921.18
+    },
+    "web": {
+      "files": 31,
+      "passed": 177,
+      "seconds": 80.78
+    },
+    "typescript": {
+      "exit_code": 0
+    },
+    "gui": {
+      "passed": 59,
+      "warnings": 1,
+      "seconds": 82.75
+    },
+    "worker": {
+      "passed": 17,
+      "seconds": 46.1
+    },
+    "media": {
+      "passed": 61,
+      "warnings": 1,
+      "seconds": 19.78
+    },
+    "core_final": {
+      "passed": 68,
+      "warnings": 1,
+      "seconds": 328.25
+    },
+    "offline_and_core_before_last_native_fix": {
+      "passed": 102,
+      "warnings": 1,
+      "seconds": 569.56
+    },
+    "independent_native_fix_regressions": {
+      "passed": 21
+    }
+  },
+  "native": {
+    "state": "PASS",
+    "host_windows_build": "26200",
+    "worker_powershell": "5.1.26100.9711",
+    "candidate1_manifest": "01fc3ba6c2d97fc43830f6dfcb217f37d2516fd0038ca0d1882068a677af59dd",
+    "inspect": {
+      "state": "PASS",
+      "seconds": 34.91
+    },
+    "start": {
+      "state": "PASS",
+      "seconds": 51.16
+    },
+    "before_auth": {
+      "state": "PASS",
+      "tls_and_mfa": true
+    },
+    "before_counts": {
+      "accounts": 2,
+      "events": 9,
+      "findings": 10,
+      "evidence": 2,
+      "notes": 1,
+      "completed_jobs": 2
+    },
+    "first_apply": {
+      "state": "FAIL_BEFORE_STOP",
+      "seconds": 30.86,
+      "code": "process_identity_unverified",
+      "root_cause": "PostgreSQL -D uses forward slash paths; owned OpenSearch JVM also starts a System32 conhost child.",
+      "data_replacement_started": false,
+      "new_recovery_created": false
+    },
+    "actual_admin_service_test": false,
+    "actual_target_ltsc_test": false,
+    "candidate2_manifest": "f4d4a569aee3d9c92a8f671e8c994e0894c35c5444dde5890561c7460e783efe",
+    "candidate2_inspect": {
+      "state": "PASS",
+      "seconds": 33.61
+    },
+    "update": {
+      "state": "PASS",
+      "seconds": 474.55,
+      "form_button_event_executed": true,
+      "postgres_opensearch_tls_health": true
+    },
+    "after_update_data": {
+      "state": "PASS",
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_jobs_notes_equal": true,
+      "configuration_keys_tls_and_originals_equal": true
+    },
+    "after_update_auth": {
+      "state": "PASS",
+      "tls_chain_and_san_verified": true,
+      "same_password_and_mfa": true
+    },
+    "snapshot_bytes": 1581632118,
+    "required_with_restore_headroom_bytes": 3308564753,
+    "post_update_synthetic_file_created": true,
+    "restore": {
+      "state": "PASS",
+      "seconds": 406.54,
+      "form_button_event_executed": true,
+      "postgres_opensearch_tls_health": true
+    },
+    "gui_test_method": "Actual WinForms event handlers -> packaged worker -> native runtimes. Physical mouse double-click was not exercised.",
+    "new_analysis_replayed_this_task": false,
+    "after_restore_data": {
+      "state": "PASS",
+      "synthetic_only": true,
+      "events": 9,
+      "findings": 10,
+      "evidence_count": 2,
+      "note_count": 1,
+      "completed_jobs": 2,
+      "account_count": 2,
+      "schema": "0014",
+      "investigation_id": "df18bab7-5870-42ab-a69c-c0db90ad079c",
+      "display_id": "INV-20261016-001",
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true,
+      "installed_manifest_source": "37094e85a4e8b33a7ddbe989fdbcd7e44023efce",
+      "read_only": true
+    },
+    "after_restore_auth": {
+      "state": "PASS",
+      "synthetic_only": true,
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    },
+    "post_snapshot_file_retained": {
+      "state": "PASS",
+      "synthetic_only": true,
+      "action": "verify_later_file_retained",
+      "active_snapshot_lacks_later_file": true,
+      "retained_later_file_byte_equal": true,
+      "retained_installation": "F:\\codex\\SAW-Claude-main\\.qa\\packaging\\.saw-k-1c17bb40b9e7",
+      "relative_path": "data/saw/desktop-post-update.synthetic.txt"
+    },
+    "cleanup": {
+      "stage": "cleanup",
+      "label": "cleanup",
+      "state": "PASS",
+      "synthetic_only": true,
+      "synthetic_account_disabled": true,
+      "synthetic_sessions_revoked": true,
+      "private_files_retained": "protected synthetic root only"
+    },
+    "final_stop": {
+      "state": "PASS",
+      "synthetic_only": true,
+      "scope": "owned synthetic installation only",
+      "ports_closed": {
+        "postgres": true,
+        "opensearch": true,
+        "api": true
+      },
+      "postgres_pid_file_absent": true,
+      "elapsed_seconds": 33.16
+    },
+    "final_active_source": "37094e85a4e8b33a7ddbe989fdbcd7e44023efce",
+    "retained_installation": "F:\\codex\\SAW-Claude-main\\.qa\\packaging\\.saw-k-1c17bb40b9e7",
+    "flow": [
+      "native form inspection",
+      "native form start",
+      "verified TLS login/MFA",
+      "before data snapshot",
+      "native form update",
+      "data/account comparison",
+      "verified TLS login/MFA",
+      "create synthetic later file",
+      "native form restore",
+      "data/account comparison",
+      "verified TLS login/MFA",
+      "later file retained outside active snapshot",
+      "disable synthetic account/revoke sessions",
+      "owned native shutdown"
+    ],
+    "restore_is_point_in_time": true,
+    "automatic_merge": false,
+    "public_receipts": [
+      {
+        "path": ".qa/packaging/desktop-update-20261018/after-restore-auth-20261018-152722-30b6fe.json",
+        "sha256": "588c298148a987054588fc9392f73331c09974ba2b5b2e4d87097a3d5b0c4277"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/after-restore-data-20261018-152713-d32732.json",
+        "sha256": "969df7ef50ce2d7c3c28fc261d65a8716ce3b94c44ade59288e6490742d64fbe"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/after-update-auth-20261018-151949-db68f8.json",
+        "sha256": "1d4a9874949d64a2bbd9b3c2087a1c9fc6b031d4c7deeda4d4a2428ce3fbfc56"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/after-update-data-20261018-151941-7debe5.json",
+        "sha256": "b76f4d874aa6a64676635656ab5de01670f2a9d065dabc7c03e41b4496dad941"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/apply-form-20261018-150250-2a2a4d.json",
+        "sha256": "557bd958ebeb5ae1863dbeae50ab9dc11f5b24544442b234973db4269ba4628c"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/apply-form-20261018-151120-73d9cc.json",
+        "sha256": "1d42257746f433ec1038b3fba2f8a4ca412108b579daded387abf06544fe745f"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/before-20261018-150241-b0cd97.json",
+        "sha256": "fd4df62a43e46e7f9004ad73de9bf89329e59aa4caaf5ea42bc0280b5e9e4847"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/before-auth-20261018-150226-a65689.json",
+        "sha256": "2137692bfebdb3803ea7752e21843f23ed4a5e3782c5240ed1f24acd072ca67e"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/cleanup-20261018-152734-5a8827.json",
+        "sha256": "20ee21a1275fe0e46f407831c68133c1796edf8b0ff4466246313d8293610833"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/final-stop-20261018-152810-6a54e4.json",
+        "sha256": "b67694930724cf1f26e6f368de844efe205458455ad3c3b1482c984283900c4d"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/inspect-form-20261018-145947-6679c6.json",
+        "sha256": "af39913a70aad0d652e0a66c690eed9ae34982af90dd35e37db44d12a618f51a"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/inspect-form-20261018-151014-75143c.json",
+        "sha256": "0fc0aae3b9423f2737621b302c9dd8dfb3ffde933fa9da0aaf0d85b72a869194"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/later-file-created.json",
+        "sha256": "77c4223f08054f8308acb0b0403893edda6338da6e5eaa2313a6b75edd962784"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/later-file-retained.json",
+        "sha256": "1840c58046424b90d33938137b11dc1e9873f128f98e431d988690485eb60ee8"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/preflight-20261018-143037-e69691.json",
+        "sha256": "927bfed1afb175cc2cc5db97a2978a27c0b90ac77726f384b704fe6d09888f3c"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/preflight-20261018-145416-15c737.json",
+        "sha256": "d66677cb1847a39978d0160687644aa6c2f45cab3fd267ac8d29e2875a3b35e7"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/prepare-20261018-150151-1ad897.json",
+        "sha256": "a9760ea7d2dc5cd81b4b74002373414bd2b3b483ba82c156c9454a46c600c277"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/restore-form-20261018-152004-ccaf7d.json",
+        "sha256": "6bd29d4b4319e47d8577ae377a889475c6bdbaf85e1214827f628ea586f203af"
+      },
+      {
+        "path": ".qa/packaging/desktop-update-20261018/start-form-20261018-150038-9d4445.json",
+        "sha256": "1bdcfe873ef3b598e763c2ee65bf73afc180e8799b74eb2c5e98cf82f83c6041"
+      }
+    ]
+  },
+  "manual_hash_comparison_required": false,
+  "automatic_media_verification": true,
+  "ui": {
+    "native_form_event_integration": "PASS",
+    "guide_browser_header": "PASS",
+    "minimum_form_size": [
+      950,
+      680
+    ],
+    "actual_target_ltsc": false,
+    "physical_mouse_doubleclick_exercised": false,
+    "service_elevation_actual": false,
+    "guide_browser_final": {
+      "validation_table": "PASS",
+      "native_screenshot_details_expand": "PASS",
+      "visual_legibility": "PASS"
+    }
+  },
+  "limitations": [
+    "Clean LTSC2019/build17763 not tested",
+    "Actual administrator service update/elevation/reboot not tested",
+    "Physical airgap and shared analyst load not tested",
+    "No new log/PCAP upload replay this task; stored analysis preservation checked",
+    "No production installation or data changed",
+    "Physical power interruption/full-root disappearance recovery not tested; full-root absence unsupported"
+  ]
+}

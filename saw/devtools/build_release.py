@@ -60,6 +60,10 @@ PUBLIC_DOCS = (
  'docs/verification/statistics-temporal-2026-10-14.json',
  'docs/verification/installer-recovery-2026-10-18.md',
  'docs/INSTALL-RECOVERY-2026-10-18.md', 'docs/OFFLINE-RELEASE-2026-10-17.md', 'docs/OFFLINE-UPDATE-GUIDE.md',
+ 'docs/DOUBLE-CLICK-UPDATE-GUIDE.md',
+ 'docs/DOUBLE-CLICK-UPDATE-GUIDE.html',
+ 'docs/verification/desktop-update-2026-10-18.json',
+ 'docs/assets/desktop-update-20261018/01-update-window.png',
  'docs/OFFLINE-RELEASE-VALIDATION-2026-10-17.md',
  'docs/BEHAVIOR-ANALYSIS-GUIDE.md',
  'docs/BEHAVIOR-VALIDATION-2026-10-16.md',
@@ -114,14 +118,22 @@ PUBLIC_DOCS = (
  'docs/assets/detection-validation-2026-10-12/04-ndr-policy.jpg',
  'docs/assets/detection-validation-2026-10-12/05-flow.jpg',
  'docs/assets/detection-validation-2026-10-12/06-investigation.jpg')
+DESKTOP_WINDOWS_FILES = ('UPDATE-SAW.cmd', 'update-ui.ps1', 'update-ui.psm1', 'update-worker.ps1')
 WINDOWS_FILES = ('install-state.ps1','install-python.ps1','setup-postgresql-state.ps1','install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
- 'saw-ctl.ps1','saw-service.xml','postgresql-service.xml','setup-opensearch.ps1','setup-postgresql.ps1')
+ 'saw-ctl.ps1','saw-service.xml','postgresql-service.xml','setup-opensearch.ps1','setup-postgresql.ps1') + DESKTOP_WINDOWS_FILES
+MEDIA_WINDOWS_FILES = ('install.ps1', 'verify-bundle.ps1', 'backup.ps1', 'uninstall.ps1', 'update.ps1') + DESKTOP_WINDOWS_FILES
 
 def copy_file(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     if source.is_symlink() or source.is_junction():
         raise BundleError('links forbidden in build input')
     shutil.copyfile(source, destination)
+
+def copy_windows_sources(out: Path):
+    for name in WINDOWS_FILES:
+        copy_file(ROOT / 'deploy/windows' / name, out / 'app/deploy/windows' / name)
+    for name in MEDIA_WINDOWS_FILES:
+        copy_file(ROOT / 'deploy/windows' / name, out / name)
 
 def copy_public_guides(out: Path):
     for rel in PUBLIC_DOCS:
@@ -172,13 +184,10 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     copy_app_sources(out)
     for rel in PUBLIC_DATA + ('pyproject.toml',):
         if (ROOT/rel).is_file(): copy_file(ROOT/rel,out/'app'/rel)
-    for name in WINDOWS_FILES:
-        copy_file(ROOT/'deploy/windows'/name,out/'app/deploy/windows'/name)
+    copy_windows_sources(out)
     for p in (ROOT/'apps/web/dist').rglob('*'):
         if p.is_file() and p.suffix in {'.html','.js','.css','.svg','.ico','.png','.woff','.woff2'}:
             copy_file(p,out/'app/apps/web/dist'/p.relative_to(ROOT/'apps/web/dist'))
-    for name in ['install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','update.ps1']:
-        copy_file(ROOT/'deploy/windows'/name,out/name)
     copy_public_guides(out)
     if native:
         for p in native.rglob('*'):
@@ -205,7 +214,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     build(out,str(inputs/'npm-licenses.json') if (inputs/'npm-licenses.json').exists() else None)
     from saw.storage.migrate import head
     version=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),'installer_contract':'saw.install-resume/1',
+    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),'installer_contract':'saw.install-resume/1','desktop_update_ui':1,
         'target':'Windows 10 Enterprise LTSC 2019 x64 build17763','target_validation':'PENDING_CLEAN_LTSC',
         'model_weights':'EXCLUDED','native_ai_runtime':'INCLUDED' if native else 'NOT_INCLUDED',
         'python_wheels':len(list((out/'wheels').glob('*.whl'))),'python':'3.12.10',
