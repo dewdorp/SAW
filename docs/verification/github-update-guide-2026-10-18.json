@@ -1,0 +1,28 @@
+{
+  "schema": "saw.guide-publication/1",
+  "recorded_at": "2026-10-18T04:05:11.760623+00:00",
+  "release_url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018",
+  "repository_visibility": "PRIVATE",
+  "remote_asset_verified": true,
+  "guide_assets": [
+    {
+      "name": "SAW-update-guide-20261018.zip",
+      "bytes": 1096900,
+      "sha256": "4e3257c48c78630d4e8d676909569c8622aa403fb08bfedea853143428a61156",
+      "remote_digest": "sha256:4e3257c48c78630d4e8d676909569c8622aa403fb08bfedea853143428a61156"
+    },
+    {
+      "name": "SAW-update-guide-20261018.zip.sha256",
+      "bytes": 96,
+      "sha256": "ce12a71c47c84bc7892ef15ba5754b8ce5f94f2eb8350f126222493a0e6f12e8",
+      "remote_digest": "sha256:ce12a71c47c84bc7892ef15ba5754b8ce5f94f2eb8350f126222493a0e6f12e8"
+    }
+  ],
+  "existing_assets_unchanged": 9,
+  "existing_installer_zip_unchanged": true,
+  "asset_count": 11,
+  "installer_rebuilt": false,
+  "sensitive_payload_included": false,
+  "guide_zip_scope": "Standalone HTML, eight guide screenshots, explanatory Markdown, sanitized synthetic verification, START-HERE and member checksums.",
+  "verification": "GitHub release asset sizes and server SHA256 digests match local files. ZIP members were validated locally; remote archive was not re-downloaded."
+}

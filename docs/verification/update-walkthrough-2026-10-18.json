@@ -1,0 +1,99 @@
+{
+  "schema": "saw.update-walkthrough/1",
+  "recorded_at": "2026-10-18T04:03:39.693396+00:00",
+  "scope": {
+    "synthetic_only": true,
+    "platform": "Windows 11 build 26200 / Windows PowerShell 5.1",
+    "mode": "NoAdmin",
+    "install_root": "F:\\codex\\SAW-Claude-main\\.qa\\packaging\\installed-new2-20261017",
+    "recovery_point": "F:\\codex\\SAW-Claude-main\\.qa\\ug18-r1",
+    "user_installation_modified": false,
+    "admin_services_executed": false,
+    "baseline_source": "37094e85a4e8b33a7ddbe989fdbcd7e44023efce",
+    "baseline_is_published_20261017_zip": false,
+    "candidate_source": "403bc7d57631e56a27dbef70cd81512029e1b9f5",
+    "schema_before_after_restore": "0014"
+  },
+  "media": {
+    "zip_name": "SAW-0.1.0-pilot.20261018-model-free-win-x64.zip",
+    "bytes": 1444634601,
+    "sha256": "81eda12295cc75b221add3c34a4e6777d14cbce0e64efa5f95344c53e4c63628",
+    "fresh_zip_hash_matches": true,
+    "fresh_manifest_verified_files": 650
+  },
+  "native": {
+    "plan": {
+      "status": "ready_stopped",
+      "elapsed_seconds": 453.81
+    },
+    "apply": {
+      "status": "applied_stopped_schema_pending",
+      "elapsed_seconds": 748.02
+    },
+    "restore": {
+      "status": "restored_stopped",
+      "elapsed_seconds": 601.58
+    },
+    "snapshot_bytes": 1581437162,
+    "apply_required_free_bytes": 1659382373,
+    "retained_installation": "F:\\codex\\SAW-Claude-main\\.qa\\packaging\\.saw-k-4cde1290b5bf"
+  },
+  "preservation": {
+    "before": {
+      "accounts": 2,
+      "events": 9,
+      "findings": 10,
+      "evidence": 2,
+      "notes": 1,
+      "completed_jobs": 2
+    },
+    "after_apply_and_restart_same_counts": true,
+    "after_restore_same_counts": true,
+    "account_ids_password_hashes_roles_mfa_status_equal": true,
+    "evidence_ids_completed_jobs_notes_equal": true,
+    "configuration_keys_tls_original_objects_equal": true,
+    "certificate_validated_https_login_mfa_before_after_restart_restore": true,
+    "restored_manifest_matches_baseline": true,
+    "cleanup_synthetic_account_disabled_and_sessions_revoked": true,
+    "final_installation_stopped": true,
+    "final_readonly_stop_check": {
+      "all_application_storage_ports_stopped": true,
+      "owned_processes_and_services_stopped": true,
+      "tracked_pids_and_postgresql_lock_clear": true
+    }
+  },
+  "guide_validation": {
+    "html_navigation": true,
+    "service_and_noadmin_mode_switch": true,
+    "powershell_51_complete_commands_syntax_pass": 14,
+    "baseline_argument_fragment_excluded": true,
+    "external_html_resources": 0,
+    "independent_source_contract_review": "No blocking findings; commands not executed against the user installation.",
+    "expand_all_visible_sections": 8,
+    "collapse_visible_sections": 1,
+    "copy_button_success_feedback": true,
+    "clipboard_readback": "tool returned empty; content not claimed verified",
+    "direct_file_browser_open": "browser tool policy disallowed file protocol; no bypass",
+    "product_browser": "ERR_CERT_AUTHORITY_INVALID; no warning bypass or TLS weakening",
+    "images": "guide page captures; not PowerShell or installed-product screenshots",
+    "release_manifest_tests": {
+      "passed": 27,
+      "warnings": 1,
+      "elapsed_seconds": 16.36
+    }
+  },
+  "test_harness_corrections": [
+    "Early before/auth stages began before preparation completed; subsequent stages are sequential.",
+    "Snapshot incorrectly required app/var. Corrected to required data/saw and optional app/var; included PostgreSQL and OpenSearch static config. Baseline then passed."
+  ],
+  "not_validated_this_run": [
+    "LTSC 2019 build 17763",
+    "administrator services and reboot",
+    "physical airgap and concurrent analysts",
+    "fresh log/PCAP upload after update (existing completed synthetic results were preserved)",
+    "model-weight or model-training operation",
+    "printed PDF",
+    "user server installed on another host"
+  ],
+  "publication_scope": "Guide, screenshots and sanitized verification only; no installation, recovery, credentials or raw evidence."
+}
