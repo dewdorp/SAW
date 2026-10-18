@@ -15,6 +15,7 @@ param(
     [switch]$DevNoAcl                         # developer verification only: skip secrets ACL hardening
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'setup-postgresql-state.ps1')
 if (-not $RuntimeBin) { $RuntimeBin = Join-Path $InstallRoot 'opensearch-2.19.6\jdk\bin' }
 $expectedRuntime = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'opensearch-2.19.6\jdk\bin'))
 if ([IO.Path]::GetFullPath($RuntimeBin) -ne $expectedRuntime -or -not (Test-Path -LiteralPath (Join-Path $RuntimeBin 'vcruntime140.dll'))) { throw 'Bundled JDK C runtime missing' }
@@ -32,8 +33,9 @@ function New-Secret([int]$n = 32) {
 function Protect-Dir([string]$path) {
     # Only Administrators and SYSTEM (the services run as LocalSystem or a dedicated account added later);
     # in user mode the current user (who runs the processes) and SYSTEM
-    if ($UserMode) { & icacls $path /inheritance:r /grant:r "*$($me):(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null; return }
+    if ($UserMode) { & icacls $path /inheritance:r /grant:r "*$($me):(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null; if ($LASTEXITCODE -ne 0) { throw "PostgreSQL secrets ACL failed (exit $LASTEXITCODE)" }; return }
     & icacls $path /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL secrets ACL failed (exit $LASTEXITCODE)" }
 }
 
 function Write-PostgresqlServiceXml([string]$Template, [string]$Destination, [string]$Root, [string]$Name, [string]$ChildPath) {
@@ -50,13 +52,15 @@ function Write-PostgresqlServiceXml([string]$Template, [string]$Destination, [st
 function Get-PostgresqlServiceAction($Existing, [string]$ServiceExe, [string]$PgCtl, [string]$Data) {
     if ($null -eq $Existing) { return 'create' }
     # Never replace a live cluster, another installation, or a different account.
-    if ($Existing.State -ne 'Stopped') { throw 'PostgreSQL service must be stopped before reinstalling; stop dependent SAW services first' }
     if ($Existing.StartName -notin @('NT AUTHORITY\NetworkService', 'NT AUTHORITY\NETWORK SERVICE')) { throw 'NetworkService identity required for PostgreSQL reinstall' }
     $command = $Existing.PathName.Trim()
     if ($command -ieq ('"' + $ServiceExe + '"') -or $command -ieq $ServiceExe) { return 'reuse' }
     $legacy = '^"?' + [regex]::Escape($PgCtl) + '"?\s+runservice\b'
     $cluster = '(?:^|\s)-D\s+"' + [regex]::Escape($Data) + '"(?:\s|$)'
-    if ($command -match $legacy -and $command -match $cluster) { return 'migrate' }
+    if ($command -match $legacy -and $command -match $cluster) {
+        if ($Existing.State -ne 'Stopped') { throw 'Legacy PostgreSQL service must be stopped before explicit migration; no service was changed' }
+        return 'migrate'
+    }
     throw 'Unrecognized PostgreSQL service registration; no service was changed'
 }
 # END PostgreSQL registration classifier
@@ -86,49 +90,86 @@ if (-not $UserMode -and -not $NoService) {
     if ($ServiceName -notmatch '^[A-Za-z0-9_.-]+$') { throw 'Invalid PostgreSQL service name' }
     $existing = Get-CimInstance Win32_Service -Filter ("Name='" + $ServiceName + "'")
     $serviceAction = Get-PostgresqlServiceAction $existing $serviceExe (Join-Path $bin 'pg_ctl.exe') $data
+    if ($serviceAction -eq 'reuse') {
+        Assert-SawPostgresqlServiceConfig $serviceXml $InstallRoot $ServiceName $privatePath
+        Assert-SawPostgresqlWrapper $serviceExe (Join-Path $BundleDir 'winsw\WinSW-x64.exe')
+    }
 }
 
-if (-not (Test-Path (Join-Path $bin "postgres.exe"))) {
-    Write-Host "Extracting $($zip.Name) ..."
-    New-Item -ItemType Directory -Force $InstallRoot | Out-Null
-    $tar = Join-Path $env:SystemRoot "System32\tar.exe"
-    if (Test-Path $tar) { & $tar -xf $zip.FullName -C $InstallRoot } else { Expand-Archive $zip.FullName -DestinationPath $InstallRoot }
+$runtimePython = Join-Path $InstallRoot 'venv\Scripts\python.exe'
+$runtimeVerifier = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'saw\devtools\postgresql_runtime.py'
+if (-not [IO.File]::Exists($runtimePython) -or -not [IO.File]::Exists($runtimeVerifier)) {
+    throw 'PostgreSQL runtime verification requires the prepared SAW Python and verified installation media'
 }
-New-Item -ItemType Directory -Force $SecretsDir | Out-Null
-if (-not $DevNoAcl) { Protect-Dir $SecretsDir }
+& $runtimePython -B $runtimeVerifier --archive $zip.FullName --root $InstallRoot
+if ($LASTEXITCODE -ne 0) { throw "PostgreSQL runtime verification/recovery failed (exit $LASTEXITCODE); existing binaries preserved" }
+foreach ($exe in @('postgres.exe','initdb.exe','pg_ctl.exe','pg_controldata.exe','pg_isready.exe','psql.exe')) {
+    if (-not [IO.File]::Exists((Join-Path $bin $exe))) { throw "PostgreSQL runtime incomplete ($exe missing); existing files were preserved" }
+}
+$version = & (Join-Path $bin 'postgres.exe') --version 2>&1
+if ($LASTEXITCODE -ne 0 -or "$version" -notmatch '^postgres \(PostgreSQL\) 16\.15$') { throw 'PostgreSQL runtime version is incompatible with this media' }
+$null = Assert-SawPostgresqlLocalPath $data $InstallRoot
+$null = Assert-SawPostgresqlLocalPath $SecretsDir $InstallRoot
+$clusterState = Get-SawPostgresqlClusterState $data $bin
 $suFile = Join-Path $SecretsDir "postgres-superuser.pw"
 $appFile = Join-Path $SecretsDir "postgres-saw.pw"
-if (-not (Test-Path $suFile)) { Set-Content -Path $suFile -Value (New-Secret) -NoNewline -Encoding ASCII }
-if (-not (Test-Path $appFile)) { Set-Content -Path $appFile -Value (New-Secret) -NoNewline -Encoding ASCII }
-
-if (-not (Test-Path (Join-Path $data "PG_VERSION"))) {
-    Write-Host "Initialising cluster at $data ..."
-    New-Item -ItemType Directory -Force (Split-Path $data) | Out-Null
-    & (Join-Path $bin "initdb.exe") -D $data -U postgres --pwfile=$suFile -A scram-sha-256 -E UTF8 --locale=C
-    if ($LASTEXITCODE -ne 0) { throw "initdb failed" }
-    $conf = @"
-
-# --- SAW (deploy/windows/setup-postgresql.ps1) ---
-listen_addresses = '127.0.0.1'
-port = $Port
-shared_buffers = $SharedBuffers
-max_connections = 50
-password_encryption = scram-sha-256
-log_timezone = 'UTC'
-timezone = 'UTC'
-"@
-    Add-Content -Path (Join-Path $data "postgresql.conf") -Value $conf -Encoding ASCII
-    Set-Content -Path (Join-Path $data "pg_hba.conf") -Encoding ASCII -Value @(
-        "# SAW: loopback only, SCRAM",
-        "host    all    all    127.0.0.1/32    scram-sha-256",
-        "host    all    all    ::1/128         scram-sha-256")
+if ($clusterState -eq 'initialized' -and (-not [IO.File]::Exists($suFile) -or -not [IO.File]::Exists($appFile))) {
+    throw 'Existing PostgreSQL cluster secrets are missing; no password was generated or changed'
 }
-if ($UserMode -and -not $DevNoAcl) {
+$secretsExisted = Test-Path -LiteralPath $SecretsDir
+New-Item -ItemType Directory -Force $SecretsDir | Out-Null
+if (-not $DevNoAcl -and -not $secretsExisted) { Protect-Dir $SecretsDir }
+foreach ($file in @($suFile, $appFile)) {
+    $null = Assert-SawPostgresqlLocalPath $file $InstallRoot
+    if (-not [IO.File]::Exists($file)) { Set-Content -LiteralPath $file -Value (New-Secret) -NoNewline -Encoding ASCII }
+    if ((Get-Item -LiteralPath $file).Length -eq 0) { throw 'PostgreSQL secret file is empty; no existing secret was replaced' }
+}
+if ($clusterState -eq 'fresh') {
+    Write-Host "Initialising cluster at $data ..."
+    New-Item -ItemType Directory -Force $data | Out-Null
+    $init = {
+        # Configure inside initdb, so its success already includes the selected
+        # port and loopback/SCRAM policy even if the installer stops immediately.
+        $settings = @('-c', "port=$Port", '-c', 'listen_addresses=127.0.0.1',
+            '-c', "shared_buffers=$SharedBuffers", '-c', 'max_connections=50',
+            '-c', 'password_encryption=scram-sha-256', '-c', 'log_timezone=UTC', '-c', 'timezone=UTC')
+        Invoke-SawPostgresqlInitInput $bin {
+            param($InputDirectory)
+            & (Join-Path $bin "initdb.exe") -D $data -U postgres --pwfile=$suFile -A scram-sha-256 -E UTF8 --locale=C -L $InputDirectory @settings
+            $code = $LASTEXITCODE
+            if ($code -ne 0) { throw "PostgreSQL initdb failed (exit $code), data $data; preserved for same-root retry or inspection" }
+        }
+        if ((Get-SawPostgresqlClusterState $data $bin) -ne 'initialized') { throw 'PostgreSQL initdb postcondition failed' }
+    }
+    if ($DevNoAcl) { & $init }
+    elseif ($UserMode) { Invoke-SawPostgresqlPasswordAccess $InstallRoot $suFile $init }
+    else {
+        # initdb drops administrative group rights on Windows. Grant its actual SID,
+        # temporarily, only the runtime, new data directory and this one password file.
+        $runtimeScopes = @(
+            @{Path=$InstallRoot; Rights='Traverse'; Inherit='None'},
+            @{Path=$pg; Rights='ReadAndExecute'; Inherit='ContainerInherit,ObjectInherit'},
+            @{Path=(Split-Path (Split-Path $RuntimeBin)); Rights='Traverse'; Inherit='None'},
+            @{Path=(Split-Path $RuntimeBin); Rights='Traverse'; Inherit='None'},
+            @{Path=$RuntimeBin; Rights='ReadAndExecute'; Inherit='ContainerInherit,ObjectInherit'},
+            @{Path=(Split-Path $data); Rights='Traverse'; Inherit='None'},
+            @{Path=$data; Rights='FullControl'; Inherit='ContainerInherit,ObjectInherit'}
+        )
+        Invoke-SawPostgresqlTemporaryAccess $runtimeScopes {
+            Invoke-SawPostgresqlPasswordAccess $InstallRoot $suFile $init
+        }
+    }
+
+}
+if ($clusterState -eq 'fresh' -and $UserMode -and -not $DevNoAcl) {
     Protect-Dir $data
-} elseif (-not $DevNoAcl) {
+} elseif ($clusterState -eq 'fresh' -and -not $DevNoAcl) {
     # Data readable only by the service account (NetworkService, like the EDB installer), Administrators and SYSTEM
     & icacls $data /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-20:(OI)(CI)F" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL data ACL failed (exit $LASTEXITCODE)" }
 }
+
+Assert-SawPostgresqlClusterConfig $data $bin $Port
 
 $started = $false
 if ($UserMode) {
@@ -141,7 +182,7 @@ if ($UserMode) {
             -ArgumentList ('start -w -t 120 -D "{0}" -l "{1}"' -f $data, (Join-Path $pgLog "postgresql.log"))
         $null = $p.Handle
         $p.WaitForExit()
-        if ($p.ExitCode -ne 0) { throw "PostgreSQL did not start (user mode); see $pgLog" }
+        if ($p.ExitCode -ne 0) { throw "PostgreSQL did not start in user mode (exit $($p.ExitCode)); see $pgLog" }
     }
     $started = $true
 } elseif (-not $NoService) {
@@ -149,7 +190,7 @@ if ($UserMode) {
     # WinSW v2.12.0 supplies that child environment without changing machine PATH.
     $pgLog = Join-Path $InstallRoot 'logs\postgresql'
     New-Item -ItemType Directory -Force $serviceDir, $pgLog | Out-Null
-    if (-not $DevNoAcl) {
+    if (-not $DevNoAcl -and $serviceAction -ne 'reuse') {
         . (Join-Path $PSScriptRoot 'install-paths.ps1')
         Grant-SawPostgresqlRuntimeAccess -InstallRoot $InstallRoot
         & icacls $serviceDir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)RX' | Out-Null
@@ -157,8 +198,9 @@ if ($UserMode) {
         & icacls $pgLog /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL log directory ACL failed' }
     }
-    Copy-Item -LiteralPath (Join-Path $BundleDir 'winsw\WinSW-x64.exe') -Destination $serviceExe -Force
-    Write-PostgresqlServiceXml (Join-Path $PSScriptRoot 'postgresql-service.xml') $serviceXml $InstallRoot $ServiceName $privatePath
+    if ($serviceAction -ne 'reuse') {
+        Initialize-SawPostgresqlServiceFiles $serviceExe $serviceXml (Join-Path $BundleDir 'winsw\WinSW-x64.exe') (Join-Path $PSScriptRoot 'postgresql-service.xml') $InstallRoot $ServiceName $privatePath
+    }
     if ($serviceAction -eq 'migrate') {
         # Only a stopped legacy registration belonging to this exact cluster reaches here.
         & (Join-Path $bin 'pg_ctl.exe') unregister -N $ServiceName
@@ -168,20 +210,37 @@ if ($UserMode) {
         & $serviceExe install
         if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL WinSW service install failed' }
     }
-    Start-Service $ServiceName
+    $registered = Get-CimInstance Win32_Service -Filter ("Name='" + $ServiceName + "'")
+    if ($null -eq $registered -or (Get-PostgresqlServiceAction $registered $serviceExe (Join-Path $bin 'pg_ctl.exe') $data) -ne 'reuse') {
+        throw 'PostgreSQL service registration postcondition failed; Start-Service was not called'
+    }
+    Assert-SawPostgresqlServiceConfig $serviceXml $InstallRoot $ServiceName $privatePath
+    if ($registered.State -eq 'Stopped') { Start-Service $ServiceName }
+    elseif ($registered.State -ne 'Running') { throw 'PostgreSQL service is transitioning; retry after its state settles' }
     Wait-PostgresqlServiceReady (Join-Path $bin 'pg_isready.exe') $Port
     $started = $true
 }
 
 if ($started) {
-    $env:PGPASSWORD = (Get-Content $suFile -Raw)
-    $appPw = (Get-Content $appFile -Raw)
+    $suPw = [IO.File]::ReadAllText($suFile).Trim()
+    $appPw = [IO.File]::ReadAllText($appFile).Trim()
     $psql = Join-Path $bin "psql.exe"
-    $exists = & $psql -h 127.0.0.1 -p $Port -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='saw'"
-    if ($exists -ne "1") {
-        & $psql -h 127.0.0.1 -p $Port -U postgres -v ON_ERROR_STOP=1 -q -c "CREATE ROLE saw LOGIN PASSWORD '$appPw'"
-        & $psql -h 127.0.0.1 -p $Port -U postgres -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE saw OWNER saw ENCODING 'UTF8' TEMPLATE template0"
-    }
-    Remove-Item Env:PGPASSWORD
+    try {
+        $actualData = Get-SawPostgresqlDataDirectory $psql $Port $suPw
+        if ([IO.Path]::GetFullPath($actualData).TrimEnd('\') -ine [IO.Path]::GetFullPath($data).TrimEnd('\')) {
+            throw 'PostgreSQL endpoint belongs to another data directory; no application role or database was changed'
+        }
+        $exists = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw "SELECT 1 FROM pg_roles WHERE rolname='saw'"
+        if ($exists -ne '1') {
+            $quoted = $appPw.Replace("'", "''")
+            $null = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw ("CREATE ROLE saw LOGIN PASSWORD '" + $quoted + "'")
+        }
+        $dbExists = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw "SELECT 1 FROM pg_database WHERE datname='saw'"
+        if ($dbExists -ne '1') {
+            $null = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw "CREATE DATABASE saw OWNER saw ENCODING 'UTF8' TEMPLATE template0"
+        }
+        $ready = Invoke-SawPostgresqlSql $psql $Port 'saw' 'saw' $appPw 'SELECT current_user'
+        if ($ready -cne 'saw') { throw 'PostgreSQL application identity readiness failed' }
+    } finally { $suPw=$null; $appPw=$null; $quoted=$null }
 }
 Write-Host "PostgreSQL configured (127.0.0.1:$Port, data $data). App password file: $appFile"
