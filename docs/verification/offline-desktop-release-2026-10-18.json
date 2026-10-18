@@ -1,0 +1,33 @@
+{
+  "state": "SEALED_TESTED_PAYLOAD_VERIFIED",
+  "date": "2026-10-18",
+  "package": {
+    "state": "PASS",
+    "archive": "SAW-0.1.0-pilot.20261018.1-model-free-win-x64.zip",
+    "bytes": 1444865907,
+    "sha256": "971dda3d2c5ef4449e8efbdd47a1d4585e1804788192e5e2ef9302cfa0ab18d5",
+    "file_count": 665,
+    "manifest_sha256": "4121605a5e1f76ed821c0fbbbfac95d6baf6822153868eef0eb14f2cb15b1583",
+    "tested_candidate_manifest_sha256": "f4d4a569aee3d9c92a8f671e8c994e0894c35c5444dde5890561c7460e783efe",
+    "tested_payload_identical": true,
+    "zip_each_file_hash_verified": true,
+    "source_commit": "4655fbba7cd0d16f42379b14bfcbac147a589925"
+  },
+  "payload_files": 663,
+  "payload_bytes": 1494104830,
+  "model_weights": "EXCLUDED_SEPARATE_IMPORT",
+  "native_verification": "desktop-update-2026-10-18.json",
+  "native_state": "PASS_WINDOWS11_NOADMIN_SYNTHETIC",
+  "tested_host": "Windows 11 build26200 / PowerShell 5.1 / NoAdmin / synthetic-only",
+  "target_ltsc_verified": false,
+  "administrator_service_verified": false,
+  "physical_airgap_verified": false,
+  "production_acceptance": false,
+  "update_seconds": 474.55,
+  "restore_seconds": 406.54,
+  "accounts_mfa_roles_and_analysis_preserved": true,
+  "same_account_https_mfa_login_after_update_and_restore": true,
+  "post_update_synthetic_file_preserved_in_retained_newer_root": true,
+  "manual_hash_comparison_required": false,
+  "automatic_integrity_validation": true
+}

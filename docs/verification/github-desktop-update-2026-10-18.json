@@ -1,0 +1,68 @@
+{
+  "state": "PUBLISHED_PRERELEASE_ASSETS_VERIFIED",
+  "repo": "dewdorp/SAW",
+  "private": true,
+  "release_id": 416277622,
+  "tag": "v0.1.0-pilot.20261018.1",
+  "source_commit": "4655fbba7cd0d16f42379b14bfcbac147a589925",
+  "assets": [
+    {
+      "name": "SAW-0.1.0-pilot.20261018.1-model-free-win-x64.zip",
+      "bytes": 1444865907,
+      "sha256": "971dda3d2c5ef4449e8efbdd47a1d4585e1804788192e5e2ef9302cfa0ab18d5",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 124314,
+      "sha256": "4121605a5e1f76ed821c0fbbbfac95d6baf6822153868eef0eb14f2cb15b1583",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 74413,
+      "sha256": "ac6369e61dd44a0f71fa190afb61eddfe5b968f606435e3cb91bd2b65a5ff8ca",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "START-HERE.md",
+      "bytes": 6706,
+      "sha256": "16375ac53cc51c3b178083169c78536a4f110dce1dcbe9a9f96c4774e1005f35",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "DOUBLE-CLICK-UPDATE-GUIDE.md",
+      "bytes": 7228,
+      "sha256": "67fa9df7ed263d679296adb560019222356f252b20987715744dd486ca41bc27",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "DOUBLE-CLICK-UPDATE-GUIDE.html",
+      "bytes": 210906,
+      "sha256": "bd7b1bfca9a575358b61be480a84e4ab54a12912f5e2a4489c6c40c948a7bec3",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "desktop-update-2026-10-18.json",
+      "bytes": 10595,
+      "sha256": "e32a88a5fd76626b6e1ab33003233359cc987108e58e45028047fa08b299e8be",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-verification.json",
+      "bytes": 1433,
+      "sha256": "b2f47608804df9fd341ff1d734d909b0aa4fd6e6ff442993e5b56ce023677da4",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "RELEASE-SHA256SUMS.txt",
+      "bytes": 746,
+      "sha256": "bded795d3ae26e258c50c09f4823e02cbb36680fcc5aa48d768ded30469d2ab6",
+      "remote_digest_equal": true
+    }
+  ],
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018.1",
+  "published_at": "2026-10-18T06:36:56Z",
+  "target_ltsc_verified": false,
+  "production_acceptance": false
+}

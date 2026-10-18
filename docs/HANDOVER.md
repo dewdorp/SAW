@@ -1,3 +1,15 @@
+## 2026-10-18 더블클릭 업데이트 매체 게시 완료
+
+- [비공개 GitHub 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018.1)에 모델 제외 전체 매체와 그림 안내 등 9자산을 게시했다. 원격 크기·SHA256과 source tag를 대조했다. 이전 배포는 보존한다.
+- ZIP: SAW-0.1.0-pilot.20261018.1-model-free-win-x64.zip, 1,444,865,907바이트, SHA256 971dda3d2c5ef4449e8efbdd47a1d4585e1804788192e5e2ef9302cfa0ab18d5. 내부665항목(663 payload + manifest/체크섬) 전부 크기·hash 확인. 최종 manifest 4121605a5e1f76ed821c0fbbbfac95d6baf6822153868eef0eb14f2cb15b1583.
+- 매체 소스4655fbba7cd0d16f42379b14bfcbac147a589925. 실제 합성 설치에서 성공한 후보2와 최종 실행 payload/런타임/의존성 동일성을 확인했다. 최종 ZIP의 차이는 게시 문서와 메타데이터이며 실제 업데이트·복구를 ZIP으로 다시 실행했다고 보고하지 않는다.
+- 사용: 새 ZIP을 기존 설치 밖에 해제 → UPDATE-SAW.cmd 더블클릭 → 기존 C:\SAW 선택 → 설치 점검 → 서버 중지 동의 → 업데이트 시작. 수동 명령·해시 대조 없이 자동 매체 검증과 전체 복구본 생성을 수행한다.
+- 문제 시 같은 창의 이전 상태 복구로 백업 시점 전체를 되돌린다. 업데이트 이후 새 자료와 계정 변경을 자동 병합하지 않으며, 복구 직전 상태는 별도 보관한다. 원본 Claude·사용자 C: 설치·운영 자료는 변경하지 않았다.
+- [그림 안내](DOUBLE-CLICK-UPDATE-GUIDE.html), [패키지 봉인 검증](verification/offline-desktop-release-2026-10-18.json), [GitHub 게시 검증](verification/github-desktop-update-2026-10-18.json).
+- 실제 Windows11/PS5.1 NoAdmin 합성 업데이트474.55초·복구406.54초, 동일 계정/MFA 로그인과 기준 자료 보존 PASS. 깨끗한 LTSC17763·실제 관리자서비스/UAC/재부팅·물리폐쇄망·공동부하·강제전원중단·운영 인수는 미검증/승인 전이다. 해당 환경 검증이 다음 인수 작업이다.
+
+---
+
 ## 2026-10-18 더블클릭 업데이트·복구 실제 검증
 
 - 새 매체의 UPDATE-SAW.cmd와 한글 WinForms 창으로 점검·중지·전체 복구본·앱 교체·재기동·복구를 실행한다. 사용자의 명령 입력/수동 해시 비교는 없다. 자동 전체 매체 검증, 동일 유지보수 잠금, 계정·권한·MFA·DB·색인·원본·설정 보존을 유지한다.
@@ -5,7 +17,7 @@
 - 업데이트 뒤 만든 가상 파일98bytes가 복구된 설치에서는 빠지고 별도 보관 폴더에 그대로 남는 것을 확인했다. 합성 계정 비활성·세션 취소와 PG/검색/API 전체 종료까지 완료했다.
 - 첫 후보는 PG slash 경로와 JVM의 System32 conhost 검사에서 중지 전에 실패했다. 경로 동등성 및 정확한 부모/자식·실행파일·인자·생성시각/보유handle 검증으로 고친 후 새 후보에서 실제 성공했다. 실패 기록도 유지한다.
 - 기존 서버1232 PASS/5skip, UI177 PASS/tsc0, native GUI59 PASS/worker17 PASS, 최종 core68 PASS, media61 PASS. offline+core102 및 최종 독립 소유권 회귀21도 별도 PASS. 기존 Starlette 경고. 실제 시험은 WinForms 버튼 이벤트→worker→native 런타임이며 물리 마우스 더블클릭과 구분한다.
-- [더블클릭 안내](DOUBLE-CLICK-UPDATE-GUIDE.md), [단일 HTML 그림 안내](DOUBLE-CLICK-UPDATE-GUIDE.html), [검증 기록](verification/desktop-update-2026-10-18.json). 다음은 검증 후보와 실행payload가 같은 최종 매체 봉인 및 별도 비공개 사전배포다.
+- [더블클릭 안내](DOUBLE-CLICK-UPDATE-GUIDE.md), [단일 HTML 그림 안내](DOUBLE-CLICK-UPDATE-GUIDE.html), [검증 기록](verification/desktop-update-2026-10-18.json). 검증 후보와 실행payload가 같은 최종 매체 봉인 및 별도 비공개 사전배포를 완료했다(상단 게시 기록 참고).
 - 원본 Claude/사용자 C: 설치/운영 자료 미변경. 깨끗한 LTSC17763·실제 관리자서비스/UAC/재부팅·물리폐쇄망·공동부하·강제전원중단·운영 인수는 별도 게이트로 남긴다. 새 로그/PCAP 재분석은 이번 작업에서 실행하지 않았고 저장된 결과 보존을 검증했다.
 
 ---
