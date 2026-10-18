@@ -1,0 +1,73 @@
+{
+  "state": "PUBLISHED_PRERELEASE_ASSETS_VERIFIED",
+  "repo": "dewdorp/SAW",
+  "private": true,
+  "release_id": 416196308,
+  "tag": "v0.1.0-pilot.20261018",
+  "source_commit": "403bc7d57631e56a27dbef70cd81512029e1b9f5",
+  "assets": [
+    {
+      "name": "SAW-0.1.0-pilot.20261018-model-free-win-x64.zip",
+      "bytes": 1444634601,
+      "sha256": "81eda12295cc75b221add3c34a4e6777d14cbce0e64efa5f95344c53e4c63628",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 121552,
+      "sha256": "69d09198a891256eddeec264501221ac4e6dac0e9670ba5b90f9b06faad45037",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 73115,
+      "sha256": "5f002f8d3ba137fa760d77208bd3ecede515471be7adfea03ce38342b8bfd2e4",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "START-HERE.md",
+      "bytes": 6418,
+      "sha256": "088bda3bccbc9ef8c83711dee89f104b499684401fefadf091211709586de783",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "OFFLINE-UPDATE-GUIDE.md",
+      "bytes": 5965,
+      "sha256": "e2dcc776140bc46a8a4ef5dc5c988161189b7367ab555aa734f90abf1159e4a9",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "INSTALL-RECOVERY-2026-10-18.md",
+      "bytes": 6337,
+      "sha256": "38b4e5df8d372b749c6fa91eb049ec0b35ad9567c644c3e26fb743125cccd8fb",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "installer-recovery-2026-10-18.md",
+      "bytes": 26457,
+      "sha256": "4fc42618a331f59550cc184059a6d47226837238b6d4b5c09b3b4a7cc21b8c58",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "release-verification.json",
+      "bytes": 2836,
+      "sha256": "b69685af702c339f6d6e05f44647939e41c9d57f035aab111d6b593e69196fda",
+      "remote_digest_equal": true
+    },
+    {
+      "name": "RELEASE-SHA256SUMS.txt",
+      "bytes": 749,
+      "sha256": "c5962a93c72008daf237afe8f26210a9aabfb62cef1378b0623343fbdeb84be5",
+      "remote_digest_equal": true
+    }
+  ],
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018",
+  "published_at": "2026-10-18T02:47:34Z",
+  "target_ltsc_verified": false,
+  "production_acceptance": false,
+  "publishing_observations": {
+    "first_attempt": "Draft creation succeeded, but immediate release-list lookup did not include it and the script stopped before any asset upload.",
+    "recovery": "Confirmed the existing draft by API and resumed that same draft without deleting or replacing release assets.",
+    "cause": "Not established; no application/runtime fix claimed."
+  }
+}
