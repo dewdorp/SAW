@@ -78,7 +78,7 @@ def test_public_guides_are_required_and_copied_with_start_here(tmp_path, monkeyp
         path.write_text(rel, encoding="utf-8")
     monkeypatch.setattr(build_release, "ROOT", source)
     build_release.copy_public_guides(out)
-    assert (out / "START-HERE.md").read_text() == "docs/OFFLINE-RELEASE-2026-10-17.md"
+    assert (out / "START-HERE.md").read_text() == "docs/INSTALL-RECOVERY-2026-10-18.md"
     assert all((out / "app" / rel).is_file() for rel in build_release.PUBLIC_DOCS)
     (source / build_release.PUBLIC_DOCS[-1]).unlink()
     with pytest.raises(BundleError, match="public guide missing"):

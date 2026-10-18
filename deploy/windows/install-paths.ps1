@@ -1,6 +1,12 @@
 # Private installation-root creation and minimal PostgreSQL service runtime access.
 # Dot-source only from verified media. PowerShell 5.1; no service registration.
 function Get-SawLocalDirectoryPath([string]$Value) {
+    foreach ($part in ($Value -split '[\\/]')) {
+        if ($part -and $part -notin @('.','..') -and
+            ($part -match '[. ]$' -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)')) {
+            throw 'Aliased Windows installation path is refused'
+        }
+    }
     $path = [IO.Path]::GetFullPath($Value)
     if ($path.StartsWith('\\') -or $path -eq [IO.Path]::GetPathRoot($path)) {
         throw 'A local non-root directory is required'

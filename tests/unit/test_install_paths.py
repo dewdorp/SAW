@@ -207,9 +207,11 @@ def test_synthetic_key_keeps_bytes_and_encryption_after_reload_under_private_roo
         crypto._fernet.cache_clear()
 
 def test_installer_preflight_applies_private_root_before_creating_application_tree(tmp_path):
-    source = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8")
+    source = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8-sig")
     protect = source[source.index("function Protect-Path"):source.index("function New-Secret")]
-    preflight = source[source.index("# Verify all files and required payloads"):source.index("# ---------------------------------------------------------------- 1.")]
+    assert source.index("verify-bundle.ps1") < source.index("Enter-SawInstall")
+    assert source.index("Enter-SawInstall") < source.index("foreach ($k in @($dirs.Keys))")
+    preflight = "$InstallRoot = Initialize-SawInstallRoot -InstallRoot $InstallRoot -BundleDir $BundleDir -NoAdmin:$NoAdmin"
     media = tmp_path / "media"
     scripts = media / "app/deploy/windows"
     scripts.mkdir(parents=True)
@@ -255,3 +257,30 @@ catch {{ $rejected=$true }}
    children=@(Get-ChildItem -LiteralPath $root -Force).Count }} | ConvertTo-Json -Compress
 """)
     assert result == {"rejected": True, "unchanged": True, "children": 0}
+
+def test_installer_entrypoint_keeps_drive_root_absolute_for_rejection(tmp_path):
+    source = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("if ($InstallRoot -notmatch")
+    end = source.index("# The install folder", start)
+    boundary = source[start:end]
+    result = run_ps(tmp_path, f"""
+$InstallRoot=([IO.Path]::GetPathRoot({ps_literal(ROOT)}))
+{boundary}
+$rejected=$false
+try {{ $null=Get-SawLocalDirectoryPath $InstallRoot }} catch {{ $rejected=$true }}
+@{{ rejected=$rejected; absolute=$InstallRoot.EndsWith('\\') }} | ConvertTo-Json -Compress
+""")
+    assert result == {"rejected": True, "absolute": True}
+
+def test_choose_install_location_selects_user_drive_without_writes(tmp_path):
+    source = (ROOT / "deploy/windows/install.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("if ($ChooseInstallLocation)")
+    boundary = source[start:source.index("# The install folder", start)]
+    result = run_ps(tmp_path, f"""
+$InstallRoot='C:\\SAW'; $ChooseInstallLocation=$true
+function Read-Host {{ return 'D:\\SAW' }}
+function Out-Host {{ process {{ }} }}
+{boundary}
+@{{ selected=$InstallRoot }} | ConvertTo-Json -Compress
+""")
+    assert result == {"selected": "D:\\SAW"}

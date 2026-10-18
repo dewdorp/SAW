@@ -1,4 +1,26 @@
+## 2026-10-18 설치 위치·오류 복구 보완
+
+- 기존 C:/SAW와 원본 F:/claude/saw 미변경. C/D 절대 경로와 ChooseInstallLocation 입력으로 프로그램·DB·색인·원본·모델·백업 위치를 함께 선택한다. 기존 설치의 드라이브 자동 이전은 없다.
+- OS 전용 JDK/자식 Java 변수/실제 서비스 사후 검사, PG 제한 토큰 SID ACL·한글 runtime/share 초기화, Python 출처/바이트/의존성 검사와 보존 복구, 원자 journal·잠금·정상 설치 readonly 검증을 반영했다. 업무 기능·모델·스키마는 변경하지 않았다.
+- 최종 서버 1201 passed, 2 skipped, 1 warning in 1409.36s (0:23:29), UI순차177통과(31파일), tsc·PS5.1구문·주요Ruff PASS. 최초 UI 병렬실패와 History503의 원인은 미확정으로 유지한다.
+- 후보4 실제 NoAdmin 합성 초기설치/재개 + 후보5 완료검사: 실행기1200초 중단→파일작업완료→같은root재개→의도한PG포트충돌→재개완료→HTTPS/MFA/로그·내장HTTP PCAP→이벤트9/Finding10/노트→종료·시작→완료설치2회재실행·중지검증→데이터재조회 PASS. 후보5 전체fresh설치를 반복한 것은 아니며, 실행파일차이는검사helper1개로확인했다. 실제서비스/깨끗한LTSC 시험을 대신하지 않는다.
+- 안내: [설치 위치·재개](docs/INSTALL-RECOVERY-2026-10-18.md). 상세: [검증 기록](docs/verification/installer-recovery-2026-10-18.md).
+- NEXT: 후보5와 실행payload가 동일한 새 모델제외 ZIP 봉인→기존 비공개GitHub에 20261018 사전배포→원격자산hash/size 대조. 이전17배포는 보존한다.
+- 남은 게이트: 깨끗한LTSC17763·물리폐쇄망·관리자서비스/재부팅·조직TLS/서명·16GB공동부하·강제중단ACL복원·운영인수. 실제 운영데이터/계정 변경 없음.
+
+---
+
 # SAW 현재 상태
+
+## 2026-10-18 진행 중: 설치 위치·Java·PG 권한·안전한 재개
+
+- 사용자 새 첨부15478365 요청 적용. 실제 C:/SAW와 원본 F:/claude/saw 미변경. 수정 대상 F:/codex/SAW-Claude-main, 기존HEAD2fa8726에서 아직 미커밋.
+- C:/D: InstallRoot 및 ChooseInstallLocation 입력/용량 표시, private root/경로 별칭 거부, 상태/잠금/정상설치 읽기 전용 검증 구현 중. Python·PG·OS 소유/바이트 검증 후 재사용/부분 복구; 사용자 수정 보존. 새 안내 docs/INSTALL-RECOVERY-2026-10-18.md.
+- 실제 원인: OS service BAT는 JAVA_HOME을 읽으며 오류에서 exit0 가능; PG initdb의 실제 Windows 토큰은 BA/SYSTEM-only pw 읽기 실패; 기존 fresh-only gate와 Existing Python 거부로 재개 불가.
+- 현재 확인: 루트/상태27시험 PASS, 기존 통합설치62시험 PASS(당시 코드), OS36→추가재개25시험, PG 실제 BA/SYSTEM pw실패→정확한 SID 임시권한 후 실제initdb 성공/ACL 복원. Python12기본native PASS, 추가 startup hook/손상/활성프로세스 보강 중. 최신전체시험은 아직 실행하지 않음.
+- UI 2026-10-18 1차 vitest는174통과/1실패/2건너뜀(31파일중2실패): App.timezone hook10초와 AdminData 버튼대기. tsc PASS. 부하 분리 후 재검증 예정이며 원인 해결로 표시하지 않음.
+- .release/model-free-20261018-candidate1 실제 조립/manifest 검증646파일,1,493,566,517바이트. **이후 수정이 있어 최종배포물/수락본 아님**. 새후보 빌드와 .qa/packaging/run-install-20261018.py 실제PG포트실패→같은root재개→HTTPS로그/PCAP→2회재실행/정지검증이 다음.
+- 모델/업무스키마/탐지 기능변경 없음. 실제관리자서비스/깨끗한LTSC17763/운영인수/조직서명 미검증. 새ZIP·GitHub 게시 아직 하지 않음. 이전10/17배포는 그대로 유지.
 
 ## 2026-10-17 모델 제외 매체·기존 설치 업데이트/복구 검증
 

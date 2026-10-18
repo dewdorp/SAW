@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import zipfile
@@ -57,7 +58,8 @@ PUBLIC_DOCS = (
  'docs/samples/temporal-behavior-160.jsonl',
  'docs/verification/assistant-evidence-2026-10-15.json',
  'docs/verification/statistics-temporal-2026-10-14.json',
- 'docs/OFFLINE-RELEASE-2026-10-17.md', 'docs/OFFLINE-UPDATE-GUIDE.md',
+ 'docs/verification/installer-recovery-2026-10-18.md',
+ 'docs/INSTALL-RECOVERY-2026-10-18.md', 'docs/OFFLINE-RELEASE-2026-10-17.md', 'docs/OFFLINE-UPDATE-GUIDE.md',
  'docs/OFFLINE-RELEASE-VALIDATION-2026-10-17.md',
  'docs/BEHAVIOR-ANALYSIS-GUIDE.md',
  'docs/BEHAVIOR-VALIDATION-2026-10-16.md',
@@ -112,7 +114,7 @@ PUBLIC_DOCS = (
  'docs/assets/detection-validation-2026-10-12/04-ndr-policy.jpg',
  'docs/assets/detection-validation-2026-10-12/05-flow.jpg',
  'docs/assets/detection-validation-2026-10-12/06-investigation.jpg')
-WINDOWS_FILES = ('install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
+WINDOWS_FILES = ('install-state.ps1','install-python.ps1','setup-postgresql-state.ps1','install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
  'saw-ctl.ps1','saw-service.xml','postgresql-service.xml','setup-opensearch.ps1','setup-postgresql.ps1')
 
 def copy_file(source, destination):
@@ -131,7 +133,11 @@ def copy_public_guides(out: Path):
         '[전체 설치 설명서](app/docs/INSTALL-WINDOWS.md)를 확인하세요.\n\n'
         '기존 설치는 [업데이트·복구 안내](app/docs/OFFLINE-UPDATE-GUIDE.md)를 따릅니다.\n',
         encoding='utf-8')
-    copy_file(ROOT / 'docs/OFFLINE-RELEASE-2026-10-17.md', out / 'START-HERE.md')
+    start = (ROOT / 'docs/INSTALL-RECOVERY-2026-10-18.md').read_text(encoding='utf-8')
+    # The root entry point must rebase links from its app/docs source directory.
+    start = re.sub(r'\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)]+)\)',
+                   r'](app/docs/\1)', start)
+    (out / 'START-HERE.md').write_text(start, encoding='utf-8')
 
 
 def copy_app_sources(out: Path):
@@ -199,7 +205,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     build(out,str(inputs/'npm-licenses.json') if (inputs/'npm-licenses.json').exists() else None)
     from saw.storage.migrate import head
     version=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),
+    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),'installer_contract':'saw.install-resume/1',
         'target':'Windows 10 Enterprise LTSC 2019 x64 build17763','target_validation':'PENDING_CLEAN_LTSC',
         'model_weights':'EXCLUDED','native_ai_runtime':'INCLUDED' if native else 'NOT_INCLUDED',
         'python_wheels':len(list((out/'wheels').glob('*.whl'))),'python':'3.12.10',

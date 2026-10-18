@@ -1,4 +1,4 @@
-# SAW offline installer for Windows 10/Server (target: Windows 10 Enterprise LTSC 2019 x64; target validation pending). ADR-0016.
+﻿# SAW offline installer for Windows 10/Server (target: Windows 10 Enterprise LTSC 2019 x64; target validation pending). ADR-0016.
 # Run from the bundle root in an elevated PowerShell:
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -HostName saw.corp.local -AllowFrom 10.20.0.0/16
 # Single analyst PC (browser on the same machine, nothing exposed to the network):
@@ -6,11 +6,13 @@
 # Analyst PC WITHOUT administrator rights (normal PowerShell; no services, installs under %LOCALAPPDATA%\SAW,
 # started/stopped with saw-ctl.ps1 or the Start-menu shortcuts):
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoAdmin [-AutoStartAtLogon]
-# Fresh installation only. Use the verified new media update.ps1 for a stopped existing installation.
+# New installation / safe resume / read-only completed-install verification. Use update.ps1 for version upgrades.
 [CmdletBinding()]
 param(
     [string]$BundleDir = "",                        # default: the folder containing this script
     [string]$InstallRoot = "C:\SAW",
+    [switch]$ChooseInstallLocation,
+    [string]$BaselineBundleDir = "",
     [string]$HostName = $env:COMPUTERNAME,         # name analysts type in the browser (certificate SAN)
     [string[]]$ExtraNames = @(),                    # more SANs: FQDN, IP address
     [int]$Port = 443,
@@ -39,6 +41,13 @@ if ($NoAdmin) {
     if (-not $PSBoundParameters.ContainsKey("InstallRoot")) { $InstallRoot = Join-Path $env:LOCALAPPDATA "SAW" }
     if (-not $PSBoundParameters.ContainsKey("Port")) { $Port = 8443 }
 }
+if ($ChooseInstallLocation) {
+    Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -ne $null } |
+        Select-Object Name, @{Name='여유 공간(GB)';Expression={[math]::Round($_.Free/1GB,1)}} | Format-Table | Out-Host
+    $choice=Read-Host "설치 폴더를 입력하세요 (예: D:\SAW, Enter=$InstallRoot)"
+    if ($choice) { $InstallRoot=$choice }
+}
+if ($InstallRoot -notmatch '^[A-Za-z]:\\') { throw 'Choose an absolute local path such as D:\SAW' }
 # The install folder ends up inside configuration files, command lines and URLs. Spaces, "&" and non-English names
 # are handled; the characters below would change the meaning of those files, so they are refused up front.
 if ($InstallRoot -match '[%"''`;^!#$]') {
@@ -49,7 +58,11 @@ $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 function Write-Utf8([string]$Path, $Lines) {
     [IO.File]::WriteAllLines($Path, [string[]]@($Lines), (New-Object Text.UTF8Encoding $false))
 }
-function Step($m) { Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
+$installContext=$null
+function Step($m) {
+    if ($installContext) { Set-SawInstallStage $installContext $m }
+    Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan
+}
 function Protect-Path([string]$path) {
     if ($DevNoAcl) { return }
     # (OI)(CI) inheritance flags are for folders only: on a FILE icacls reports success but leaves an empty DACL
@@ -96,18 +109,42 @@ if ($LocalOnly) {
 }
 Write-Host "Profile: $(if ($LocalOnly) { 'analyst PC (local only)' } else { 'server' }); OpenSearch heap ${OpenSearchHeapGB} GB; PostgreSQL shared_buffers $PgSharedBuffers"
 if ($OpenSearchHeapGB -gt [math]::Floor($ramGB / 2)) { throw "OpenSearch heap ($OpenSearchHeapGB GB) must be <= half of RAM." }
-if ($freeGB -lt 20) { throw "At least 20 GB free disk is required on $drive (evidence and indices need more)." }
 # Verify all files and required payloads; no bypass switch is provided.
 & (Join-Path $BundleDir "verify-bundle.ps1") -BundleDir $BundleDir
-if (Test-Path -LiteralPath (Join-Path $InstallRoot "app\.env")) { throw "An installation already exists. Use saw-ctl.ps1 restart; use the verified new media update.ps1 for upgrades." }
+if ($BaselineBundleDir) { & (Join-Path $BundleDir "verify-bundle.ps1") -BundleDir $BaselineBundleDir }
 if (@($PostgresPort, $OpenSearchPort, $OpenSearchTransportPort, $Port | Select-Object -Unique).Count -ne 4) { throw "Ports must be distinct" }
-# Establish exact private inheritance before creating code, configuration, or keys.
 . (Join-Path $BundleDir 'app\deploy\windows\install-paths.ps1')
-$InstallRoot = Initialize-SawInstallRoot -InstallRoot $InstallRoot -BundleDir $BundleDir -NoAdmin:$NoAdmin
+. (Join-Path $BundleDir 'app\deploy\windows\install-state.ps1')
+. (Join-Path $BundleDir 'app\deploy\windows\install-python.ps1')
+$layout=Get-SawInstallLayout $InstallRoot
+Write-Host "설치 위치: $($layout.root)"
+Write-Host "DB: $($layout.database)"
+Write-Host "검색 색인: $($layout.indices)"
+Write-Host "분석 원본: $($layout.evidence)"
+Write-Host "모델 / 백업: $($layout.models) / $($layout.backup)"
+Write-Host "여유 공간 $freeGB GB (설치 최소 20GB, 원본·색인·모델·백업 용량은 별도 확보)"
+$options=@{noAdmin=[bool]$NoAdmin;noServices=[bool]$NoServices;localOnly=[bool]$LocalOnly;
+    hostName=$HostName;port=$Port;postgresPort=$PostgresPort;opensearchPort=$OpenSearchPort;
+    opensearchTransportPort=$OpenSearchTransportPort;heapGB=$OpenSearchHeapGB;sharedBuffers=$PgSharedBuffers}
+$installContext=Enter-SawInstall -InstallRoot $InstallRoot -BundleDir $BundleDir -Options $options -BaselineBundleDir $BaselineBundleDir
+$InstallRoot=$installContext.Root
+try {
+if ($installContext.Mode -eq 'verify') {
+    Assert-SawCompletedInstall $installContext $BundleDir $options
+    Write-Host "기존 설치 검증 완료. 계정·비밀값·데이터·설정과 서비스 실행 상태를 변경하지 않았습니다."
+    Write-Host "설치 위치: $InstallRoot / 프로그램 업데이트는 새 매체의 update.ps1을 사용하세요."
+    return
+}
+if ($freeGB -lt 20) { throw "At least 20 GB free disk is required on $drive (evidence and indices need more)." }
+$payloadBundle=$installContext.PayloadBundle
+$payloadManifest=Read-SawInstallManifest (Join-Path $payloadBundle 'release-manifest.json')
+Assert-SawApplicationFiles $InstallRoot $payloadManifest -AllowMissing
 $dirs = @{ app = "app"; data = "data\saw"; objects = "data\objects"; logs = "logs\saw"; tls = "tls"; secrets = "secrets";
            service = "service"; backup = "backup" }
 foreach ($k in @($dirs.Keys)) { $dirs[$k] = Join-Path $InstallRoot $dirs[$k]; New-Item -ItemType Directory -Force $dirs[$k] | Out-Null }
-foreach ($k in @("secrets", "tls", "data", "objects", "logs", "backup")) { Protect-Path $dirs[$k] }
+if ($installContext.Mode -eq 'new') {
+    foreach ($k in @("secrets", "tls", "data", "objects", "logs", "backup")) { Protect-Path $dirs[$k] }
+}
 
 # ---------------------------------------------------------------- 1. Python runtime
 Step "Python 3.12 runtime"
@@ -116,27 +153,18 @@ $venv = Join-Path $InstallRoot "venv"
 $scripts = Join-Path $venv "Scripts"
 $site = Join-Path $venv "Lib\site-packages"
 $vpy = Join-Path $scripts "python.exe"
-if (Test-Path -LiteralPath $vpy) { throw "Existing Python runtime: choose a fresh install directory." }
-New-Item -ItemType Directory -Force $scripts, $site | Out-Null
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $BundleDir "python\python-3.12.10-embed-amd64.zip"), $scripts)
-[IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $BundleDir "bootstrap\pip-25.1.1-py3-none-any.whl"), $site)
-Write-Utf8 (Join-Path $scripts "python312._pth") @('python312.zip','.','../Lib/site-packages','../../app','import site')
-$env:PIP_CONFIG_FILE = 'NUL'; $env:PIP_NO_INDEX = '1'; $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
-& $vpy -m pip install --quiet --no-index --no-cache-dir --no-warn-script-location --find-links (Join-Path $BundleDir "wheels") --target $site -r (Join-Path $BundleDir "app\deploy\windows\requirements.txt")
-if ($LASTEXITCODE) { throw "offline package install failed" }
-& $vpy -m pip check
-if ($LASTEXITCODE) { throw "pip check failed" }
+# install-python.ps1 verifies python-3.12.10-embed-amd64.zip and uses offline --no-index wheels.
+$vpy=Ensure-SawPythonRuntime -BundleDir $payloadBundle -InstallRoot $InstallRoot
 
 # ---------------------------------------------------------------- 2. application files
 Step "Application files"
-$src = Join-Path $BundleDir "app"
-& robocopy $src $dirs.app /E /XD var __pycache__ /XF .env /NFL /NDL /NJH /NJS /NP | Out-Null
+$src = Join-Path $payloadBundle "app"
+& robocopy $src $dirs.app /E /XC /XN /XO /XD var __pycache__ /XF .env /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "copying application files failed (robocopy $LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force (Join-Path $InstallRoot 'models') | Out-Null
 if (Test-Path -LiteralPath (Join-Path $BundleDir 'llm-runtime')) {
-    & robocopy (Join-Path $BundleDir 'llm-runtime') (Join-Path $InstallRoot 'llm-runtime') /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    & robocopy (Join-Path $payloadBundle 'llm-runtime') (Join-Path $InstallRoot 'llm-runtime') /E /XC /XN /XO /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw 'LLM runtime copy failed' }
 }
 $runtimeManifest = Join-Path $InstallRoot 'llm-runtime\runtime-manifest.json'
@@ -153,14 +181,14 @@ if ($NoAdmin) { $common.UserMode = $true }
 Step "OpenSearch"
 $osArgs = $common.Clone(); $osArgs.HeapGB = $OpenSearchHeapGB; $osArgs.Port = $OpenSearchPort; $osArgs.TransportPort = $OpenSearchTransportPort
 if ($DevNoAcl) { $osArgs.DevNoAcl = $true }
-& (Join-Path $src "deploy\windows\setup-opensearch.ps1") @osArgs
+& (Join-Path $BundleDir "app\deploy\windows\setup-opensearch.ps1") @osArgs
 # Preserve official JDK binaries and use their C runtime in place, scoped to child processes.
 $runtimeBin = Join-Path $InstallRoot 'opensearch-2.19.6\jdk\bin'
 $env:PATH = $runtimeBin + ';' + $scripts + ';' + (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
 Step "PostgreSQL"
 $pgArgs = $common.Clone(); $pgArgs.SharedBuffers = $PgSharedBuffers; $pgArgs.Port = $PostgresPort; $pgArgs.SecretsDir = $dirs.secrets; $pgArgs.RuntimeBin = $runtimeBin
 if ($DevNoAcl) { $pgArgs.DevNoAcl = $true }
-& (Join-Path $src "deploy\windows\setup-postgresql.ps1") @pgArgs
+& (Join-Path $BundleDir "app\deploy\windows\setup-postgresql.ps1") @pgArgs
 
 # ---------------------------------------------------------------- 4. configuration (.env, ACL-protected)
 Step "Configuration"
@@ -189,14 +217,22 @@ $cfg = @(
     "SAW_LLM_RUNTIME_MANIFEST_SHA256=$runtimePin",
     "SAW_LLM_CPU_WORK_ROOT=$(Join-Path $dirs.data 'ai-work')"
 )
-if (Test-Path $envFile) { & icacls $envFile /reset | Out-Null }  # repairs an empty DACL left by older installers
-Write-Utf8 $envFile $cfg
-Protect-Path $envFile
+if (Test-Path -LiteralPath $envFile) {
+    Assert-SawInstalledConfiguration $InstallRoot $options
+} else {
+    Write-Utf8 $envFile $cfg
+    Protect-Path $envFile
+}
+$pgPw=$null; $cfg=$null
 
 # ---------------------------------------------------------------- 5. TLS certificate
 Step "TLS certificate"
 $crt = Join-Path $dirs.tls "saw.crt"; $key = Join-Path $dirs.tls "saw.key"
-if ($CertFile -and $KeyFile) {
+if ((Test-Path -LiteralPath $crt) -xor (Test-Path -LiteralPath $key)) { throw 'Incomplete existing TLS pair; preserve and review it before retry' }
+if (Test-Path -LiteralPath $crt) {
+    if (($CertFile -and (Get-SawFileDigest $crt) -ne (Get-SawFileDigest $CertFile)) -or
+        ($KeyFile -and (Get-SawFileDigest $key) -ne (Get-SawFileDigest $KeyFile))) { throw 'Existing TLS differs; certificate rotation is a separate operation' }
+} elseif ($CertFile -and $KeyFile) {
     Copy-Item $CertFile $crt -Force; Copy-Item $KeyFile $key -Force
 } elseif (-not (Test-Path $crt)) {
     $names = @($HostName) + $ExtraNames | Where-Object { $_ } | Select-Object -Unique
@@ -210,13 +246,14 @@ Protect-Path $dirs.tls
 
 # ---------------------------------------------------------------- 5b. user-mode processes (-NoAdmin)
 $ctl = Join-Path $InstallRoot "saw-ctl.ps1"
-@{ port = $Port; opensearchPort = $OpenSearchPort; postgresPort = $PostgresPort } | ConvertTo-Json |
-    Set-Content -Path (Join-Path $InstallRoot "saw-ctl.json") -Encoding ASCII
-if ($NoAdmin -and -not $NoServices) {
-    Step "Start SAW as user processes (no services)"
-    Copy-Item (Join-Path $src "deploy\windows\saw-ctl.ps1") $ctl -Force
+if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot "saw-ctl.json"))) {
     @{ port = $Port; opensearchPort = $OpenSearchPort; postgresPort = $PostgresPort } | ConvertTo-Json |
         Set-Content -Path (Join-Path $InstallRoot "saw-ctl.json") -Encoding ASCII
+}
+if ($NoAdmin -and -not $NoServices) {
+    Step "Start SAW as user processes (no services)"
+    if (-not (Test-Path -LiteralPath $ctl)) { Copy-Item (Join-Path $src "deploy\windows\saw-ctl.ps1") $ctl }
+    elseif ((Get-SawFileDigest $ctl) -ne (Get-SawFileDigest (Join-Path $src "deploy\windows\saw-ctl.ps1"))) { throw 'Existing control script changed; preserve and review' }
     & $ctl start  # same process: throws with the reason if a component does not come up
 }
 
@@ -228,9 +265,14 @@ else {
     $adminPwFile = Join-Path $dirs.secrets "initial-admin.pw"
     & $vpy -m saw.cli migrate
     if ($LASTEXITCODE) { throw "database migration failed" }
-    if (-not (Test-Path $adminPwFile)) { Set-Content -Path $adminPwFile -Value (New-Secret) -NoNewline -Encoding ASCII }
-    & $vpy -m saw.cli create-user admin --role admin --display-name "SAW Administrator" --password-file $adminPwFile --if-missing
-    if ($LASTEXITCODE) { throw "initial administrator creation failed" }
+    $adminQuery="import base64;exec(base64.b64decode('ZnJvbSBzcWxhbGNoZW15IGltcG9ydCBzZWxlY3QKZnJvbSBzYXcuc3RvcmFnZS5tb2RlbHMgaW1wb3J0IFVzZXIKZnJvbSBzYXcuc3RvcmFnZS5kYiBpbXBvcnQgc2Vzc2lvbl9zY29wZQpmcm9tIHNhdyBpbXBvcnQgY29udGFpbmVyCmNvbnRhaW5lci5idWlsZCgpCndpdGggc2Vzc2lvbl9zY29wZSgpIGFzIHM6CiAgICBwcmludCgxIGlmIHMuZXhlY3V0ZShzZWxlY3QoVXNlci5pZCkud2hlcmUoVXNlci51c2VybmFtZT09J2FkbWluJykpLmZpcnN0KCkgZWxzZSAwKQo='))"
+    $adminStatus=& $vpy -B -c $adminQuery
+    if ($LASTEXITCODE -ne 0 -or $adminStatus -notin @('1','0')) { throw 'Cannot verify existing administrator; no password was generated' }
+    if ($adminStatus -eq '0') {
+        if (-not (Test-Path -LiteralPath $adminPwFile)) { Set-Content -Path $adminPwFile -Value (New-Secret) -NoNewline -Encoding ASCII }
+        & $vpy -m saw.cli create-user admin --role admin --display-name "SAW Administrator" --password-file $adminPwFile --if-missing
+        if ($LASTEXITCODE) { throw "initial administrator creation failed" }
+    } else { Write-Host 'Existing administrator preserved; no initial password was regenerated.' }
 }
 Pop-Location
 
@@ -260,21 +302,32 @@ if (-not $NoServices -and -not $NoAdmin) {
     Step "SAW Windows service"
     $exe = Join-Path $dirs.service "saw-service.exe"
     $xml = Join-Path $dirs.service "saw-service.xml"
-    Copy-Item (Join-Path $BundleDir "winsw\WinSW-x64.exe") $exe -Force
+    $existingSaw=Get-CimInstance Win32_Service -Filter "Name='saw'"
+    if ($existingSaw -and $existingSaw.PathName.Trim('"') -ine $exe) { throw 'The saw service belongs to another installation; no service was changed' }
+    if (-not (Test-Path -LiteralPath $exe)) { Copy-Item (Join-Path $BundleDir "winsw\WinSW-x64.exe") $exe }
+    elseif ((Get-SawFileDigest $exe) -ne (Get-SawFileDigest (Join-Path $BundleDir "winsw\WinSW-x64.exe"))) { throw 'Existing service wrapper differs from pinned media' }
     $tmpl = Get-Content (Join-Path $src "deploy\windows\saw-service.xml") -Raw
     # the folder is text inside XML: "&" or "<" in its name must be written as entities or the service cannot load
     $rootXml = [System.Security.SecurityElement]::Escape($InstallRoot)
     $tmpl = $tmpl.Replace("{{ROOT}}", $rootXml).Replace("{{PORT}}", "$Port").Replace("{{HOST}}", $bindHost)
-    Write-Utf8 $xml $tmpl
+    if (Test-Path -LiteralPath $xml) {
+        if ([IO.File]::ReadAllText($xml).Trim() -cne $tmpl.Trim()) { throw 'Existing SAW service configuration differs; preserve and review' }
+    } else { Write-Utf8 $xml $tmpl }
     [xml](Get-Content -LiteralPath $xml -Raw -Encoding UTF8) | Out-Null  # fails here, with the reason, if it is not valid XML
-    if (Get-Service -Name "saw" -ErrorAction SilentlyContinue) { & $exe stop | Out-Null; & $exe uninstall | Out-Null }
-    & $exe install; if ($LASTEXITCODE) { throw "service install failed" }
-    & $exe start
+    if (-not $existingSaw) {
+        & $exe install
+        if ($LASTEXITCODE -ne 0 -or -not (Get-Service -Name "saw" -ErrorAction SilentlyContinue)) { throw "SAW service registration failed (exit $LASTEXITCODE)" }
+    }
+    if ((Get-Service -Name "saw").Status -ne 'Running') {
+        & $exe start
+        if ($LASTEXITCODE -ne 0) { throw "SAW service start failed (exit $LASTEXITCODE)" }
+    }
     if ($AllowFrom.Count -gt 0) {
         Step "Windows Firewall"
-        Get-NetFirewallRule -DisplayName "SAW HTTPS" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-        New-NetFirewallRule -DisplayName "SAW HTTPS" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow `
-            -RemoteAddress $AllowFrom -Profile Domain, Private | Out-Null
+        $existingRule=Get-NetFirewallRule -DisplayName "SAW HTTPS" -ErrorAction SilentlyContinue
+        if ($existingRule) { Write-Warning 'Existing SAW HTTPS firewall rule preserved; verify its selected port and analyst subnets.' }
+        else { New-NetFirewallRule -DisplayName "SAW HTTPS" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow `
+            -RemoteAddress $AllowFrom -Profile Domain, Private | Out-Null }
     } elseif (-not $LocalOnly) {
         Write-Warning "No -AllowFrom given: no inbound firewall rule was created (analyst PCs cannot connect yet)."
     }
@@ -288,9 +341,11 @@ if (-not $NoServices -and -not $NoAdmin) {
     Write-Host $r
 }
 
-Copy-Item -LiteralPath (Join-Path $BundleDir "release-manifest.json") -Destination (Join-Path $InstallRoot "installed-release-manifest.json")
-
-Step "Done"
+if ($NoServices) { throw 'Configuration-only preparation ended; service/schema/admin verification was not performed. Installation is not complete.' }
+Copy-Item -LiteralPath (Join-Path $payloadBundle "release-manifest.json") -Destination (Join-Path $InstallRoot "installed-release-manifest.json") -Force
+Assert-SawCompletedInstall $installContext $BundleDir $options -RequireLive
+Complete-SawInstall $installContext
+Write-Host "설치 완료"
 Write-Host "URL:            https://$($HostName):$Port/"
 Write-Host "Initial admin:  user 'admin', password in $($dirs.secrets)\initial-admin.pw (log in, enroll MFA, change it, delete the file)"
 Write-Host "Certificate:    $crt  (if self-signed, distribute it to analyst PCs as a trusted root)"
@@ -298,4 +353,18 @@ Write-Host "Logs:           $InstallRoot\logs"
 if ($NoAdmin) {
     Write-Host "Start / stop:   Start menu > SAW > 'SAW start' / 'SAW stop'  (or: powershell -ExecutionPolicy Bypass -File `"$ctl`" start|stop|status)"
     Write-Host "Note:           without a service SAW does not run after a reboot until started (use -AutoStartAtLogon to start at logon)."
+}
+
+} catch {
+    $nativeCode=1
+    if ($_.Exception.Message -match '\(exit (-?\d+)\)') { $nativeCode=[int]$matches[1] }
+    if ($installContext) {
+        Set-SawInstallFailed $installContext $nativeCode
+        Write-Host "설치 실패: 단계=$($installContext.State.stage); 종료코드=$nativeCode; 설치 위치=$InstallRoot"
+        Write-Host "완료 단계: $(@($installContext.State.completed) -join ', ')"
+        Write-Host "원인 확인 후 같은 매체·같은 설치 경로·같은 옵션으로 재실행하세요. Python이나 데이터 폴더를 삭제하지 마세요."
+    }
+    throw
+} finally {
+    if ($installContext) { Exit-SawInstall $installContext }
 }
