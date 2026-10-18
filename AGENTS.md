@@ -1,6 +1,6 @@
 # SAW — 작업자(AI 포함) 안내
 
-먼저 [docs/HANDOVER.md](docs/HANDOVER.md)를 끝까지 읽으세요. 현재 상태, 실행·시험 방법, 진행 중이던 일, 남은 일이 거기에 있습니다.
+먼저 [STATE.md](STATE.md)에서 현재 작업과 최신 배포·검증 범위를 확인하고, [docs/HANDOVER.md](docs/HANDOVER.md)를 끝까지 읽으세요. HANDOVER의 날짜별 기록과 과거 실행 경로는 이력이며 현재 우선순위는 STATE를 따릅니다.
 
 ## 꼭 지킬 것 (요약 — 자세한 것은 HANDOVER 4절)
 
@@ -24,4 +24,4 @@ cd apps/web && pnpm vitest run && pnpm tsc --noEmit                  # 화면
 
 ## 지금 가장 먼저 할 일
 
-탐지 묶음(시그니처·공격 흐름) 이어서 하기 — HANDOVER 6절의 "아직 안 한 것"과 "내용 확장 계획".
+[STATE.md](STATE.md)의 현재 작업 범위부터 확인하세요. 2026-10-18 저장소·로컬 생성물 정리와 합성 실제 UI 확인 결과를 STATE에 기록했습니다. 다음 작업과 검증 범위를 확인하고, HANDOVER의 과거 탐지 묶음 할 일을 현재 미완료 작업으로 되풀이하지 않습니다. 원본 F:/claude/saw, 운영 자료·계정, 기존 사용자 설치는 보존합니다.

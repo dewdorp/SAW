@@ -1,0 +1,63 @@
+{
+  "state": "CLEANUP_COMPLETE_AND_SYNTHETIC_UI_OBSERVED",
+  "date": "2026-10-18",
+  "source_before_cleanup": "be26d7f",
+  "removed_targets": 56,
+  "removed_files": 8591,
+  "removed_logical_bytes": 19419423664,
+  "obsolete_candidate_directories": [
+    ".release/desktop-update-20261018-candidate1",
+    ".release/desktop-update-20261018-candidate2",
+    ".release/model-free-20261012-candidate4",
+    ".release/model-free-20261017-candidate1",
+    ".release/model-free-20261017-candidate2",
+    ".release/model-free-20261017-candidate3",
+    ".release/model-free-20261017-candidate4",
+    ".release/model-free-20261017-candidate5",
+    ".release/model-free-20261018-candidate1",
+    ".release/model-free-20261018-candidate2",
+    ".release/model-free-20261018-candidate3",
+    ".release/model-free-20261018-candidate4",
+    ".release/model-free-20261018-candidate5"
+  ],
+  "regenerable_cache_targets": 43,
+  "candidate_manifests_retained": ".qa/cleanup-20261018",
+  "preserved": [
+    "all final release media and published archives",
+    ".qa synthetic data and recovery points",
+    ".venv and node_modules",
+    "apps/web/dist",
+    "var and model files",
+    "Git history and remote releases"
+  ],
+  "latest_archive_size_unchanged": true,
+  "latest_manifest_unchanged": true,
+  "git_before": {
+    "local_branches": 1,
+    "stale_branch_candidates": 0,
+    "garbage": 0,
+    "history_rewritten": false,
+    "remote_releases_deleted": false
+  },
+  "live_ui": {
+    "url": "http://127.0.0.1:57286/",
+    "synthetic_only": true,
+    "stores": "isolated SQLite metadata/events and local object store",
+    "authentication": "existing synthetic claude-check password and MFA via actual browser",
+    "observed": [
+      "investigation list:4 synthetic cases",
+      "case B:83 events/2 findings",
+      "source IP statistics:83 records;4xx40;error ratio48.2%",
+      "saved behavior v2:83 observations;20043/40440;blocked79/allowed4",
+      "rendered saved behavior timeline"
+    ],
+    "fresh_analysis_run": false,
+    "native_store_validation": false,
+    "new_model_run": false,
+    "server_left_running_for_user": true
+  },
+  "production_install_or_data_modified": false,
+  "product_code_changed": false,
+  "full_test_suite_rerun": false,
+  "screenshots": "local visualization artifact saw-ui-20261018; synthetic only"
+}

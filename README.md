@@ -5,24 +5,28 @@
 
 | 항목 | 값 |
 |---|---|
-| 현재 상태 | **Windows 폐쇄망 개발 파일럿 · 개발기 설치/분석/재시작/복원 확인** |
-| 문서 기준일 | 2026-10-12 |
-| 남은 인수 | 깨끗한 LTSC2019 x64 설치·무GPU 16/32GB 공동 부하·운영 데이터/배포 승인 |
+| 현재 상태 | **Windows 폐쇄망 개발 파일럿 · 개발기 설치/분석/업데이트/복구 확인** |
+| 문서 기준일 | 2026-10-18 |
+| 최신 매체 | **v0.1.0-pilot.20261018.1 · 모델 제외 · 더블클릭 업데이트 포함** |
+| 남은 인수 | 깨끗한 LTSC2019 x64·실제 관리자 서비스·무GPU 16/32GB 공동 부하·모델 품질·운영 승인 |
 
-모델 가중치를 제외한 본체 설치 매체와 별도 모델 반입을 지원합니다. 지정 모델의 CPU 생성은 확인했지만 한국어·인용 품질은 미채택이며 운영 답변에 자동 적용하지 않습니다. 최신 구현·검증 범위는 [STATE.md](STATE.md)에 기록합니다. 기존 설계 문서의 과거 상태는 현재 실행 성공의 근거로 사용하지 않습니다.
+모델 가중치를 제외한 본체 설치 매체와 별도 모델 반입을 지원합니다. 지정 모델의 CPU 생성은 확인했지만 한국어·인용 품질은 미채택이며 운영 답변에 자동 적용하지 않습니다. 최신 구현·검증 범위와 현재 작업은 [STATE.md](STATE.md)에 기록합니다. 상세 이력은 [PROGRESS.md](PROGRESS.md)에 보존합니다.
 
-- [로컬 모델 반입·교체 안내](docs/LOCAL-MODEL-GUIDE.md)
-- [실제 탐지 화면 따라하기](docs/DETECTION-LIVE-WALKTHROUGH.md)
-- [로컬 AI 설계·권한 계약](docs/LOCAL-AI-DESIGN.md)
-- [모델 없는 설치 매체](https://github.com/dewdorp/SAW/releases) — 비공개 저장소 접근 권한이 필요합니다.
+**설치 매체:** [최신 비공개 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018.1)에서 `SAW-0.1.0-pilot.20261018.1-model-free-win-x64.zip`을 받습니다. 저장소 접근 권한이 필요합니다. 기존 설치를 업데이트하려면 ZIP을 기존 설치 밖에 해제하고 `UPDATE-SAW.cmd`를 실행한 뒤 창에서 기존 설치를 선택합니다. [더블클릭 그림 안내](docs/DOUBLE-CLICK-UPDATE-GUIDE.html)와 [업데이트·전체 복구 설명](docs/DOUBLE-CLICK-UPDATE-GUIDE.md)을 먼저 확인하세요. 새 설치와 실패 재개는 매체의 START-HERE.md 및 [설치 위치·재개 안내](docs/INSTALL-RECOVERY-2026-10-18.md)를 따릅니다.
+
+| 하고 싶은 일 | 화면에서 시작할 곳 | 안내 |
+|---|---|---|
+| 로그·PCAP 분석 | 조사 목록 → 조사 열기 → 증거 추가 | [사용 설명서](docs/USER-MANUAL.md) · [합성 자료로 처음 써보기](docs/DEMO-GUIDE.md) |
+| 통계와 원문 확인 | 조사 열기 → 로그 통계 | [통계·시간별 행동 변화](docs/STATISTICS-TEMPORAL-GUIDE.md) |
+| 웹 행위 분석·보고서 | 조사 열기 → 행위 분석 | [사용법·실제 화면](docs/BEHAVIOR-ANALYSIS-GUIDE.md) |
+| 기본 탐지 확인 | 탐지 룰 → 기본 탐지 목록 | [탐지 목록](docs/DETECTION-CATALOG-GUIDE.md) · [화면 따라하기](docs/DETECTION-LIVE-WALKTHROUGH.md) |
+| 룰·파서 JSON 반입 | 오프라인 룰·파서 | [합성 예제·독립 승인·적용·되돌리기](docs/OFFLINE-CONTENT-GUIDE.md) |
+| 조사 기록·Golden | 조사 작업대 → 확인 기록·종결 | [조사·Golden 사용법](docs/GUIDANCE-GOLDEN-GUIDE.md) |
+| 로컬 모델 반입·교체 | 관리 → 로컬 모델 | [모델 반입·교체](docs/LOCAL-MODEL-GUIDE.md) · [AI 권한 계약](docs/LOCAL-AI-DESIGN.md) |
+
+실제 확인한 환경은 Windows 11 / PowerShell 5.1의 합성 NoAdmin 설치입니다. 대상 LTSC·관리자 서비스·운영 인수 범위와 모델 한계는 [현재 상태](STATE.md)에서 확인합니다. 아래 설계 문서와 단계 표는 설계 이력이며 현재 실행 성공의 근거로 사용하지 않습니다.
 
 ---
-
-> **서버 설치(Windows 폐쇄망):** [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md)
->
-> **사용 설명서:** [docs/USER-MANUAL.md](docs/USER-MANUAL.md)
->
-> **처음 써보기:** 샘플 데이터 시나리오는 [docs/DEMO-GUIDE.md](docs/DEMO-GUIDE.md) — `python -m saw.devtools.export_samples samples`로 업로드용 샘플 생성.
 
 ## 1. 이 제품은 무엇인가
 
@@ -134,11 +138,11 @@ SAW는 **SIEM이 아니다.** 기존 SIEM / SOAR / NDR / WAF / IPS / Firewall / 
 | ATT&CK | 관찰 기반 Story 유지 + ATT&CK은 출처·신뢰도·조건이 붙은 Overlay. Navigator·Attack Flow·TIE 연동 | [0015](docs/adr/0015-attack-as-evidence-backed-lens.md) |
 | 대용량 업로드 | API 경유 Resumable Chunked Upload → S3 Multipart (파싱은 Worker) | [0013](docs/adr/0013-resumable-upload-through-api.md) |
 
-## 5. 단계 (요약)
+## 5. 단계 (초기 설계 이력)
 
 | Phase | 범위 | 마일스톤 |
 |---|---|---|
-| 0 | 설계 문서 (현재) | — |
+| 0 | 설계 문서 | — |
 | 1 | Repo, Docker Compose, PG/Redis/MinIO/OpenSearch, Auth, RBAC, Audit | Foundation |
 | 2–3 | Universal / IOC / HTTP / Payload / Request Diff / Single Log / Basic Timeline | **Analyzer Alpha** |
 | 4–5 | Workbench UI, Findings, Attack Story, Bulk Log 파이프라인, Pattern/Parameter | **MVP** |
@@ -148,7 +152,6 @@ SAW는 **SIEM이 아니다.** 기존 SIEM / SOAR / NDR / WAF / IPS / Firewall / 
 
 상세: [33-development-roadmap.md](docs/33-development-roadmap.md)
 
-## 6. Phase 0 Stop Condition
+## 6. Phase 0 당시의 착수 조건 (이력)
 
-Phase 0 문서 작성 완료 후 **구현을 시작하지 않는다.**
-명시적 승인 문구 `Phase 1 진행` 이후에만 Phase 1을 시작한다.
+초기 설계 단계에는 문서 작성 뒤 구현을 시작하지 않고, 명시적 승인 문구 `Phase 1 진행` 이후 Phase 1을 시작하도록 정했습니다. 이후 구현·검증·배포 이력은 [PROGRESS.md](PROGRESS.md), 현재 승인된 작업과 남은 인수는 [STATE.md](STATE.md)를 따릅니다.
