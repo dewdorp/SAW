@@ -1,0 +1,22 @@
+{
+  "schema": "saw.guide-revision/1",
+  "revision": "r2",
+  "recorded_at": "2026-10-18T04:10:07.350818+00:00",
+  "change": "Removed manual ZIP hash calculation and comparison from operator instructions.",
+  "automatic_bundle_and_update_validation_preserved": true,
+  "installer_or_product_code_changed": false,
+  "native_install_update_restore_rerun": false,
+  "prior_native_evidence": "update-walkthrough-2026-10-18.json",
+  "validation": {
+    "release_manifest_tests_passed": 27,
+    "existing_warnings": 1,
+    "test_elapsed_seconds": 8.17,
+    "powershell_51_complete_command_examples_parsed": 13,
+    "copy_targets_present": 14,
+    "manual_hash_command_absent": true,
+    "browser_step2_reloaded_and_visually_checked": true,
+    "screenshot_updated": "../screenshots/update-2026-10-18/02-media.jpg",
+    "independent_review": "No blocking findings"
+  },
+  "scope": "Documentation and screenshot revision only; existing installation and security verification logic unchanged."
+}

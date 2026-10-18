@@ -1,0 +1,17 @@
+{
+  "schema": "saw.guide-publication/1",
+  "revision": "r2",
+  "recorded_at": "2026-10-18T04:10:48.709184+00:00",
+  "release_url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018",
+  "guide_asset": {
+    "name": "SAW-update-guide-20261018-r2.zip",
+    "bytes": 1094623,
+    "sha256": "8903eae5387d30e3a156a53fcd17c5cb8ca53aad14ec7f2ced5b26fff63946d0"
+  },
+  "remote_size_and_digest_match": true,
+  "prior_assets_unchanged": 11,
+  "installer_zip_unchanged": true,
+  "manual_operator_hash_comparison_required": false,
+  "automatic_runtime_integrity_validation_unchanged": true,
+  "installer_or_user_data_in_guide_archive": false
+}

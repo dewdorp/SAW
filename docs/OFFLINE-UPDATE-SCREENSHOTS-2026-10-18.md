@@ -14,11 +14,11 @@
 
 ![기존 설치를 보존하는 폴더 구성](screenshots/update-2026-10-18/01-folders.jpg)
 
-## 2. 반입한 새 ZIP을 검증합니다
+## 2. 새 ZIP을 풀고 자동 검증 결과를 확인합니다
 
-[10/18 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018)에서 모델 제외 ZIP과 공개 SHA256을 받아 승인된 경로로 반입합니다. ZIP 지문을 대조하고 별도 폴더에 압축을 푼 뒤 verify-bundle.ps1로 전체 매체를 확인합니다.
+[10/18 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018)에서 모델 제외 ZIP을 받아 승인된 경로로 반입합니다. 별도 폴더에 압축을 모두 푼 뒤 verify-bundle.ps1을 실행하고 오류 없이 끝나는지만 확인합니다. 해시 값을 직접 계산하거나 눈으로 대조할 필요는 없습니다. 업데이트 도구의 자동 검증은 그대로 동작합니다.
 
-![ZIP 지문과 압축 해제 매체 확인](screenshots/update-2026-10-18/02-media.jpg)
+![압축 해제 후 자동 검증 결과 확인](screenshots/update-2026-10-18/02-media.jpg)
 
 ## 3. 작업을 마치고 서버 전체를 중지합니다
 
