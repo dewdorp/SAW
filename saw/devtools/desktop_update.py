@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import ctypes
 import importlib.util
 import json
@@ -574,6 +574,65 @@ class WindowsController:
                     continue
                 if kind != winreg.REG_MULTI_SZ or any(value.split('=', 1)[0].upper().startswith('SAW_') for value in values):
                     raise DesktopError('service_environment_unverified')
+    @staticmethod
+    def _verify_opensearch_procrun(root):
+        """Verify the actual Procrun settings in both Windows registry views.
+
+        Apache Procrun can store x64 service configuration in the 32-bit
+        registry view. An absent view is fine, but any populated view must
+        independently match; never accept a matching shadow that hides
+        conflicting or incomplete service settings in the other view.
+        """
+        import winreg
+        prefix = r'SOFTWARE\Apache Software Foundation\ProcRun 2.0\saw-opensearch\Parameters'
+        home = root / 'opensearch-2.19.6'
+        expected_jvm = home / 'jdk/bin/server/jvm.dll'
+        expected_working = home
+        wanted = ('-Dopensearch.path.home=' + str(home),
+                  '-Dopensearch.path.conf=' + str(home / 'config'))
+        found = False
+
+        for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+            with ExitStack() as handles:
+                def open_optional(branch):
+                    try:
+                        return handles.enter_context(winreg.OpenKey(
+                            winreg.HKEY_LOCAL_MACHINE, prefix + '\\' + branch,
+                            0, winreg.KEY_READ | view))
+                    except FileNotFoundError:
+                        return None
+
+                java = open_optional('Java')
+                start = open_optional('Start')
+                if java is None and start is None:
+                    continue
+                if java is None or start is None:
+                    raise DesktopError('service_configuration_unverified')
+                found = True
+
+                jvm = winreg.QueryValueEx(java, 'Jvm')[0]
+                working = winreg.QueryValueEx(start, 'WorkingPath')[0]
+                options = []
+                for name in ('Options', 'Options9'):
+                    try:
+                        values = winreg.QueryValueEx(java, name)[0]
+                    except FileNotFoundError:
+                        continue
+                    if not isinstance(values, (tuple, list)) or any(not isinstance(item, str) for item in values):
+                        raise DesktopError('service_configuration_unverified')
+                    options.extend(item.replace('"', '') for item in values)
+
+                if (not isinstance(jvm, str) or not isinstance(working, str)
+                        or Path(jvm) != expected_jvm or Path(working) != expected_working):
+                    raise DesktopError('service_configuration_unverified')
+                for option in wanted:
+                    key = option.split('=', 1)[0] + '='
+                    if [value for value in options if value.startswith(key)] != [option]:
+                        raise DesktopError('service_configuration_unverified')
+
+        if not found:
+            raise DesktopError('service_configuration_unverified')
+
     def _service_configuration(self, root, cfg):
         def xml(name):
             path = root / ('service/' + name + '.xml')
@@ -607,27 +666,7 @@ class WindowsController:
                 raise DesktopError('service_configuration_unverified')
             if any(wanted is not None and actual != wanted for actual, wanted in zip(args, expected_args)):
                 raise DesktopError('service_configuration_unverified')
-            import winreg
-            prefix = r'SOFTWARE\Apache Software Foundation\ProcRun 2.0\saw-opensearch\Parameters'
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, prefix + r'\Java', 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
-                jvm = winreg.QueryValueEx(key, 'Jvm')[0]
-                options = []
-                for name in ('Options', 'Options9'):
-                    try:
-                        options.extend(winreg.QueryValueEx(key, name)[0])
-                    except FileNotFoundError:
-                        pass
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, prefix + r'\Start', 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
-                working = winreg.QueryValueEx(key, 'WorkingPath')[0]
-            home = root / 'opensearch-2.19.6'
-            wanted = ['-Dopensearch.path.home=' + str(home), '-Dopensearch.path.conf=' + str(home / 'config')]
-            options = [item.replace('"', '') for item in options]
-            if Path(jvm) != home / 'jdk/bin/server/jvm.dll' or Path(working) != home:
-                raise DesktopError('service_configuration_unverified')
-            for item in wanted:
-                prefix = item.split('=', 1)[0] + '='
-                if [value for value in options if value.startswith(prefix)] != [item]:
-                    raise DesktopError('service_configuration_unverified')
+            self._verify_opensearch_procrun(root)
         except DesktopError:
             raise
         except Exception:
