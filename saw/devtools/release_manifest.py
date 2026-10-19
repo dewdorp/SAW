@@ -32,9 +32,21 @@ DESKTOP_UPDATE_REQUIRED = {
     "desktop_app_worker": "app/deploy/windows/update-worker.ps1",
     "desktop_controller": "app/saw/devtools/desktop_update.py",
 }
+INSPECTION_REQUIRED = {
+    "desktop_diagnostics": "app/saw/devtools/update_diagnostics.py",
+    "native_acceptance": "test-update-environment.ps1",
+    "native_app_acceptance": "app/deploy/windows/test-update-environment.ps1",
+}
 EXCLUDED = {"release-manifest.json", "SHA256SUMS.txt"}
 class BundleError(ValueError):
-    """Media is incomplete, unsafe, or changed."""
+    """Media is incomplete, unsafe, or changed; never contains raw exceptions."""
+
+    def __init__(self, message, *, code="media_manifest_invalid", location="release-manifest.json",
+                 expected="valid complete offline media", actual="verification failed"):
+        super().__init__(message)
+        self.code = code
+        self.diagnostics = {"location": location, "expected": expected, "actual": actual}
+
 
 def safe_relative(value: str) -> str:
     if not isinstance(value, str) or not value or "\\" in value or value.startswith("/"):
@@ -99,6 +111,12 @@ def _required(rows, metadata=None):
         if not set(DESKTOP_UPDATE_REQUIRED.values()) <= found:
             raise BundleError("desktop update payload missing")
         required.update(DESKTOP_UPDATE_REQUIRED)
+    if "updater_inspection" in metadata:
+        if type(metadata["updater_inspection"]) is not int or metadata["updater_inspection"] != 1:
+            raise BundleError("unsupported inspection contract")
+        if not set(INSPECTION_REQUIRED.values()) <= found:
+            raise BundleError("inspection payload missing")
+        required.update(INSPECTION_REQUIRED)
     return required
 
 def seal(root: Path, metadata: dict) -> dict:
@@ -114,28 +132,62 @@ def seal(root: Path, metadata: dict) -> dict:
 
 def verify(root: Path) -> dict:
     root = Path(root)
+    manifest = root / "release-manifest.json"
+    if not manifest.exists():
+        source = (root / "pyproject.toml").is_file() or (root / "saw").is_dir()
+        raise BundleError("Source archive is not offline media" if source else "Release manifest missing",
+                          code="media_source_archive" if source else "media_manifest_missing",
+                          actual="source archive" if source else "missing")
     try:
-        doc = json.loads((root / "release-manifest.json").read_text(encoding="utf-8-sig"))
-        if doc["schema"] != "saw.offline-release/1" or doc["model_weights_included"] is not False:
+        if manifest.stat().st_size > 8 * 1024 * 1024 or manifest.stat().st_nlink != 1:
+            raise BundleError("Invalid release manifest size or links")
+        doc = json.loads(manifest.read_text(encoding="utf-8-sig"))
+        if not isinstance(doc, dict) or doc["schema"] != "saw.offline-release/1" or doc["model_weights_included"] is not False:
             raise BundleError("unsupported manifest")
         expected = doc["files"]
-        if not isinstance(expected, list):
+        if not isinstance(expected, list) or len(expected) > 100000:
             raise BundleError("invalid files")
         seen = set()
         for r in expected:
             rel = safe_relative(r["path"])
             public_path(rel)
-            if rel in EXCLUDED or rel.casefold() in seen or type(r["bytes"]) is not int or r["bytes"] < 0 or not re.fullmatch(r"[0-9a-f]{64}", r["sha256"]):
+            if rel in EXCLUDED or rel.casefold() in seen or type(r["bytes"]) is not int or r["bytes"] < 0 or not isinstance(r["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", r["sha256"]):
                 raise BundleError("invalid file entry")
             seen.add(rel.casefold())
-        _required(expected, doc.get("metadata"))
+        try:
+            _required(expected, doc.get("metadata"))
+        except BundleError as error:
+            if "payload missing" in str(error):
+                required = dict(REQUIRED)
+                if doc.get("metadata", {}).get("desktop_update_ui") == 1:
+                    required.update(DESKTOP_UPDATE_REQUIRED)
+                if doc.get("metadata", {}).get("updater_inspection") == 1:
+                    required.update(INSPECTION_REQUIRED)
+                missing = sorted(set(required.values()) - {r["path"] for r in expected})
+                raise BundleError("Required payload missing", code="media_payload_missing",
+                                  location=missing[0] if missing else "release-manifest.json",
+                                  expected="required manifest entry", actual="missing") from None
+            raise
         actual = inventory(root)
-        if actual != sorted(expected, key=lambda r: r["path"]):
-            raise BundleError("media missing, changed, or contains unexpected files")
+        by_path = {r["path"]: r for r in actual}
+        wanted = {r["path"]: r for r in expected}
+        missing = sorted(set(wanted) - set(by_path))
+        if missing:
+            raise BundleError("Media file missing", code="media_file_missing", location=missing[0],
+                              expected="manifest file", actual="missing")
+        extra = sorted(set(by_path) - set(wanted))
+        if extra:
+            raise BundleError("Unexpected media file", code="media_unexpected_file",
+                              location="<unlisted-file>", expected="manifest files only", actual="unlisted file")
+        for relative in sorted(wanted):
+            if by_path[relative] != wanted[relative]:
+                raise BundleError("Media integrity mismatch", code="media_hash_mismatch",
+                                  location=relative, expected=wanted[relative]["sha256"],
+                                  actual=by_path[relative]["sha256"])
         return {"verified": True, "file_count": len(actual), "bytes": sum(r["bytes"] for r in actual),
-                "manifest_sha256": digest(root / "release-manifest.json")}
-    except (KeyError, TypeError, OSError, json.JSONDecodeError) as e:
-        raise BundleError("invalid release media") from e
+                "manifest_sha256": digest(manifest)}
+    except (KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError):
+        raise BundleError("invalid release media") from None
 
 def main():
     parser = argparse.ArgumentParser()

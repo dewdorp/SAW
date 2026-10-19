@@ -30,6 +30,10 @@ PINS = {"python": "3.12.10", "postgresql": "16.15-1", "opensearch": "2.19.6"}
 
 class UpdateError(ValueError):
     """An update or recovery precondition was not met."""
+    def __init__(self, message, *, code=None, diagnostics=None):
+        self.code = code
+        self.diagnostics = diagnostics
+        super().__init__(message)
 
 def _ps(script):
     script = "$env:PSModulePath=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules'); " + script
@@ -69,9 +73,10 @@ def _preflight_copy(source, destination):
     for path in _tree_paths(source):
         _windows_path_limit(destination / path.relative_to(source), directory=path.is_dir())
 
-def _preflight_json(path):
+def _preflight_json(path, *, unique=False):
     _windows_path_limit(path, directory=False)
-    _windows_path_limit(path.with_name(path.name + ".writing"), directory=False)
+    suffix = "." + "0" * 12 + ".writing" if unique else ".writing"
+    _windows_path_limit(path.with_name(path.name + suffix), directory=False)
 
 def _restore_paths(root):
     for _attempt in range(10):
@@ -163,17 +168,35 @@ def _set_acl(path, policy):
         kernel.LocalFree(descriptor)
 
 
+_ACCESS_METADATA_FAILURES = {
+    2: "access_metadata_file_missing",
+    3: "access_metadata_path_missing",
+    5: "access_metadata_denied",
+    32: "access_metadata_sharing_violation",
+    33: "access_metadata_lock_violation",
+}
+_TRANSIENT_ACCESS_REASONS = frozenset(_ACCESS_METADATA_FAILURES[code] for code in (2, 3, 32, 33))
+
+
 def _access_metadata(path):
     """Read owner and every ordinary DACL ACE; never read file contents."""
     from ctypes import wintypes
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     advapi.GetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
                                        ctypes.POINTER(wintypes.DWORD)]
+    advapi.GetFileSecurityW.restype = wintypes.BOOL
     needed = wintypes.DWORD()
-    advapi.GetFileSecurityW(str(path), 5, None, 0, ctypes.byref(needed))
+    sized = advapi.GetFileSecurityW(str(path), 5, None, 0, ctypes.byref(needed))
+    size_error = ctypes.get_last_error()  # Capture before allocation or another Windows call.
+    if not needed.value or (not sized and size_error != 122):  # ERROR_INSUFFICIENT_BUFFER is expected.
+        raise UpdateError("Cannot inspect installation access policy",
+                          code=_ACCESS_METADATA_FAILURES.get(size_error, "access_metadata_unreadable"))
     descriptor = ctypes.create_string_buffer(needed.value)
-    if not needed.value or not advapi.GetFileSecurityW(str(path), 5, descriptor, needed.value, ctypes.byref(needed)):
-        raise UpdateError("Cannot inspect installation access policy")
+    read = advapi.GetFileSecurityW(str(path), 5, descriptor, needed.value, ctypes.byref(needed))
+    read_error = ctypes.get_last_error()
+    if not read:
+        raise UpdateError("Cannot inspect installation access policy",
+                          code=_ACCESS_METADATA_FAILURES.get(read_error, "access_metadata_unreadable"))
     advapi.GetSecurityDescriptorOwner.argtypes = [
         ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
     owner, defaulted = ctypes.c_void_p(), wintypes.BOOL()
@@ -212,7 +235,7 @@ def _access_metadata(path):
             raise UpdateError("Cannot inspect installation access policy entry")
         header = ctypes.cast(ace, ctypes.POINTER(ctypes.c_ubyte))
         if header[0] not in (0, 1):  # ACCESS_ALLOWED_ACE / ACCESS_DENIED_ACE only.
-            raise UpdateError("Unsupported installation access policy ACE type")
+            raise UpdateError("Unsupported installation access policy ACE type", code="unsupported_access_ace")
         mask = ctypes.c_uint32.from_address(ace.value + 4).value
         entries.append((header[0], header[1], mask, sid_text(ctypes.c_void_p(ace.value + 8))))
     return owner_sid, entries
@@ -233,61 +256,289 @@ def _network_service_scope(relative):
             return mask, True, owner
     return 0, False, False
 
-def _access_gate(root, *, relative_base=Path("."), service_mode=None):
-    """Refuse untrusted installation ACLs; never repair existing permissions."""
+def _safe_access_path(relative):
+    """Keep diagnostics useful for runtime files without naming private records."""
+    name = relative.as_posix()
+    fixed = {".", "app", "data", "logs", "models", "secrets", "tls", "run",
+             "saw-ctl.json", "saw-ctl.ps1", ".saw-install-state.json",
+             "installed-release-manifest.json", "recovery-point.json",
+             "update-result.json", "state.json", "installation", "previous-app", "new-app",
+             "app/.env", "data/postgresql", "logs/postgresql"}
+    runtime = ("app/saw/", "app/deploy/", "venv/", "pgsql/", "llm-runtime/",
+               "opensearch-2.19.6/bin/", "opensearch-2.19.6/lib/",
+               "opensearch-2.19.6/jdk/", "opensearch-2.19.6/plugins/",
+               "opensearch-2.19.6/config/")
+    safe = len(name) <= 240 and re.fullmatch(r"[A-Za-z0-9_./@+ -]+", name) and ".." not in name.split("/")
+    if safe and (name in fixed or name.startswith(runtime) or
+                 name in {prefix.rstrip("/") for prefix in runtime}):
+        return name
+    return "<private-data>"
+
+
+def _safe_access_sid(sid, current):
+    if sid == current:
+        return "current_user"
+    return sid if sid in {"S-1-1-0", "S-1-3-4", "S-1-5-11", "S-1-5-18",
+                          "S-1-5-20", "S-1-5-32-544", "S-1-5-32-545"} else "other"
+
+
+def _owner_rights_service_change(source_owner, target_owner, entries):
+    """Detect changed service access when identical OWNER RIGHTS ACEs change owner."""
+    service = "S-1-5-20"
+    if (source_owner == target_owner or service not in (source_owner, target_owner) or
+            not any(sid == "S-1-3-4" and not flags & 8 for _, flags, _, sid in entries)):
+        return None
+    # Everyone, Authenticated Users and Service follow the service logon identity.
+    # Builtin Users membership is configurable; its deny ACE cannot prove safety.
+    principals = {service, "S-1-1-0", "S-1-5-11", "S-1-5-6"}
+    def granted(owner, optional=None):
+        active = principals | ({optional} if optional is not None else set())
+        remaining, allowed = 0x1F01FF, 0
+        for kind, flags, mask, sid in entries:
+            if flags & 8:  # INHERIT_ONLY_ACE does not authorize this object.
+                continue
+            effective = owner if sid == "S-1-3-4" else sid
+            if effective not in active:
+                continue
+            # Map generic file rights before comparing effective grants.
+            expanded = mask & 0x1F01FF
+            for generic, specific in ((0x10000000, 0x1F01FF), (0x80000000, 0x120089),
+                                      (0x40000000, 0x120116), (0x20000000, 0x1200A0)):
+                if mask & generic:
+                    expanded |= specific
+            applicable = expanded & remaining
+            if kind == 0:
+                allowed |= applicable
+            remaining &= ~applicable
+        return allowed
+    def difference(optional=None):
+        before, after = granted(source_owner, optional), granted(target_owner, optional)
+        if before != after:
+            return {"reason": "owner_rights_service_change", "sid": service,
+                    "source_rights": before, "copied_rights": after}
+        return None
+    changed = difference()
+    if changed:
+        return changed
+    optional = {sid for kind, flags, _, sid in entries
+                if kind == 1 and not flags & 8 and sid not in principals and sid != "S-1-3-4"}
+    if len(optional) > 32:
+        return {"reason": "owner_rights_service_change", "sid": service,
+                "comparison": "unproven_group_membership"}
+    # For each access bit, the earliest matching ACE decides its grant. Any
+    # combination of optional deny groups has one earliest such group; testing
+    # each alone covers that decision without a powerset or token modification.
+    for sid in sorted(optional):
+        changed = difference(sid)
+        if changed:
+            return changed
+    return None
+
+
+def _assert_copy_owner_semantics(source, destination):
     if os.name != "nt":
         return
-    paths = _tree_paths(root)
-    current = _ps("[Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
-    trusted = {current, "S-1-5-18", "S-1-5-32-544"}
-    if service_mode is None:
-        service_mode = (root / "service/saw-postgresql.exe").is_file()
-    for path in paths:
-        relative = relative_base / path.relative_to(root)
+    source_owner, entries = _access_metadata(source)
+    target_owner, _ = _access_metadata(destination)
+    violation = _owner_rights_service_change(source_owner, target_owner, entries)
+    if violation:
+        raise UpdateError("Copying this owner-dependent policy would change service access",
+                          code="owner_semantics_unpreserved", diagnostics={
+                          "scope": "copy", "checked": 1, "violations": 1,
+                          "items": [{"path": "<private-data>", **violation}], "truncated": False})
+
+
+def _access_violations(path, current, relative=Path("."), service_mode=False, private=False,
+                       copy_owner=None):
+    """Evaluate OWNER RIGHTS as the validated actual owner, never as Everyone."""
+    try:
+        owner, entries = _access_metadata(path)
+    except (UpdateError, OSError) as error:
+        code = getattr(error, "code", None)
+        reason = ("unsupported_ace" if code == "unsupported_access_ace" else
+                  code if code in _ACCESS_METADATA_FAILURES.values() else "access_metadata_unreadable")
+        return [{"reason": reason}]
+    trusted = {current, "S-1-5-18"}
+    if not private:
+        trusted.add("S-1-5-32-544")
+    mask, inherit, service_owner = _network_service_scope(relative) if service_mode and not private else (0, False, False)
+    violations = []
+    if owner not in trusted and not (owner == "S-1-5-20" and service_owner):
+        violations.append({"reason": "untrusted_owner", "sid": _safe_access_sid(owner, current)})
+    for kind, flags, rights, sid in entries:
+        if kind == 1:
+            continue
+        # OWNER RIGHTS applies to the actual owner, including scoped service owners.
+        effective = owner if sid == "S-1-3-4" else sid
+        if effective in trusted:
+            continue
+        if (effective != "S-1-5-20" or not mask or rights & ~mask or
+                (not inherit and flags & 0x03)):
+            violations.append({"reason": "untrusted_allow", "sid": _safe_access_sid(sid, current),
+                               "effective_sid": _safe_access_sid(effective, current),
+                               "rights": int(rights), "flags": int(flags)})
+    if copy_owner is not None:
+        violation = _owner_rights_service_change(owner, copy_owner, entries)
+        if violation:
+            violations.append(violation)
+    return violations
+
+
+def _access_gate(root, *, relative_base=Path("."), service_mode=None, snapshot_root=None,
+                 check_copy_semantics=False, retry_transient=False):
+    """Verify every policy; opt-in live retries always start a complete fresh scan."""
+    # Cold snapshots and all callers that do not explicitly opt in remain strict.
+    limit = 3 if retry_transient and snapshot_root is None else 1
+    for attempt in range(1, limit + 1):
+        report = {"scope": "snapshot" if snapshot_root is not None else "installation",
+                  "checked": 0, "violations": 0, "items": [], "truncated": False, "attempts": attempt}
+        if os.name != "nt":
+            return report
+        if snapshot_root is not None and snapshot_root != root / "installation":
+            raise UpdateError("Invalid snapshot access policy boundary", code="unsafe_access")
         try:
-            owner, entries = _access_metadata(path)
-            mask, inherit, service_owner = _network_service_scope(relative) if service_mode else (0, False, False)
-            if owner not in trusted and not (owner == "S-1-5-20" and service_owner):
-                raise UpdateError("Untrusted owner")
-            for kind, flags, rights, sid in entries:
-                if kind == 1 or sid in trusted:
-                    continue
-                if (sid != "S-1-5-20" or not mask or rights & ~mask
-                        or (not inherit and flags & 0x03)):
-                    raise UpdateError("Untrusted or excessive allow ACE")
-        except UpdateError:
-            raise UpdateError("Installation access policy requires administrator review: "
-                              + relative.as_posix()) from None
+            paths = _tree_paths(root)
+        except (UpdateError, OSError) as error:
+            missing = getattr(error, "code", None) == "access_enumeration_missing"
+            reason = "access_enumeration_missing" if missing else "access_enumeration_failed"
+            report.update(violations=1, items=[{"path": ".", "reason": reason}])
+            if missing and attempt < limit:
+                continue
+            raise UpdateError("Installation access policy inspection failed", code="unsafe_access",
+                              diagnostics=report) from None
+        # Token failures are never transient tree failures, including a missing shell executable.
+        try:
+            current = _ps("[Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
+            copy_owner = (_ps("[Security.Principal.WindowsIdentity]::GetCurrent().Owner.Value")
+                          if check_copy_semantics else None)
+            if copy_owner is not None and not re.fullmatch(r"S-1-[0-9-]+", copy_owner):
+                raise UpdateError("Cannot inspect the current token owner")
+        except (UpdateError, OSError):
+            report.update(violations=1, items=[{"path": ".", "reason": "access_enumeration_failed"}])
+            raise UpdateError("Installation access policy inspection failed", code="unsafe_access",
+                              diagnostics=report) from None
+        scoped_mode = ((root / "service/saw-postgresql.exe").is_file()
+                       if service_mode is None else service_mode)
+        snapshot_service = bool(snapshot_root is not None and (snapshot_root / "service/saw-postgresql.exe").is_file())
+        semantic_change, transient_only = False, True
+        for path in paths:
+            relative = relative_base / path.relative_to(root)
+            scoped_service = scoped_mode
+            if snapshot_root is not None:
+                scoped_service = False
+                if _inside(path, snapshot_root):
+                    relative = path.relative_to(snapshot_root)
+                    scoped_service = snapshot_service
+            report["checked"] += 1
+            violations = _access_violations(path, current, relative, scoped_service, copy_owner=copy_owner)
+            for violation in violations:
+                semantic_change |= violation["reason"] == "owner_rights_service_change"
+                transient_only &= violation["reason"] in _TRANSIENT_ACCESS_REASONS
+                report["violations"] += 1
+                if len(report["items"]) < 30:
+                    report["items"].append({"path": _safe_access_path(relative), **violation})
+        report["truncated"] = report["violations"] > len(report["items"])
+        if report["violations"]:
+            # A real violation anywhere in the full scan prohibits retry, even beyond the display cap.
+            if transient_only and attempt < limit:
+                continue
+            message = ("Copying an owner-dependent policy would change service access" if semantic_change else
+                       "Installation access policy requires administrator review")
+            raise UpdateError(message, code="owner_semantics_unpreserved" if semantic_change else "unsafe_access",
+                              diagnostics=report)
+        return report
+
+
+@contextmanager
+def _private_security_attributes(*, directory=False):
+    """Supply the current user as owner before any private bytes can be written."""
+    from ctypes import wintypes
+    class SecurityAttributes(ctypes.Structure):
+        _fields_ = [("length", wintypes.DWORD), ("descriptor", ctypes.c_void_p),
+                    ("inherit_handle", wintypes.BOOL)]
+    current = _ps("[Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
+    if not re.fullmatch(r"S-\d+(?:-\d+)+", current):
+        raise UpdateError("Cannot identify private object owner", code="unsafe_state_directory")
+    inheritance = "OICI" if directory else ""
+    policy = f"O:{current}D:P(A;{inheritance};FA;;;{current})(A;{inheritance};FA;;;SY)"
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+    descriptor = ctypes.c_void_p()
+    if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            policy, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield SecurityAttributes(ctypes.sizeof(SecurityAttributes), descriptor, False)
+    finally:
+        kernel.LocalFree(descriptor)
+
+
+def _private_file_fd(path, flags):
+    """Create a private file exclusively, independent of the token default owner."""
+    if os.name != "nt":
+        return os.open(path, flags, 0o600)
+    from ctypes import wintypes
+    import msvcrt
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    with _private_security_attributes() as attributes:
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                      ctypes.POINTER(type(attributes)), wintypes.DWORD,
+                                      wintypes.DWORD, wintypes.HANDLE]
+        access = 0xC0000000 if flags & os.O_RDWR else 0x40000000
+        handle = kernel.CreateFileW(str(path), access, 0, ctypes.byref(attributes), 1, 0x80, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        mode = os.O_RDWR if flags & os.O_RDWR else os.O_WRONLY
+        return msvcrt.open_osfhandle(handle, mode | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
 
 
 def _private_directory(path):
     _windows_path_limit(path, directory=True)
-    path.mkdir()
-    if os.name == "nt":
-        _ps("$ErrorActionPreference='Stop'; "
-            "$acl=New-Object System.Security.AccessControl.DirectorySecurity; "
-            "$acl.SetAccessRuleProtection($true,$false); "
-            "$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User; "
-            "foreach($id in @($sid,(New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))) { "
-            "$rule=New-Object Security.AccessControl.FileSystemAccessRule($id,'FullControl','ContainerInherit,ObjectInherit','None','Allow'); "
-            "$acl.AddAccessRule($rule) }; Set-Acl -LiteralPath " + _literal(path) + " -AclObject $acl")
-    else:
-        path.chmod(0o700)
+    if os.name != "nt":
+        path.mkdir(mode=0o700)
+        return
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    with _private_security_attributes(directory=True) as attributes:
+        kernel.CreateDirectoryW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(type(attributes))]
+        kernel.CreateDirectoryW.restype = wintypes.BOOL
+        if not kernel.CreateDirectoryW(str(path), ctypes.byref(attributes)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
 
 def _tree_paths(root):
     _windows_path_limit(root, directory=True)
     _path(root)
     paths = [root]
-    def enumeration_failed(_error):
-        raise UpdateError("Cannot enumerate every directory; complete verification is required") from None
-    for parent, directories, files in os.walk(root, followlinks=False, onerror=enumeration_failed):
-        for name in directories + files:
-            path = Path(parent) / name
-            _windows_path_limit(path, directory=name in directories)
-            if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & 0x400:
-                raise UpdateError("Reparse points are not supported")
-            _manifest.safe_relative(path.relative_to(root).as_posix())
-            paths.append(path)
+    def enumeration_failed(error):
+        raise error
+    try:
+        for parent, directories, files in os.walk(root, followlinks=False, onerror=enumeration_failed):
+            for name in directories + files:
+                path = Path(parent) / name
+                _windows_path_limit(path, directory=name in directories)
+                if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & 0x400:
+                    raise UpdateError("Reparse points are not supported")
+                _manifest.safe_relative(path.relative_to(root).as_posix())
+                paths.append(path)
+    except OSError as error:
+        native = getattr(error, "winerror", None)
+        missing = (native in (2, 3) if native is not None else
+                   isinstance(error, FileNotFoundError) or error.errno == 2)
+        raise UpdateError("Cannot enumerate every directory; complete verification is required",
+                          code="access_enumeration_missing" if missing else None) from None
     return [root, *sorted(paths[1:])]
 
 def _inventory(root):
@@ -318,6 +569,7 @@ def _copy_file(source, destination):
     destination.touch(exist_ok=False)
     # Install the original access policy before writing any private bytes.
     _set_acl(destination, _acl(source))
+    _assert_copy_owner_semantics(source, destination)
     shutil.copyfile(source, destination)
     shutil.copystat(source, destination)
 
@@ -331,6 +583,7 @@ def _copy_tree(source, destination):
         if row.get("directory"):
             target.mkdir(exist_ok=True)
             _set_acl(target, row["acl"])
+            _assert_copy_owner_semantics(original, target)
         else:
             _copy_file(original, target)
     if _inventory(destination) != rows:
@@ -366,16 +619,24 @@ def _stage_public_app(source, destination, installed_app):
         raise UpdateError("Staged application files do not match verified media")
 
 
-def _json(path, data):
-    _preflight_json(path)
-    temp = path.with_name(path.name + ".writing")
-    with temp.open("x", encoding="utf-8") as stream:
+def _json(path, data, *, unique=False):
+    _preflight_json(path, unique=unique)
+    suffix = "." + uuid.uuid4().hex[:12] + ".writing" if unique else ".writing"
+    temp = path.with_name(path.name + suffix)
+    with open(temp, "x", encoding="utf-8", opener=_private_file_fd) as stream:
         json.dump(data, stream, ensure_ascii=True, indent=2)
         stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temp, path)
 
-def _config(root, *, verified_application_config=None):
-    application_config = root / "app/.env"
+def _config(root, *, verified_application_config=None, verified_installation=None):
+    source = root
+    if verified_installation is not None:
+        if root.exists() or verified_application_config is not None:
+            raise UpdateError("Verified installation fallback requires a missing installation")
+        source = _path(verified_installation)
+    application_config = source / "app/.env"
     if verified_application_config is not None:
         # Only restore callers that already verified the full recovery inventory may
         # supply this fallback for the app-directory rename interruption window.
@@ -417,7 +678,7 @@ def _config(root, *, verified_application_config=None):
             raise UpdateError("Mutable state inside the replaceable application is not supported")
         if key == "SAW_WEB_DIST" and candidate != default:
             raise UpdateError("Customized UI locations are not supported")
-    cfg = json.loads((root / "saw-ctl.json").read_text(encoding="utf-8-sig"))
+    cfg = json.loads((source / "saw-ctl.json").read_text(encoding="utf-8-sig"))
     for key in ("port", "postgresPort", "opensearchPort"):
         if type(cfg.get(key)) is not int or not 1 <= cfg[key] <= 65535:
             raise UpdateError("Invalid installed port configuration")
@@ -429,7 +690,7 @@ def _config(root, *, verified_application_config=None):
             or search.port != cfg["opensearchPort"] or search.path not in ("", "/")
             or search.query or search.fragment):
         raise UpdateError("External or customized databases are not supported")
-    pg = root / "data/postgresql"
+    pg = source / "data/postgresql"
     if (pg / "PG_VERSION").read_text().strip() != "16":
         raise UpdateError("PostgreSQL major version differs")
     for config_file in (pg / "postgresql.conf", pg / "postgresql.auto.conf"):
@@ -438,7 +699,7 @@ def _config(root, *, verified_application_config=None):
         for line in config_file.read_text(encoding="utf-8-sig").splitlines():
             if re.match(r"^\s*(include(?:_if_exists|_dir)?|data_directory|hba_file|ident_file|external_pid_file|archive_command|restore_command)\b", line):
                 raise UpdateError("Customized PostgreSQL storage configuration is not supported")
-    config = (root / "opensearch-2.19.6/config/opensearch.yml").read_text(encoding="utf-8-sig")
+    config = (source / "opensearch-2.19.6/config/opensearch.yml").read_text(encoding="utf-8-sig")
     found = {}
     for line in config.splitlines():
         if re.match(r"^\s*path\.", line):
@@ -525,7 +786,8 @@ def _installed_source(root, baseline):
             expected[rel] = row
             path = root / rel
             if not path.is_file() or path.stat().st_size != row["bytes"] or _manifest.digest(path) != row["sha256"]:
-                raise UpdateError("Installed application/runtime differs from its release; reconcile local edits first")
+                raise UpdateError("Installed application/runtime differs from its release; reconcile local edits first",
+                                  code="source_changed", diagnostics={"location": rel, "expected": "original release file", "actual": "missing or changed"})
     for path in _tree_paths(root / "app")[1:]:
         if not path.is_file():
             continue
@@ -534,7 +796,8 @@ def _installed_source(root, baseline):
         if rel == "app/.env" or parts[0] == "var" or "__pycache__" in parts:
             continue
         if rel not in expected:
-            raise UpdateError("Unexpected installed application file; reconcile local files first")
+            raise UpdateError("Unexpected installed application file; reconcile local files first",
+                              code="source_changed", diagnostics={"location": "<unlisted-application-file>", "expected": "release files only", "actual": "unlisted file"})
 
 def _installed_service_wrappers(root, bundle):
     service = root / "service"
@@ -578,7 +841,8 @@ def _installed_runtime(root, bundle):
                 with stream.open(info) as content:
                     wanted = hashlib.file_digest(content, "sha256").hexdigest()
                 if not path.is_file() or _manifest.digest(path) != wanted:
-                    raise UpdateError("Installed runtime or dependency differs from the pinned media")
+                    raise UpdateError("Installed runtime or dependency differs from the pinned media",
+                                      code="runtime_integrity_failed", diagnostics={"location": destination, "expected": "pinned runtime file", "actual": "missing or changed"})
                 expected.add(destination)
     archive("python/python-3.12.10-embed-amd64.zip",
             lambda name: None if name.endswith("._pth") else "venv/Scripts/" + name)
@@ -666,13 +930,20 @@ def _migration_chain(root, baseline, candidate):
         raise UpdateError("Disconnected migration lineage")
 
 @contextmanager
-def _maintenance(root):
-    root = _path(root)
+def _maintenance(root, *, allow_missing=False):
+    root = _path(root, existing=not allow_missing)
+    if not root.parent.is_dir():
+        raise UpdateError("Installation parent is missing")
     lock_path = _path(root.with_name("." + root.name + ".saw-maintenance.lock"), existing=False)
     if lock_path.exists() and (not lock_path.is_file() or lock_path.stat().st_nlink != 1):
         raise UpdateError("Unsafe installation maintenance lock")
     _windows_path_limit(lock_path, directory=False)
-    stream = lock_path.open("a+b")
+    try:
+        stream = (lock_path.open("r+b") if lock_path.exists() else
+                  open(lock_path, "x+b", opener=_private_file_fd))
+    except OSError:
+        raise UpdateError("Another installation maintenance operation is active or its lock is unavailable",
+                          code="maintenance_busy") from None
     acquired = False
     try:
         stream.seek(0)
@@ -701,7 +972,10 @@ def _maintenance(root):
 def _exclusive(function):
     @wraps(function)
     def wrapped(install_root, *args, **kwargs):
-        with _maintenance(install_root):
+        restoring = function.__name__ == "restore"
+        if restoring and not kwargs.get("confirm", False):
+            raise UpdateError("Explicit ConfirmPointInTimeRecovery is required")
+        with _maintenance(install_root, allow_missing=restoring):
             return function(install_root, *args, **kwargs)
     return wrapped
 
@@ -711,7 +985,7 @@ def plan(install_root, bundle_dir, baseline_dir=None):
     _separate(root, bundle)
     if baseline_dir:
         _separate(root, baseline_dir)
-    _access_gate(root)
+    _access_gate(root, check_copy_semantics=True)
     _tree_paths(bundle)
     _manifest.verify(bundle)
     next_release = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
@@ -801,48 +1075,182 @@ def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
     _json(recovery / "update-result.json", result)
     return result
 
+def _restore_document(path):
+    _path(path, existing=False)
+    if not path.is_file() or path.stat().st_nlink != 1 or path.stat().st_size > 64 * 1024 * 1024:
+        raise UpdateError("Invalid recovery metadata", code="restore_journal_invalid")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        raise UpdateError("Invalid recovery metadata", code="restore_journal_invalid") from None
+    if not isinstance(value, dict):
+        raise UpdateError("Invalid recovery metadata", code="restore_journal_invalid")
+    return value
+
+
+def _verified_restore_receipt(root, recovery):
+    snapshot = recovery / "installation"
+    _access_gate(recovery, snapshot_root=snapshot)
+    receipt_path = recovery / "recovery-point.json"
+    receipt = _restore_document(receipt_path)
+    if (receipt.get("schema") != "saw.cold-recovery/1" or
+            not isinstance(receipt.get("install_root"), str) or
+            Path(receipt["install_root"]) != root or not isinstance(receipt.get("files"), list)):
+        raise UpdateError("Recovery point belongs to a different absolute installation path",
+                          code="snapshot_identity_unverified")
+    if _inventory(snapshot) != receipt["files"]:
+        raise UpdateError("Recovery point files or access policies changed", code="snapshot_verification_failed")
+    return receipt, _manifest.digest(receipt_path)
+
+
+_RESTORE_JOURNAL_KEYS = {"schema", "install_root", "receipt_sha256", "token", "stage",
+                         "retained_installation", "retained_files", "phase"}
+
+
+def _pending_restore(root, recovery):
+    """Validate an interrupted transaction without changing ACLs, files, or names."""
+    root, recovery = _path(root, existing=False), _path(recovery)
+    _separate(root, recovery)
+    journal_path = recovery / "restore-journal.json"
+    if not os.path.lexists(journal_path):
+        return None
+    receipt, digest = _verified_restore_receipt(root, recovery)
+    if os.name == "nt":
+        current = _ps("[Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
+        if _access_violations(journal_path, current, private=True) or not _acl(journal_path).startswith("D:P"):
+            raise UpdateError("Recovery journal access policy changed", code="restore_journal_invalid")
+    elif journal_path.stat().st_mode & 0o077:
+        raise UpdateError("Recovery journal access policy changed", code="restore_journal_invalid")
+    journal = _restore_document(journal_path)
+    token = journal.get("token", "")
+    if (set(journal) != _RESTORE_JOURNAL_KEYS or journal.get("schema") != "saw.restore-journal/1" or
+            not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{12}", token) or
+            journal.get("phase") not in ("staged", "root_retained", "complete") or
+            journal.get("install_root") != str(root) or journal.get("receipt_sha256") != digest or
+            not isinstance(journal.get("retained_files"), list)):
+        raise UpdateError("Recovery journal identity changed", code="restore_journal_invalid")
+    stage, retained = root.with_name(".saw-r-" + token), root.with_name(".saw-k-" + token)
+    if journal.get("stage") != str(stage) or journal.get("retained_installation") != str(retained):
+        raise UpdateError("Recovery journal paths changed", code="restore_journal_invalid")
+    for path in (root, stage, retained):
+        _path(path, existing=False)
+        if path.exists() and not path.is_dir():
+            raise UpdateError("Recovery transaction location is not a directory", code="restore_journal_invalid")
+    locations = tuple(path.is_dir() for path in (root, stage, retained))
+    if locations == (True, True, False):
+        actual = "staged"
+    elif locations == (False, True, True):
+        actual = "root_retained"
+    elif locations == (True, False, True):
+        actual = "complete" if journal["phase"] == "complete" else "restored"
+    else:
+        raise UpdateError("Recovery transaction locations changed", code="restore_journal_invalid")
+    if journal["phase"] == "complete" and actual != "complete":
+        raise UpdateError("Completed recovery transaction changed", code="restore_journal_invalid")
+    expected = [(stage, receipt["files"])] if stage.is_dir() else []
+    if retained.is_dir():
+        expected.append((retained, journal["retained_files"]))
+    if actual == "staged":
+        expected.append((root, journal["retained_files"]))
+    elif actual == "restored":
+        expected.append((root, receipt["files"]))
+    for path, inventory in expected:
+        _access_gate(path)
+        if _inventory(path) != inventory:
+            raise UpdateError("Recovery transaction files or access policies changed", code="restore_journal_invalid")
+    return {**journal, "actual_phase": actual,
+            "current_location": str(root if root.is_dir() else retained)}
+
+
+def _write_restore_journal(recovery, journal, phase):
+    value = {key: journal[key] for key in _RESTORE_JOURNAL_KEYS}
+    value["phase"] = phase
+    _json(recovery / "restore-journal.json", value, unique=True)
+    journal["phase"] = phase
+
+
 @_exclusive
-def restore(install_root, recovery_point, *, confirm=False):
+def restore(install_root, recovery_point, *, confirm=False, progress=None):
     if not confirm:
         raise UpdateError("Explicit ConfirmPointInTimeRecovery is required")
-    root, recovery = _path(install_root), _path(recovery_point)
+    root, recovery = _path(install_root, existing=False), _path(recovery_point)
     _separate(root, recovery)
-    _access_gate(root)
-    receipt = json.loads((recovery / "recovery-point.json").read_text(encoding="utf-8"))
-    if receipt.get("schema") != "saw.cold-recovery/1" or Path(receipt["install_root"]) != root:
-        raise UpdateError("Recovery point belongs to a different absolute installation path")
+    pending = _pending_restore(root, recovery)
+    receipt, receipt_digest = _verified_restore_receipt(root, recovery)
     snapshot = recovery / "installation"
-    _access_gate(snapshot)
-    if _inventory(snapshot) != receipt["files"]:
-        raise UpdateError("Recovery point files or access policies changed")
-    _tree_paths(root)
-    fallback = snapshot / "app/.env" if not (root / "app").exists() else None
-    _, cfg = _config(root, verified_application_config=fallback)
-    _stopped(root, cfg)
-    if shutil.disk_usage(root.parent).free < sum(row.get("bytes", 0) for row in receipt["files"]) + 64 * 1024 * 1024:
-        raise UpdateError("Insufficient free space to stage complete recovery")
-    token, stage, retained = _restore_paths(root)
-    _preflight_rows(stage, receipt["files"])
-    _preflight_rows(root, receipt["files"])
-    _preflight_copy(root, retained)
-    result_path = recovery / ("restore-result-" + token + ".json")
-    _preflight_json(result_path)
-    _copy_tree(snapshot, stage)
-    if _inventory(stage) != receipt["files"]:
-        raise UpdateError("Recovery staging verification failed")
-    _stopped(root, cfg)
-    _preflight_copy(root, retained)
-    os.rename(root, retained)
+    if pending is None or pending["actual_phase"] == "complete":
+        _access_gate(snapshot, check_copy_semantics=True)
+        _path(root)
+        _access_gate(root)
+        fallback = snapshot / "app/.env" if not (root / "app").exists() else None
+        _, cfg = _config(root, verified_application_config=fallback)
+        _stopped(root, cfg)
+        if shutil.disk_usage(root.parent).free < sum(row.get("bytes", 0) for row in receipt["files"]) + 64 * 1024 * 1024:
+            raise UpdateError("Insufficient free space to stage complete recovery")
+        token, stage, retained = _restore_paths(root)
+        _preflight_rows(stage, receipt["files"])
+        _preflight_rows(root, receipt["files"])
+        _preflight_copy(root, retained)
+        result_path = recovery / ("restore-result-" + token + ".json")
+        _preflight_json(result_path, unique=True)
+        _preflight_json(recovery / "restore-journal.json", unique=True)
+        try:
+            if progress:
+                progress("restore_stage")
+            _copy_tree(snapshot, stage)
+            if _inventory(stage) != receipt["files"]:
+                raise UpdateError("Recovery staging verification failed")
+            pending = {"schema": "saw.restore-journal/1", "install_root": str(root),
+                       "receipt_sha256": receipt_digest, "token": token, "stage": str(stage),
+                       "retained_installation": str(retained), "retained_files": _inventory(root),
+                       "phase": "staged", "actual_phase": "staged", "current_location": str(root)}
+            _write_restore_journal(recovery, pending, "staged")
+        except Exception:
+            raise UpdateError("Recovery staging could not finish; installation was not replaced",
+                              code="restore_interrupted", diagnostics={"recovery_point": str(recovery),
+                              "stage": str(stage), "retained_installation": str(retained)}) from None
+    else:
+        stage, retained = Path(pending["stage"]), Path(pending["retained_installation"])
+        fallback = snapshot / "app/.env" if root.exists() and not (root / "app").exists() else None
+        _, cfg = _config(root, verified_application_config=fallback,
+                         verified_installation=snapshot if not root.exists() else None)
+        result_path = recovery / ("restore-result-" + pending["token"] + ".json")
     try:
-        os.rename(stage, root)
-    except BaseException:
-        os.rename(retained, root)
-        raise
-    result = {"status": "restored_stopped", "install_root": str(root),
-              "retained_installation": str(retained), "recovery_point": str(recovery),
-              "newer_records": "Preserved in retained installation; reconciliation is explicit."}
-    _json(result_path, result)
-    return result
+        _stopped(root, cfg)
+        if pending["actual_phase"] == "staged":
+            if _inventory(root) != pending["retained_files"] or _inventory(stage) != receipt["files"]:
+                raise UpdateError("Recovery transaction changed before replacement")
+            _preflight_copy(root, retained)
+            if progress:
+                progress("restore_swap")
+            os.rename(root, retained)
+            _write_restore_journal(recovery, pending, "root_retained")
+            pending["actual_phase"] = "root_retained"
+        if pending["actual_phase"] == "root_retained":
+            _stopped(retained, cfg)
+            _stopped(stage, cfg)
+            try:
+                os.rename(stage, root)
+            except BaseException:
+                # If replacement never happened, restore the previous name when possible.
+                # The durable journal also supports retry when this rollback fails.
+                if not root.exists() and stage.is_dir() and retained.is_dir():
+                    try:
+                        os.rename(retained, root)
+                    except BaseException:
+                        pass
+                raise
+        result = {"status": "restored_stopped", "install_root": str(root),
+                  "retained_installation": str(retained), "recovery_point": str(recovery),
+                  "newer_records": "Preserved in retained installation; reconciliation is explicit."}
+        _json(result_path, result, unique=True)
+        _write_restore_journal(recovery, pending, "complete")
+        return result
+    except Exception:
+        raise UpdateError("Recovery was interrupted; preserve the recovery and retained directories",
+                          code="restore_interrupted", diagnostics={"recovery_point": str(recovery),
+                          "stage": str(stage), "retained_installation": str(retained)}) from None
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser()

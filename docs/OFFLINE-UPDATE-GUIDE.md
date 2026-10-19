@@ -6,6 +6,8 @@
 
 이 안내는 프로그램 전체 버전을 바꿀 때 사용합니다. 탐지 룰·파서 데이터만 바꾸는 일은 [오프라인 콘텐츠 실습](OFFLINE-CONTENT-GUIDE.md)의 화면에서 반입·시험·독립 승인·적용·되돌리기를 사용하세요.
 
+아래 예시의 `-ExecutionPolicy RemoteSigned`는 해당 PowerShell 프로세스에만 적용됩니다. 시스템·사용자 정책은 저장하지 않으며 조직 그룹 정책이 우선합니다. 인터넷 반입 표시(MOTW)나 서명 정책으로 실행이 차단되면 조직이 승인한 서명된 배포 매체와 절차를 확인한 뒤 진행하세요.
+
 ## 먼저 알아둘 점
 
 이 안내는 로그인 가능한 기존 설치의 앱 업데이트용입니다. 설치가 중간에 실패한 상태라면 새 매체의 START-HERE.md에 있는 설치 재개 안내를 먼저 확인합니다.
@@ -73,8 +75,8 @@ Get-Service -Name 'saw', 'saw-opensearch', 'saw-postgresql'
 처음 설치하고 실행한 **같은 Windows 사용자**로 실행합니다. 아래 명령은 NoAdmin 설치 전용이며, 위 서비스 설치의 제어 명령으로 사용하지 않습니다.
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SAW\saw-ctl.ps1" stop
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SAW\saw-ctl.ps1" status
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "C:\SAW\saw-ctl.ps1" stop
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "C:\SAW\saw-ctl.ps1" status
 ~~~
 
 PostgreSQL·OpenSearch·SAW가 모두 중지로 표시되는지 확인합니다. 중지 출력이 나왔더라도 다음 점검이 실행 중 상태를 발견하면 거부합니다. 강제 종료하거나 잠금 파일을 지워 우회하지 마세요.
@@ -85,7 +87,7 @@ PostgreSQL·OpenSearch·SAW가 모두 중지로 표시되는지 확인합니다.
 
 ~~~powershell
 Set-Location "D:\SAW-media-20261018"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\SAW-media-20261018\update.ps1" -Action plan -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018"
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "D:\SAW-media-20261018\update.ps1" -Action plan -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018"
 ~~~
 
 화면의 결과 JSON에서 다음을 확인합니다.
@@ -115,7 +117,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\SAW-media-20261018\u
 점검이 통과하고 되돌리기 공간까지 준비되면 실행합니다. 아래 복구 폴더가 이미 있으면 재사용하지 말고 새로운 이름을 정합니다.
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\SAW-media-20261018\update.ps1" -Action apply -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018" -RecoveryPoint "C:\SAW-r-20261018"
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "D:\SAW-media-20261018\update.ps1" -Action apply -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018" -RecoveryPoint "C:\SAW-r-20261018"
 ~~~
 
 구형 설치에 원래 매체가 필요했다면 이 명령에도 동일한 -BaselineBundleDir 옵션을 붙입니다.
@@ -156,8 +158,8 @@ Running은 Windows 서비스 상태입니다. 검색엔진 준비와 DB 마이�
 ### B. NoAdmin 설치
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SAW\saw-ctl.ps1" start
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SAW\saw-ctl.ps1" status
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "C:\SAW\saw-ctl.ps1" start
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "C:\SAW\saw-ctl.ps1" status
 ~~~
 
 ### 공통 확인
@@ -180,7 +182,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SAW\saw-ctl.ps1" sta
 
 ~~~powershell
 Set-Location "D:\SAW-media-20261018"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\SAW-media-20261018\update.ps1" -Action restore -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018" -RecoveryPoint "C:\SAW-r-20261018" -ConfirmPointInTimeRecovery
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "D:\SAW-media-20261018\update.ps1" -Action restore -InstallRoot "C:\SAW" -BundleDir "D:\SAW-media-20261018" -RecoveryPoint "C:\SAW-r-20261018" -ConfirmPointInTimeRecovery
 ~~~
 
 성공 결과는 **status: restored_stopped**입니다. 아직 정지 상태이므로 5단계의 해당 방식으로 원래 C:\SAW를 시작하고 기존 계정·MFA·조사·색인을 다시 확인합니다.

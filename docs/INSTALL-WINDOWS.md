@@ -9,6 +9,8 @@
 설치 대상: **Windows 10 Enterprise LTSC 2019 x64** (깨끗한 대상 OS 인수는 미완료), **인터넷 차단(폐쇄망)**, 저사양 서버.
 설계 근거: [ADR-0016](adr/0016-windows-airgapped-deployment-and-builtin-pcap.md)
 
+아래 예시의 `-ExecutionPolicy RemoteSigned`는 해당 PowerShell 프로세스에만 적용됩니다. 시스템·사용자 정책은 저장하지 않으며 조직 그룹 정책이 우선합니다. 인터넷 반입 표시(MOTW)나 서명 정책으로 실행이 차단되면 조직이 승인한 서명된 배포 매체와 절차를 확인한 뒤 진행하세요.
+
 ---
 
 ## 1. 전체 구성
@@ -45,7 +47,7 @@
 분석가가 **자기 PC에서 혼자** 쓰는 경우 `-LocalOnly`로 설치합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -LocalOnly
+powershell -ExecutionPolicy RemoteSigned -File .\install.ps1 -LocalOnly
 ```
 
 - SAW가 **127.0.0.1에만** 열립니다. 방화벽 규칙을 만들지 않으며 다른 PC에서는 접속할 수 없습니다. 접속 주소는 `https://localhost/`
@@ -57,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -LocalOnly
 분석가 PC에 관리자 권한이 없으면 **일반 PowerShell**에서 다음처럼 설치합니다. 서비스 등록·방화벽·시스템 폴더를 건드리지 않습니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoAdmin -AutoStartAtLogon
+powershell -ExecutionPolicy RemoteSigned -File .\install.ps1 -NoAdmin -AutoStartAtLogon
 ```
 
 | 항목 | 동작 |
@@ -72,10 +74,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoAdmin -AutoStartAtLogo
 명령으로 제어하려면:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SAW\saw-ctl.ps1" status
+powershell -ExecutionPolicy RemoteSigned -File "$env:LOCALAPPDATA\SAW\saw-ctl.ps1" status
 ```
 
-- 조직 정책이 PowerShell 스크립트 실행을 막으면(그룹 정책 `AllSigned` 등) 설치·실행이 되지 않습니다. 이 경우 보안 담당자에게 서명 또는 예외를 요청하세요.
+- 조직 정책이 PowerShell 스크립트 실행을 막으면(그룹 정책 `AllSigned` 등) 설치·실행이 되지 않습니다. 이 경우 보안 담당자에게 승인된 서명 매체와 배포 절차를 확인하세요.
 - 서비스 방식보다 보호 수준이 낮습니다(데이터가 사용자 계정 권한으로 실행·보관). 한 사람이 쓰는 분석 PC 용도로만 권합니다.
 
 ### 브라우저
@@ -117,7 +119,7 @@ SAW 화면은 **Chrome 또는 Microsoft Edge(최신, Chromium)** 에서 동작�
 이 절은 매체 제작자용입니다. 설치 대상에서 실행하지 않습니다. 빌드 PC에서 UI를 미리 빌드하고, provenance.json으로 고정한 실제 의존성 파일과 검증된 정적 CPU 실행기를 준비한 뒤 조립합니다. 조립 스크립트 자체는 내려받기를 수행하지 않습니다.
 
 ```bash
-powershell -ExecutionPolicy Bypass -File deploy\windows\build-bundle.ps1 -InputDir C:\build-inputs -NativeRuntime C:\llama-runtime -OutDir C:\SAW-media-new
+powershell -ExecutionPolicy RemoteSigned -File deploy\windows\build-bundle.ps1 -InputDir C:\build-inputs -NativeRuntime C:\llama-runtime -OutDir C:\SAW-media-new
 ```
 
 다음이 지정한 새 `-OutDir` 폴더에 모입니다. 정확한 파일별 크기는 release-manifest.json에 기록됩니다.
@@ -154,7 +156,7 @@ cd D:\saw-bundle
 ```
 
 ```bash
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -HostName saw.corp.local -ExtraNames 10.10.5.20 -AllowFrom 10.20.0.0/16
+powershell -ExecutionPolicy RemoteSigned -File .\install.ps1 -HostName saw.corp.local -ExtraNames 10.10.5.20 -AllowFrom 10.20.0.0/16
 ```
 
 | 옵션 | 의미 | 예 |
@@ -239,7 +241,7 @@ admin으로 로그인 → **Admin** 메뉴 → 사용자 추가 (역할: analyst
 매일 새벽 백업을 예약합니다 (관리자 PowerShell):
 
 ```bash
-schtasks /Create /TN "SAW Backup" /SC DAILY /ST 02:30 /RU SYSTEM /RL HIGHEST /TR "powershell -NoProfile -ExecutionPolicy Bypass -File C:\SAW\app\deploy\windows\backup.ps1 -KeepDays 14"
+schtasks /Create /TN "SAW Backup" /SC DAILY /ST 02:30 /RU SYSTEM /RL HIGHEST /TR "powershell -NoProfile -ExecutionPolicy RemoteSigned -File C:\SAW\app\deploy\windows\backup.ps1 -KeepDays 14"
 ```
 
 백업 내용: PostgreSQL 덤프, OpenSearch 스냅샷, 증거 원본 복사본 → `C:\SAW\backup`.
@@ -322,7 +324,7 @@ C:\SAW\venv\Scripts\python.exe -m saw.cli set-password 사용자ID
 ### 제거
 
 ```bash
-powershell -ExecutionPolicy Bypass -File C:\SAW\app\deploy\windows\uninstall.ps1
+powershell -ExecutionPolicy RemoteSigned -File C:\SAW\app\deploy\windows\uninstall.ps1
 ```
 
 서비스와 방화벽 규칙만 제거하고 데이터는 남깁니다. 데이터까지 지우려면 `-RemoveData`를 붙입니다(확인 입력 필요).

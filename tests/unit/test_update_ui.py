@@ -15,7 +15,7 @@ def literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 def ps(source):
     code = "$env:PSModulePath=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules'; $ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); Import-Module " + literal(MODULE) + " -Force; " + source
-    proc = subprocess.run([str(PS), "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-EncodedCommand", base64.b64encode(code.encode("utf-16-le")).decode("ascii")], capture_output=True, timeout=45)
+    proc = subprocess.run([str(PS), "-NoProfile", "-STA", "-ExecutionPolicy", "RemoteSigned", "-EncodedCommand", base64.b64encode(code.encode("utf-16-le")).decode("ascii")], capture_output=True, timeout=45)
     assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")[-3000:]
     return json.loads(proc.stdout.decode("utf-8-sig").strip())
 
@@ -32,7 +32,7 @@ def state_result(tmp_path, update=None, exit_code=0, raw=None):
     state.update(update or {})
     path = tmp_path / "state.json"
     path.write_text(json.dumps(state, ensure_ascii=False) if raw is None else raw, encoding="utf-8")
-    return ps(f"Get-SawUpdateResult -StatePath {literal(path)} -Action apply -InstallRoot {literal(installed)} -ExitCode {exit_code} | ConvertTo-Json -Compress")
+    return ps(f"Get-SawUpdateResult -StatePath {literal(path)} -Action apply -InstallRoot {literal(installed)} -ExitCode {exit_code} | ConvertTo-Json -Depth 10 -Compress")
 def test_correct_completed_result_is_accepted(tmp_path):
     assert state_result(tmp_path)["accepted"] is True
 @pytest.mark.parametrize("update,exit_code", [({"status":"working"},0), ({"status":"ready"},0), ({"status":"failed"},0), ({"action":"restore"},0), ({"schema":"unexpected"},0), ({"install_root":"C:/different-installation"},0), ({},7)])
@@ -202,7 +202,7 @@ def test_native_compact_form_keeps_actions_and_status_visible(tmp_path):
 $view=New-SawUpdateWindow -BundleDir {literal(tmp_path)}
 $view.Form.StartPosition='Manual';$view.Form.Location=[Drawing.Point]::new(-3000,-3000)
 $view.Form.Size=[Drawing.Size]::new(950,680)
-$view.Form.Show();[Windows.Forms.Application]::DoEvents()
+$view.Form.Show();$view.Context.ResultTabs.SelectedTab=$view.Context.WorkTab;[Windows.Forms.Application]::DoEvents()
 $controls=@($view.Context.InspectButton,$view.Context.ApplyButton,$view.Context.RestoreButton,$view.Context.StartButton,$view.Context.OpenButton,$view.Context.RecordsButton,$view.Context.Status)
 $inside=@($controls | Where-Object {{
     $r=$view.Form.RectangleToClient($_.RectangleToScreen($_.ClientRectangle))
@@ -213,3 +213,247 @@ $view.Form.Close();$view.Form.Dispose()
 """)
     assert result["width"] == 950 and result["height"] == 680
     assert result["inside"] == result["count"] and result["statusHeight"] >= 40
+
+INSPECTION_IDS = [
+    "paths", "access", "baseline", "media", "services", "stores",
+    "configuration_runtime", "recovery", "overall",
+]
+
+
+def inspection_summary(status="pass"):
+    return {
+        "schema": "saw.update-inspection/1",
+        "rows": [
+            {"id": name, "status": status, "code": "verified",
+             "reason": "확인했습니다.", "location": "synthetic/" + name,
+             "expected": "검증된 기준", "actual": "일치", "remedy": "다음 항목을 확인하세요."}
+            for name in INSPECTION_IDS
+        ],
+        "details_file": "inspection-details.json",
+    }
+
+
+def test_legacy_state_has_nine_explicit_not_run_rows(tmp_path):
+    value = state_result(tmp_path)
+    assert value["accepted"]
+    rows = value["diagnostic_summary"]["rows"]
+    assert [row["id"] for row in rows] == INSPECTION_IDS
+    assert {row["status"] for row in rows} == {"not_run"}
+
+
+def test_valid_inspection_rows_and_failure_recovery_hints_survive(tmp_path):
+    value = state_result(tmp_path, {
+        "status": "failed", "code": "snapshot_copy_failed",
+        "diagnostic_summary": inspection_summary("action_required"),
+        "operation_id": "ab" * 16, "current_step": "snapshot",
+        "last_completed_step": "stop", "can_retry": True, "recovery_verified": True,
+    }, exit_code=1)
+    assert not value["accepted"]
+    assert len(value["diagnostic_summary"]["rows"]) == 9
+    assert value["state"]["can_retry"] is True
+    assert value["state"]["recovery_verified"] is True
+    assert value["state"]["last_completed_step"] == "stop"
+
+
+@pytest.mark.parametrize("case", [
+    "count", "order", "duplicate", "status", "code", "reason_control",
+    "location_control", "expected_control", "actual_type", "remedy_length",
+    "details_parent", "details_absolute", "schema", "null",
+])
+def test_invalid_inspection_summary_is_never_accepted(tmp_path, case):
+    summary = inspection_summary()
+    if case == "count":
+        summary["rows"].pop()
+    elif case == "order":
+        summary["rows"][0], summary["rows"][1] = summary["rows"][1], summary["rows"][0]
+    elif case == "duplicate":
+        summary["rows"][1]["id"] = "paths"
+    elif case == "status":
+        summary["rows"][0]["status"] = "successful"
+    elif case == "code":
+        summary["rows"][0]["code"] = "../unsafe"
+    elif case == "reason_control":
+        summary["rows"][0]["reason"] = "private\nline"
+    elif case == "location_control":
+        summary["rows"][0]["location"] = "path\u202eexe"
+    elif case == "expected_control":
+        summary["rows"][0]["expected"] = "unsafe\x1b"
+    elif case == "actual_type":
+        summary["rows"][0]["actual"] = ["unexpected"]
+    elif case == "remedy_length":
+        summary["rows"][0]["remedy"] = "x" * 1025
+    elif case == "details_parent":
+        summary["details_file"] = "../inspection-details.json"
+    elif case == "details_absolute":
+        summary["details_file"] = "C:/inspection-details.json"
+    elif case == "schema":
+        summary["schema"] = "unknown/1"
+    else:
+        summary = None
+    assert not state_result(tmp_path, {"diagnostic_summary": summary})["accepted"]
+
+
+@pytest.mark.parametrize("fields", [
+    {"operation_id": "../unsafe"}, {"current_step": "invented"},
+    {"last_completed_step": "bad\nstep"}, {"can_retry": "true"},
+    {"recovery_verified": 1}, {"operation_id": ["aa" * 16]},
+])
+def test_invalid_operation_hints_are_never_accepted(tmp_path, fields):
+    assert not state_result(tmp_path, fields)["accepted"]
+
+
+def test_native_summary_selection_displays_safe_diagnosis(tmp_path):
+    encoded = base64.b64encode(json.dumps(inspection_summary("action_required"), ensure_ascii=False).encode()).decode()
+    result = ps(f"""
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path)}
+$summary=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')) | ConvertFrom-Json
+Set-SawUpdateInspection -Context $view.Context -Summary $summary
+$view.Form.StartPosition='Manual';$view.Form.Location=[Drawing.Point]::new(-3000,-3000)
+$view.Form.Show();[Windows.Forms.Application]::DoEvents()
+$view.Context.SummaryList.Items[0].Selected=$false
+$view.Context.SummaryList.Items[2].Selected=$true
+[Windows.Forms.Application]::DoEvents()
+@{{rows=$view.Context.SummaryList.Items.Count;detail=$view.Context.InspectionDetail.Text;detailsEnabled=$view.Context.DetailsButton.Enabled}} | ConvertTo-Json -Compress
+$view.Form.Close();$view.Form.Dispose()
+""")
+    assert result["rows"] == 9
+    assert "synthetic/baseline" in result["detail"]
+    assert "기대값" in result["detail"] and "실제값" in result["detail"] and "조치" in result["detail"]
+    assert result["detailsEnabled"] is False
+
+
+@pytest.mark.parametrize("case", ["unowned", "parent", "public_file", "hardlink", "missing"])
+def test_details_open_refuses_unsafe_target(tmp_path, case):
+    result = ps(f"""
+$path=New-SawUpdateStateDirectory -BasePath {literal(tmp_path)}
+$owned=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+if('{case}' -ne 'unowned'){{$null=$owned.Add($path)}}
+$file=Join-Path $path 'inspection-details.json'
+if('{case}' -ne 'missing'){{[IO.File]::WriteAllText($file,'{{"synthetic":true}}')}}
+if('{case}' -eq 'public_file'){{
+    $acl=Get-Acl -LiteralPath $file
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow'))
+    Set-Acl -LiteralPath $file -AclObject $acl
+}}
+if('{case}' -eq 'hardlink'){{$null=New-Item -ItemType HardLink -Path (Join-Path $path 'alias.json') -Target $file}}
+$name=if('{case}' -eq 'parent'){{'../inspection-details.json'}}else{{'inspection-details.json'}}
+$ctx=[pscustomobject]@{{StateDir=$path;OwnedStateDirs=$owned;DetailsFile=$name}}
+$rejected=$false;try{{New-SawDetailsStartInfo $ctx | Out-Null}}catch{{$rejected=$true}}
+@{{rejected=$rejected}} | ConvertTo-Json -Compress
+""")
+    assert result["rejected"]
+
+
+def test_details_open_uses_fixed_viewer_and_private_owned_json(tmp_path):
+    result = ps(f"""
+$path=New-SawUpdateStateDirectory -BasePath {literal(tmp_path)}
+$owned=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);$null=$owned.Add($path)
+[IO.File]::WriteAllText((Join-Path $path 'inspection-details.json'),'{{"synthetic":true}}')
+$ctx=[pscustomobject]@{{StateDir=$path;OwnedStateDirs=$owned;DetailsFile='inspection-details.json'}}
+$si=New-SawDetailsStartInfo $ctx
+@{{notepad=($si.FileName -eq (Join-Path $env:SystemRoot 'System32/notepad.exe'));shell=$si.UseShellExecute;argument=$si.Arguments}} | ConvertTo-Json -Compress
+""")
+    assert result["notepad"] and not result["shell"]
+    assert result["argument"].endswith('inspection-details.json"')
+
+
+
+def test_existing_recovery_folder_blocks_apply_but_keeps_restore_consent(tmp_path):
+    recovery=tmp_path/"recovery"
+    recovery.mkdir()
+    result=ps(f"""
+$reason=Test-SawUpdateAction -Action apply -InstallRoot {literal(tmp_path/'installed')} -RecoveryPoint {literal(recovery)} -Maintenance:$true
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path/'media')} -InstallRoot {literal(tmp_path/'installed')} -RecoveryPoint {literal(recovery)}
+$view.Context.Maintenance.Checked=$true;$view.Context.RecoveryAck.Checked=$true
+Set-SawUpdateUiBusy $view.Context $false
+@{{refused=([bool]$reason);apply=$view.Context.ApplyButton.Enabled;restore=$view.Context.RestoreButton.Enabled}} | ConvertTo-Json -Compress
+$view.Form.Dispose()
+""")
+    assert result == {"refused":True,"apply":False,"restore":True}
+
+
+def test_changed_baseline_or_recovery_clears_previous_summary(tmp_path):
+    encoded=base64.b64encode(json.dumps(inspection_summary()).encode()).decode()
+    result=ps(f"""
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path)}
+$summary=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')) | ConvertFrom-Json
+Set-SawUpdateInspection $view.Context $summary
+$view.Context.Baseline.Text={literal(tmp_path/'different-old-media')}
+$baseline=@($view.Context.SummaryList.Items | Where-Object {{$_.Tag.status -eq 'not_run'}}).Count
+Set-SawUpdateInspection $view.Context $summary
+$view.Context.RecoveryPoint.Text={literal(tmp_path/'different-recovery')}
+$recovery=@($view.Context.SummaryList.Items | Where-Object {{$_.Tag.status -eq 'not_run'}}).Count
+@{{baseline=$baseline;recovery=$recovery;details=$view.Context.DetailsFile}} | ConvertTo-Json -Compress
+$view.Form.Dispose()
+""")
+    assert result == {"baseline":9,"recovery":9,"details":""}
+
+
+@pytest.mark.parametrize("status", ["fail", "action_required", "not_run"])
+def test_completed_state_cannot_override_nonpassing_overall_diagnosis(tmp_path, status):
+    assert not state_result(tmp_path, {"diagnostic_summary": inspection_summary(status)})["accepted"]
+
+
+def test_missing_install_root_keeps_explicit_restore_available(tmp_path):
+    recovery=tmp_path/"existing-recovery"
+    recovery.mkdir()
+    root=tmp_path/"interrupted-installation"
+    result=ps(f"""
+$reason=Test-SawUpdateAction -Action restore -InstallRoot {literal(root)} -RecoveryPoint {literal(recovery)} -Maintenance:$true -RecoveryAcknowledged:$true
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path/'media')} -InstallRoot {literal(root)} -RecoveryPoint {literal(recovery)}
+$view.Context.Maintenance.Checked=$true;$view.Context.RecoveryAck.Checked=$true
+@{{allowed=(-not [bool]$reason);restore=$view.Context.RestoreButton.Enabled;rootExists=[IO.Directory]::Exists({literal(root)})}} | ConvertTo-Json -Compress
+$view.Form.Dispose()
+""")
+    assert result == {"allowed":True,"restore":True,"rootExists":False}
+
+
+def test_native_picker_buttons_fit_their_flow_container(tmp_path):
+    result=ps(f"""
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path)}
+$view.Form.StartPosition='Manual';$view.Form.Location=[Drawing.Point]::new(-3000,-3000)
+$view.Form.Show();[Windows.Forms.Application]::DoEvents()
+$rows=@($view.Form.Controls[0].Controls | Where-Object {{$_.GetType().Name -eq 'TableLayoutPanel'}})
+$buttons=@(foreach($row in $rows){{$row.Controls[2].Controls}})
+$inside=@($buttons | Where-Object {{$_.Top -ge 0 -and $_.Bottom -le $_.Parent.ClientSize.Height -and $_.Right -le $_.Parent.ClientSize.Width}})
+@{{count=$buttons.Count;inside=$inside.Count}} | ConvertTo-Json -Compress
+$view.Form.Close();$view.Form.Dispose()
+""")
+    assert result["count"] == 5 and result["inside"] == 5
+
+
+@pytest.mark.parametrize("status,empty_text", [
+    ("pass", "별도 값 없음"),
+    ("action_required", "별도 값 없음"),
+    ("fail", "별도 값 없음"),
+    ("not_run", "아직 확인하지 않음"),
+])
+@pytest.mark.parametrize("has_values", [False, True], ids=["empty", "provided"])
+def test_native_summary_empty_values_respect_inspection_status(
+    tmp_path, status, empty_text, has_values
+):
+    summary = inspection_summary(status)
+    row = summary["rows"][0]
+    row.update(
+        location="",
+        expected="합성 기대값" if has_values else "",
+        actual="합성 실제값" if has_values else "",
+    )
+    encoded = base64.b64encode(json.dumps(summary, ensure_ascii=False).encode()).decode()
+    result = ps(f"""
+$view=New-SawUpdateWindow -BundleDir {literal(tmp_path)}
+$summary=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')) | ConvertFrom-Json
+Set-SawUpdateInspection $view.Context $summary
+$view.Form.StartPosition='Manual';$view.Form.Location=[Drawing.Point]::new(-3000,-3000)
+$view.Form.Show();[Windows.Forms.Application]::DoEvents()
+Set-SawInspectionDetail $view.Context
+@{{detail=$view.Context.InspectionDetail.Text}} | ConvertTo-Json -Compress
+$view.Form.Close();$view.Form.Dispose()
+""")
+    expected = row["expected"] if has_values else empty_text
+    actual = row["actual"] if has_values else empty_text
+    assert "기대값: " + expected in result["detail"]
+    assert "실제값: " + actual in result["detail"]
+    assert "위치: 해당 없음" in result["detail"]
+    if status != "not_run" or has_values:
+        assert "아직 확인하지 않음" not in result["detail"]

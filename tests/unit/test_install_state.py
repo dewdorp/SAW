@@ -20,7 +20,7 @@ def run(tmp_path, body):
         "[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)\n"
         + ". " + lit(ROOT / "deploy/windows/install-paths.ps1") + "\n"
         + ". " + lit(HELPER) + "\n" + body, encoding="utf-8-sig")
-    p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+    p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", str(script)],
                        capture_output=True, timeout=120)
     assert p.returncode == 0, (p.stdout + p.stderr).decode("utf-8", "replace")
     return json.loads(p.stdout.decode("utf-8-sig"))

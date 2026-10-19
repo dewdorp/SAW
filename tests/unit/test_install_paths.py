@@ -23,7 +23,7 @@ def run_ps(tmp_path, body):
         "[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)\n"
         ". " + ps_literal(HELPER) + "\n" + body,
         encoding="utf-8-sig")
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned",
                              "-File", str(script)], capture_output=True, timeout=90)
     assert result.returncode == 0, (result.stdout + result.stderr).decode("utf-8", "replace")
     return json.loads(result.stdout.decode("utf-8-sig"))

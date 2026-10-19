@@ -32,7 +32,7 @@ def run_ps(tmp_path, body, timeout=240):
         encoding="utf-8-sig",
     )
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", str(script)],
         capture_output=True, timeout=timeout,
     )
     assert result.returncode == 0, (result.stdout + result.stderr).decode("utf-8", "replace")

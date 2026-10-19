@@ -150,7 +150,7 @@ def test_wrapper_rejects_changed_media_before_creating_recovery(installation):
     shutil.copyfile(verifier, bundle / "verify-bundle.ps1")
     seal(bundle, {"python": "3.12.10", "postgresql": "16.15-1", "opensearch": "2.19.6"})
     write(bundle, "app/saw/main.py", "changed after sealing")
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File",
                              str(wrapper), "-Action", "apply", "-InstallRoot", str(root),
                              "-BundleDir", str(bundle), "-BaselineBundleDir", str(baseline),
                              "-RecoveryPoint", str(recovery)], capture_output=True, timeout=40)

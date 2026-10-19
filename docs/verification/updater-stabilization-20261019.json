@@ -1,0 +1,1698 @@
+{
+  "schema": "saw.updater-stabilization-verification/1",
+  "date": "2026-10-19",
+  "status": "source_validation_complete_distribution_pending",
+  "scope": "Synthetic testing only; operational installations unchanged.",
+  "development_environment": {
+    "os": "Windows 11",
+    "build": 26200,
+    "powershell": "5.1",
+    "installation_mode": "noadmin"
+  },
+  "native_start": {
+    "status": "passed",
+    "action": "start",
+    "candidate": "updater-stabilization-20261019-candidate2",
+    "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime -> native PostgreSQL/OpenSearch/HTTPS",
+    "physical_double_click": "not_tested",
+    "elapsed_seconds": 691.69,
+    "acl_objects_checked": 32640,
+    "inspection_rows": [
+      {
+        "id": "paths",
+        "status": "pass"
+      },
+      {
+        "id": "access",
+        "status": "pass"
+      },
+      {
+        "id": "baseline",
+        "status": "pass"
+      },
+      {
+        "id": "media",
+        "status": "pass"
+      },
+      {
+        "id": "services",
+        "status": "pass"
+      },
+      {
+        "id": "stores",
+        "status": "pass"
+      },
+      {
+        "id": "configuration_runtime",
+        "status": "pass"
+      },
+      {
+        "id": "recovery",
+        "status": "pass"
+      },
+      {
+        "id": "overall",
+        "status": "pass"
+      }
+    ],
+    "controller_status": "completed",
+    "last_completed_step": "health",
+    "needs_acceptance": true,
+    "https_test_port": 58449,
+    "evidence": ".qa/packaging/updater-stabilization-20261019/start-form-20261019-222651-eaf4e2.json",
+    "evidence_sha256": "7c8ce192b8fc67008534c32002a0731e2c6682dca813470beeaebdc4eeea35fd",
+    "screenshot": "docs/assets/updater-20261019/04-native-start.png",
+    "screenshot_sha256": "7fd74f775dace954394107cf80a6f3b72fa64dc9012b64ea63d54c6beb9b7b67",
+    "limits": [
+      "This action starts an existing synthetic installation; it is not an update or restore.",
+      "Candidate 2 evidence is not final candidate 5 acceptance.",
+      "Account/MFA/data preservation acceptance is not established by this start result."
+    ]
+  },
+  "web_tests": {
+    "status": "passed",
+    "test_files": 31,
+    "tests_passed": 177,
+    "elapsed_seconds": 48.64,
+    "evidence_log": ".qa/updater-stabilization-20261019/web.log",
+    "evidence_source": "parent_reported_tool_output"
+  },
+  "typescript": {
+    "status": "passed",
+    "exit_code": 0,
+    "evidence_log": ".qa/updater-stabilization-20261019/tsc.log",
+    "evidence_source": "parent_reported_tool_output",
+    "confirmation": "Parent observed web_exit=0 and tsc_exit=0 in tools.write_stdin session 84613."
+  },
+  "pending": {
+    "final_server_suite": "passed_current_frozen_production_source",
+    "final_candidate_update": "candidate7_passed",
+    "final_candidate_restore": "candidate7_passed",
+    "account_mfa_data_preservation": "candidate7_after_apply_and_after_restore_passed",
+    "final_offline_zip_and_manifest": "distribution_seal_record_pending_at_source_commit",
+    "integration_pull_request": "publication_pending_at_source_commit",
+    "target_ltsc2019_build17763_ps51_x64": "not_verified",
+    "actual_admin_services_uac_https443_reboot": "not_verified",
+    "physical_airgap_and_operational_acceptance": "not_verified",
+    "retained_newer_synthetic_object": "candidate7_passed_50_byte_object",
+    "publication": "pending_at_source_commit"
+  },
+  "image_provenance": {
+    "01_to_03": "Synthetic UI render with supplied diagnostic values.",
+    "04": "Actual synthetic-installation start execution screenshot.",
+    "native_apply_inline": "Actual candidate 5 synthetic-installation apply execution screenshot; original PNG bytes embedded unchanged in the guide HTML.",
+    "native_restore_inline": "Actual candidate 5 synthetic-installation restore execution screenshot; original PNG bytes embedded unchanged in the guide HTML.",
+    "candidate6_apply_inline": "Actual candidate 6 synthetic apply PASS screenshot; unchanged PNG bytes.",
+    "candidate6_restore_failed_inline": "Actual candidate 6 first restore attempt FAIL screenshot; unchanged PNG bytes; not a successful restore."
+  },
+  "native_inspect": {
+    "evidence": ".qa/packaging/updater-stabilization-20261019/inspect-form-20261019-224502-d75331.json",
+    "evidence_sha256": "0d82fc8226bf1644c3c153aea7d9ef074f2b893c64b42d010f43453bb5bad3df",
+    "evidence_source": "public_receipt_verified",
+    "status": "passed",
+    "action": "inspect",
+    "candidate": "updater-stabilization-20261019-candidate5",
+    "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime",
+    "physical_double_click": "not_tested",
+    "synthetic_only": true,
+    "elapsed_seconds": 63.02,
+    "acl_objects_checked": 32651,
+    "inspection_rows": [
+      {
+        "id": "paths",
+        "status": "pass"
+      },
+      {
+        "id": "access",
+        "status": "pass"
+      },
+      {
+        "id": "baseline",
+        "status": "pass"
+      },
+      {
+        "id": "media",
+        "status": "pass"
+      },
+      {
+        "id": "services",
+        "status": "pass"
+      },
+      {
+        "id": "stores",
+        "status": "pass"
+      },
+      {
+        "id": "configuration_runtime",
+        "status": "pass"
+      },
+      {
+        "id": "recovery",
+        "status": "pass"
+      },
+      {
+        "id": "overall",
+        "status": "pass"
+      }
+    ],
+    "controller_status": "ready",
+    "current_step": "validate",
+    "needs_acceptance": false,
+    "requires_admin": false,
+    "installation_mode": "noadmin",
+    "read_only_evidence": ".qa/packaging/updater-stabilization-20261019/after-inspect-20261019-224621-3cecc7.json"
+  },
+  "native_apply": {
+    "evidence": ".qa/packaging/updater-stabilization-20261019/apply-form-20261019-224621-12412f.json",
+    "evidence_sha256": "9c5a0e6bbca2a409728ebb138059cb187abd972f8ea72fa5a9f234c275bf124a",
+    "evidence_source": "public_receipt_verified",
+    "status": "passed",
+    "action": "apply",
+    "candidate": "updater-stabilization-20261019-candidate5",
+    "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime",
+    "physical_double_click": "not_tested",
+    "synthetic_only": true,
+    "elapsed_seconds": 678.47,
+    "acl_objects_checked": 32651,
+    "inspection_rows": [
+      {
+        "id": "paths",
+        "status": "pass"
+      },
+      {
+        "id": "access",
+        "status": "pass"
+      },
+      {
+        "id": "baseline",
+        "status": "pass"
+      },
+      {
+        "id": "media",
+        "status": "pass"
+      },
+      {
+        "id": "services",
+        "status": "pass"
+      },
+      {
+        "id": "stores",
+        "status": "pass"
+      },
+      {
+        "id": "configuration_runtime",
+        "status": "pass"
+      },
+      {
+        "id": "recovery",
+        "status": "pass"
+      },
+      {
+        "id": "overall",
+        "status": "pass"
+      }
+    ],
+    "controller_status": "completed",
+    "current_step": "completed",
+    "needs_acceptance": true,
+    "requires_admin": false,
+    "installation_mode": "noadmin",
+    "last_completed_step": "health",
+    "screenshot": "docs/UPDATER-STABILIZATION-GUIDE-20261019.html#native-apply",
+    "screenshot_source": ".qa/packaging/updater-stabilization-20261019/apply-form-20261019-224621-12412f.json.after.png",
+    "screenshot_sha256": "b85c4729d8ac0901e176144bab6f8ac7900d980f92acf68972fb9759ae6e707b",
+    "screenshot_storage": "Original PNG bytes embedded as data:image/png;base64; no image editing.",
+    "limits": [
+      "Candidate 5 synthetic NoAdmin update only; see native_restore for the separate restore result.",
+      "This does not establish LTSC 2019 build 17763, administrator services, HTTPS 443, reboot, physical double click, or operational acceptance."
+    ]
+  },
+  "preservation": {
+    "scope": "Synthetic candidate 5 fixtures; no private baseline, identities, credentials, or key contents are included.",
+    "before": {
+      "evidence": ".qa/packaging/updater-stabilization-20261019/before-20261019-224027-6096c5.json",
+      "evidence_sha256": "fd4df62a43e46e7f9004ad73de9bf89329e59aa4caaf5ea42bc0280b5e9e4847",
+      "evidence_source": "public_receipt_verified",
+      "status": "passed",
+      "synthetic_only": true,
+      "counts": {
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2
+      }
+    },
+    "before_login": {
+      "evidence": ".qa/packaging/updater-stabilization-20261019/before-login-20261019-223959-9a14e9.json",
+      "evidence_sha256": "ffc33861ed071a1ad74d58daec2b18e6b69ef47ef46acaec8a5f8f3b8ba46cf1",
+      "evidence_source": "public_receipt_verified",
+      "status": "passed",
+      "label": "before-login",
+      "synthetic_only": true,
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    },
+    "after_inspect": {
+      "evidence": ".qa/packaging/updater-stabilization-20261019/after-inspect-20261019-224621-3cecc7.json",
+      "evidence_sha256": "bafff1f5290f62876e7c41f72f0a6265d009e1a898b406c1f5c31b0e054df93d",
+      "evidence_source": "public_receipt_verified",
+      "status": "passed",
+      "label": "after-inspect",
+      "synthetic_only": true,
+      "counts": {
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2
+      },
+      "comparison_read_only": true,
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true
+    },
+    "after_apply": {
+      "evidence": ".qa/packaging/updater-stabilization-20261019/after-apply-20261019-225753-cdbafa.json",
+      "evidence_sha256": "fd0aa59d876ca2b1cb0128f4aff2125bd4e530b24ccfc613bf8833b2463913ed",
+      "evidence_source": "public_receipt_verified",
+      "status": "passed",
+      "label": "after-apply",
+      "synthetic_only": true,
+      "counts": {
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2
+      },
+      "comparison_read_only": true,
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true
+    },
+    "after_apply_login": {
+      "evidence": ".qa/packaging/updater-stabilization-20261019/after-apply-login-20261019-225756-5f6e6b.json",
+      "evidence_sha256": "48d5c8fe725dd5bd1e405f1168dabe539872697e00b73fa2154a2df24ba7c351",
+      "evidence_source": "public_receipt_verified",
+      "status": "passed",
+      "label": "after-apply-login",
+      "synthetic_only": true,
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    },
+    "after_restore": {
+      "status": "passed",
+      "synthetic_only": true,
+      "evidence": ".qa/packaging/updater-stabilization-20261019/after-restore-20261019-230822-d7648d.json",
+      "evidence_sha256": "5155e2b6a2836702a2125c2c7682a7102a8115686a4a7a5110667bea9904f1da",
+      "evidence_source": "public_receipt_verified",
+      "label": "after-restore",
+      "counts": {
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2
+      },
+      "comparison_read_only": true,
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true
+    },
+    "retained_newer_data": {
+      "status": "passed",
+      "synthetic_only": true,
+      "evidence": ".qa/packaging/updater-stabilization-20261019/newer-data-verify.json",
+      "evidence_sha256": "efe48ae5d2b41139e6b6e2474cd6a88f4519398cb97f96f03564c4fa53e700bd",
+      "evidence_source": "public_receipt_verified",
+      "newer_object_in_retained_installation": true,
+      "absent_from_restored_snapshot": true,
+      "retained_installation_basename": ".saw-k-ae03f713cb5f",
+      "added_object": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019/newer-data-add.json",
+        "evidence_sha256": "91a0278deb2ea9868413f6e8838e36140b03a9f36fa7a4b0e355916e1095bad9",
+        "evidence_source": "public_receipt_verified",
+        "bytes": 50
+      },
+      "scope": "One 50-byte synthetic object added after update; no claim of all possible post-update account or database changes."
+    },
+    "after_restore_login": {
+      "status": "passed",
+      "synthetic_only": true,
+      "evidence": ".qa/packaging/updater-stabilization-20261019/after-restore-login-20261019-230824-6c7769.json",
+      "evidence_sha256": "49578080dbff7756284019ca1a992959dc3fe2417ce09ff1dbab566a4e55b6e1",
+      "evidence_source": "public_receipt_verified",
+      "label": "after-restore-login",
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    }
+  },
+  "ui_detail_formatter_regression": {
+    "status": "passed",
+    "tests_passed": 10,
+    "tests_deselected": 93,
+    "warnings": 1,
+    "elapsed_seconds": 20.06,
+    "evidence_source": "review_agent_tool_execution",
+    "command": ".venv/Scripts/python.exe -B -m pytest tests/unit/test_update_ui.py -o addopts='' -q -p no:cacheprovider -k 'empty_values_respect_inspection_status or native_summary_selection_displays_safe_diagnosis or legacy_state_has_nine_explicit_not_run_rows'",
+    "scope": "Four inspection statuses with empty/provided values, safe selected diagnosis, and legacy not_run rows.",
+    "red_phase": {
+      "tests_failed": 3,
+      "tests_passed": 5
+    }
+  },
+  "review_regressions": {
+    "status": "passed",
+    "tests_passed": 8,
+    "warnings": 1,
+    "elapsed_seconds": 0.51,
+    "evidence_source": "review_agent_tool_execution",
+    "scope": "Synthetic metadata/mocks; no real service or port operations.",
+    "command": ".venv/Scripts/python.exe -B -m pytest tests/unit/test_update_review_regressions.py -o addopts='' -q -p no:cacheprovider"
+  },
+  "additional_validation_history": {
+    "evidence_source": "parent_reported_tool_output",
+    "initial_run": {
+      "status": "failed",
+      "tests_total": 81,
+      "tests_passed": 79,
+      "tests_skipped": 1,
+      "tests_failed": 1,
+      "evidence_log": ".qa/updater-stabilization-20261019/final-acl-private-restore-20261019.log",
+      "failure_stage": "_stopped",
+      "fixture_ports": [
+        58101,
+        58102,
+        58103,
+        58104
+      ]
+    },
+    "isolated_retest": {
+      "status": "passed",
+      "tests_passed": 1,
+      "elapsed_seconds": 40.08,
+      "evidence_log": ".qa/updater-stabilization-20261019/final-restore-single-repro-20261019.log"
+    },
+    "cause_assessment": "Concurrent full-suite execution included an active-port bind test on the same fixture port range. Timing is consistent with contention, but no owning PID was captured at failure; the concurrency cause is not proven.",
+    "classification": "Synthetic concurrent-test failure retained in history; it is not evidence of an operational installation restore failure.",
+    "raw_logs_independently_reread": false,
+    "serial_retest_after_full_suite": {
+      "status": "passed",
+      "tests_passed": 1,
+      "elapsed_seconds": 32.55,
+      "evidence_source": "parent_reported_tool_output"
+    }
+  },
+  "final_server_suite_progress": {
+    "status": "completed",
+    "run": "third_full_suite_current_source_after_acl_summary_and_live_retry_changes",
+    "final_result": "passed",
+    "tests_passed": 1733,
+    "tests_skipped": 6,
+    "warnings": 2,
+    "elapsed_seconds": 1305.21,
+    "exit_code": 0,
+    "evidence_log": ".qa/updater-stabilization-20261019/server-final-r3.log",
+    "evidence_xml": ".qa/updater-stabilization-20261019/server-final-r3.xml",
+    "evidence_source": "parent_reported_tool_output"
+  },
+  "evidence_handling": "Public JSON receipt status/count/boolean fields were independently checked. Raw test/service/restore logs were not reopened; externally supplied test stdout summaries are labeled parent_reported_tool_output.",
+  "native_restore": {
+    "status": "passed",
+    "synthetic_only": true,
+    "evidence": ".qa/packaging/updater-stabilization-20261019/restore-form-20261019-225756-439a5d.json",
+    "evidence_sha256": "486ed1ed111533ca5c0d20c740a4a85d5d247f9e75afb7932c38e6ae068f3d6a",
+    "evidence_source": "public_receipt_verified",
+    "action": "restore",
+    "candidate": "updater-stabilization-20261019-candidate5",
+    "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime",
+    "physical_double_click": "not_tested",
+    "elapsed_seconds": 613.99,
+    "acl_objects_checked": 32683,
+    "inspection_rows": [
+      {
+        "id": "paths",
+        "status": "pass"
+      },
+      {
+        "id": "access",
+        "status": "pass"
+      },
+      {
+        "id": "baseline",
+        "status": "pass"
+      },
+      {
+        "id": "media",
+        "status": "pass"
+      },
+      {
+        "id": "services",
+        "status": "pass"
+      },
+      {
+        "id": "stores",
+        "status": "pass"
+      },
+      {
+        "id": "configuration_runtime",
+        "status": "pass"
+      },
+      {
+        "id": "recovery",
+        "status": "pass"
+      },
+      {
+        "id": "overall",
+        "status": "pass"
+      }
+    ],
+    "controller_status": "completed",
+    "current_step": "completed",
+    "last_completed_step": "health",
+    "needs_acceptance": true,
+    "requires_admin": false,
+    "installation_mode": "noadmin",
+    "retained_installation_basename": ".saw-k-ae03f713cb5f",
+    "screenshot": "docs/UPDATER-STABILIZATION-GUIDE-20261019.html#native-restore",
+    "screenshot_source": ".qa/packaging/updater-stabilization-20261019/restore-form-20261019-225756-439a5d.json.after.png",
+    "screenshot_sha256": "b7d8f44c7c8c949ed1eeb73779b1d85c8a02c5683d35bdd8e683e1c2108b80f8",
+    "screenshot_storage": "Original PNG bytes embedded as data:image/png;base64; no image editing.",
+    "limits": [
+      "Synthetic NoAdmin restore and health on Windows 11 build 26200 only.",
+      "This does not establish LTSC 2019 build 17763, administrator services, HTTPS 443, reboot, physical double click, or operational acceptance."
+    ]
+  },
+  "synthetic_cleanup": {
+    "status": "passed",
+    "synthetic_only": true,
+    "evidence": ".qa/packaging/updater-stabilization-20261019/cleanup-20261019-230825-27ee24.json",
+    "evidence_sha256": "20ee21a1275fe0e46f407831c68133c1796edf8b0ff4466246313d8293610833",
+    "evidence_source": "public_receipt_verified",
+    "synthetic_account_disabled": true,
+    "synthetic_sessions_revoked": true
+  },
+  "synthetic_final_stop": {
+    "status": "passed",
+    "synthetic_only": true,
+    "evidence": ".qa/packaging/updater-stabilization-20261019/final-stop-20261019-230903-0c2aff.json",
+    "evidence_sha256": "9df4b8decc9e9472d8c70cd894e89c6d41fe26b0c7ab651209b8ba1c48683fca",
+    "evidence_source": "public_receipt_verified",
+    "elapsed_seconds": 37.31,
+    "postgres_pid_file_absent": true,
+    "ports_closed": {
+      "postgres": true,
+      "opensearch": true,
+      "api": true
+    }
+  },
+  "final_server_suite_history": [
+    {
+      "run": "initial_full_suite_before_final_review_fixes",
+      "status": "failed",
+      "tests_passed": 1589,
+      "tests_skipped": 6,
+      "tests_failed": 2,
+      "elapsed_seconds": 3258.21,
+      "evidence_source": "parent_reported_tool_output",
+      "failure_classification": "Two known documentation/test expectation failures; fixed tests require final full rerun.",
+      "related_manifest_retest": {
+        "status": "passed",
+        "tests_passed": 67,
+        "evidence_source": "parent_reported_tool_output"
+      }
+    },
+    {
+      "run": "second_full_suite_candidate6_frozen_source_before_acl_summary_and_live_retry_changes",
+      "status": "passed",
+      "tests_passed": 1647,
+      "tests_skipped": 6,
+      "warnings": 2,
+      "elapsed_seconds": 1376.79,
+      "exit_code": 0,
+      "evidence_source": "parent_reported_tool_output",
+      "evidence_log": ".qa/updater-stabilization-20261019/server-final-r2.log",
+      "evidence_xml": ".qa/updater-stabilization-20261019/server-final-r2.xml",
+      "warning_categories": [
+        "Existing Starlette/httpx deprecation",
+        "record_property with xunit2 report format"
+      ],
+      "limits": "Predates the new ACL display and live-preflight retry changes; not final source validation.",
+      "skip_reasons": {
+        "SAW_TEST_DATABASE_URL_unset": 1,
+        "symlink_privilege_unavailable": 1,
+        "isolated_PostgreSQL_initdb_binary_directory": 3,
+        "POSIX_bits_only_ACL_test": 1
+      },
+      "skip_reasons_evidence_source": "parent_reported_previous_run_result"
+    },
+    {
+      "run": "third_full_suite_current_source_after_acl_summary_and_live_retry_changes",
+      "status": "passed",
+      "tests_passed": 1733,
+      "tests_skipped": 6,
+      "warnings": 2,
+      "elapsed_seconds": 1305.21,
+      "exit_code": 0,
+      "evidence_source": "parent_reported_tool_output",
+      "evidence_log": ".qa/updater-stabilization-20261019/server-final-r3.log",
+      "evidence_xml": ".qa/updater-stabilization-20261019/server-final-r3.xml",
+      "warning_categories": [
+        "Existing Starlette/httpx deprecation",
+        "record_property with xunit2 report format"
+      ],
+      "limits": "Final frozen production code. Later documentation receipt and screenshot integration does not claim a separate production change. Does not replace native candidate or target LTSC acceptance."
+    }
+  ],
+  "final_review_findings": {
+    "evidence_source": "parent_reported_code_review",
+    "findings": [
+      {
+        "id": "start_recovery_requirements",
+        "severity": "important",
+        "status": "resolved_targeted_review_verified",
+        "problem": "Start action reused recovery preparation and could require snapshot space or recovery directory write permission despite not taking a snapshot.",
+        "required_behavior": "Start checks only resources required for start; inspect/apply/restore retain action-appropriate recovery validation.",
+        "final_full_suite": "candidate6_frozen_source_passed_later_changes_pending",
+        "candidate6_native": "apply_passed_restore_failed"
+      },
+      {
+        "id": "rename_effective_access_preflight",
+        "severity": "important",
+        "status": "resolved_targeted_review_verified",
+        "problem": "Directory create/write checks alone do not prove effective permission for each installation/app rename before stopping services.",
+        "required_behavior": "Read-only pre-stop access checks cover creation in the actual destination root/parent and DELETE on the source object or FILE_DELETE_CHILD on its parent, as required by each real rename.",
+        "final_full_suite": "candidate6_frozen_source_passed_later_changes_pending",
+        "candidate6_native": "apply_passed_restore_failed"
+      },
+      {
+        "id": "onsite_exact_target_classifier",
+        "severity": "important",
+        "status": "resolved_targeted_review_verified",
+        "problem": "Build 17763 alone can misidentify Windows Server 2019 as the target Windows 10 Enterprise LTSC 2019 client.",
+        "required_behavior": "Require ProductType 1, OperatingSystemSKU 125 or 126, build 17763, Windows version 10.0, PowerShell 5.1, and 64-bit host/process for the target classifier.",
+        "final_full_suite": "candidate6_frozen_source_passed_later_changes_pending",
+        "candidate6_native": "apply_passed_restore_failed"
+      }
+    ],
+    "acceptance": "Targeted review resolved the three reported code issues, but candidate 6 restore failed in preflight. Root-cause confirmation, a successful verified restore/preservation sequence, and the second full-suite result remain required.",
+    "resolution": "All three fixes are implemented and independently re-reviewed with no new Critical or Important findings. Targeted checks pass; final full-suite and candidate 6 apply/restore results remain pending.",
+    "targeted_validation": {
+      "evidence_source": "parent_reported_tool_output",
+      "os_classifier_native": {
+        "status": "passed",
+        "tests_passed": 4,
+        "boundary_cases": 14,
+        "elapsed_seconds": 4.11
+      },
+      "review_mock_tests": {
+        "status": "passed",
+        "tests_passed": 32
+      },
+      "rename_acl_native": {
+        "status": "passed",
+        "tests_passed": 11,
+        "elapsed_seconds": 9.96
+      },
+      "old_port_case_serial": {
+        "status": "passed",
+        "tests_passed": 1,
+        "elapsed_seconds": 32.55
+      },
+      "independent_targeted_review": {
+        "status": "completed",
+        "new_critical_findings": 0,
+        "new_important_findings": 0
+      }
+    },
+    "native_followup": {
+      "status": "needs_investigation",
+      "candidate": "candidate6",
+      "action": "restore",
+      "code": "unsafe_access",
+      "current_step": "validate",
+      "evidence": ".qa/packaging/updater-stabilization-20261019-r2/restore-form-20261019-233833-431da8.json",
+      "note": "Targeted review results remain historical; candidate 6 restore failure prevents final release acceptance."
+    }
+  },
+  "candidate6": {
+    "status": "restore_failed_test_installation_stopped",
+    "production_code": "frozen_after_final_review_fixes",
+    "bundle_metadata": {
+      "manifest_sha256": "60c8e0811a30c5d44d7d5f23dfc4c8f13ecfc02b3d5fcdaf12cc3dda4d626afc",
+      "reported_file_count": 675,
+      "reported_bytes": 1494682543,
+      "scope": "Candidate bundle inventory; final ZIP metadata remains pending.",
+      "evidence_source": "parent_reported_tool_output"
+    },
+    "native_start": {
+      "status": "passed",
+      "action": "start",
+      "candidate": "updater-stabilization-20261019-candidate6",
+      "synthetic_only": true,
+      "ui_events_used": true,
+      "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime",
+      "physical_double_click": "not_tested",
+      "elapsed_seconds": 52.72,
+      "acl_objects_checked": 32651,
+      "inspection_rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "recovery_not_required"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "controller_status": "completed",
+      "current_step": "completed",
+      "needs_acceptance": true,
+      "requires_admin": false,
+      "installation_mode": "noadmin",
+      "evidence": ".qa/packaging/updater-stabilization-20261019-r2/start-form-20261019-232741-79e84b.json",
+      "evidence_sha256": "3ee17b02c4f4339f13575a79c9b162d5f5c5476070554ce6d7fd7aa02350056f",
+      "evidence_source": "public_receipt_verified",
+      "last_completed_step": "health"
+    },
+    "native_inspect": {
+      "status": "passed",
+      "action": "inspect",
+      "candidate": "updater-stabilization-20261019-candidate6",
+      "synthetic_only": true,
+      "ui_events_used": true,
+      "execution": "Actual WinForms PerformClick event -> worker -> bundled runtime",
+      "physical_double_click": "not_tested",
+      "elapsed_seconds": 39.93,
+      "acl_objects_checked": 32658,
+      "inspection_rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "controller_status": "ready",
+      "current_step": "validate",
+      "needs_acceptance": false,
+      "requires_admin": false,
+      "installation_mode": "noadmin",
+      "evidence": ".qa/packaging/updater-stabilization-20261019-r2/inspect-form-20261019-232859-32784c.json",
+      "evidence_sha256": "a8b50c1560582bc6a3e39050659c06223d41f47812c3d4d4d31ac480c613e6cf",
+      "evidence_source": "public_receipt_verified"
+    },
+    "native_apply": {
+      "status": "passed",
+      "synthetic_only": true,
+      "evidence": ".qa/packaging/updater-stabilization-20261019-r2/apply-form-20261019-232950-1360e9.json",
+      "evidence_sha256": "0380d77750dde884756c8561756aa0e158a8a9c59c01780c33ea01f86efd33bb",
+      "evidence_source": "public_receipt_verified",
+      "action": "apply",
+      "candidate": "updater-stabilization-20261019-candidate6",
+      "elapsed_seconds": 508.17,
+      "ui_events_used": true,
+      "physical_double_click": "not_tested",
+      "controller_status": "completed",
+      "code": "completed",
+      "current_step": "completed",
+      "needs_acceptance": true,
+      "requires_admin": false,
+      "inspection_rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "last_completed_step": "health",
+      "mode": "noadmin",
+      "acl_objects_checked": 32658,
+      "screenshot": "docs/UPDATER-STABILIZATION-GUIDE-20261019.html#native6-apply",
+      "screenshot_source": ".qa/packaging/updater-stabilization-20261019-r2/apply-form-20261019-232950-1360e9.json.after.png",
+      "screenshot_sha256": "f18f7a13f905d351de0a557e914fb60bf71f286979adf4ff07a48ce393238ae3",
+      "screenshot_storage": "Original PNG bytes embedded as data:image/png;base64; no image editing."
+    },
+    "native_restore": {
+      "status": "failed",
+      "synthetic_only": true,
+      "evidence": ".qa/packaging/updater-stabilization-20261019-r2/restore-form-20261019-233833-431da8.json",
+      "evidence_sha256": "a3dddef8b959c508846f3811911fcf9877bb6308f144065e6a399135c48764c5",
+      "evidence_source": "public_receipt_verified",
+      "action": "restore",
+      "candidate": "updater-stabilization-20261019-candidate6",
+      "elapsed_seconds": 40.52,
+      "ui_events_used": true,
+      "physical_double_click": "not_tested",
+      "controller_status": "failed",
+      "code": "unsafe_access",
+      "current_step": "validate",
+      "needs_acceptance": false,
+      "requires_admin": false,
+      "inspection_rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "fail",
+          "code": "unsafe_access"
+        },
+        {
+          "id": "baseline",
+          "status": "not_run",
+          "code": "not_run"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "not_run",
+          "code": "not_run"
+        },
+        {
+          "id": "stores",
+          "status": "not_run",
+          "code": "not_run"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "not_run",
+          "code": "not_run"
+        },
+        {
+          "id": "recovery",
+          "status": "not_run",
+          "code": "not_run"
+        },
+        {
+          "id": "overall",
+          "status": "fail",
+          "code": "preflight_failed"
+        }
+      ],
+      "can_retry": true,
+      "recovery_verified": true,
+      "screenshot": "docs/UPDATER-STABILIZATION-GUIDE-20261019.html#native6-restore-failed",
+      "screenshot_source": ".qa/packaging/updater-stabilization-20261019-r2/restore-form-20261019-233833-431da8.json.after.png",
+      "screenshot_sha256": "ba98ec3c12aaf9e04acddd32571c30c308ef2dd328da9091fe241b77f18e6f14",
+      "screenshot_storage": "Original PNG bytes embedded as data:image/png;base64; no image editing.",
+      "attempt": 1,
+      "cause_status": "access_metadata_read_failures_observed_root_cause_pending",
+      "retained_installation_reported": false
+    },
+    "preservation": {
+      "scope": "Candidate 6 synthetic fixtures only; no private identities, passwords, MFA secrets, keys, or raw logs are included.",
+      "before": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/before-20261019-232859-f34468.json",
+        "evidence_sha256": "fd4df62a43e46e7f9004ad73de9bf89329e59aa4caaf5ea42bc0280b5e9e4847",
+        "evidence_source": "public_receipt_verified",
+        "counts": {
+          "events": 9,
+          "findings": 10,
+          "evidence_count": 2,
+          "note_count": 1,
+          "completed_jobs": 2,
+          "account_count": 2
+        }
+      },
+      "after_inspect": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/after-inspect-20261019-232950-8a1ccb.json",
+        "evidence_sha256": "bafff1f5290f62876e7c41f72f0a6265d009e1a898b406c1f5c31b0e054df93d",
+        "evidence_source": "public_receipt_verified",
+        "label": "after-inspect",
+        "counts": {
+          "events": 9,
+          "findings": 10,
+          "evidence_count": 2,
+          "note_count": 1,
+          "completed_jobs": 2,
+          "account_count": 2
+        },
+        "comparison_read_only": true,
+        "account_ids_password_hashes_roles_mfa_status_equal": true,
+        "evidence_ids_jobs_and_notes_equal": true,
+        "configuration_keys_tls_and_original_objects_equal": true
+      },
+      "after_apply": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/after-apply-20261019-233830-173a6b.json",
+        "evidence_sha256": "fd0aa59d876ca2b1cb0128f4aff2125bd4e530b24ccfc613bf8833b2463913ed",
+        "evidence_source": "public_receipt_verified",
+        "label": "after-apply",
+        "counts": {
+          "events": 9,
+          "findings": 10,
+          "evidence_count": 2,
+          "note_count": 1,
+          "completed_jobs": 2,
+          "account_count": 2
+        },
+        "comparison_read_only": true,
+        "account_ids_password_hashes_roles_mfa_status_equal": true,
+        "evidence_ids_jobs_and_notes_equal": true,
+        "configuration_keys_tls_and_original_objects_equal": true
+      },
+      "before_login": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/before-login-20261019-232848-54a7d3.json",
+        "evidence_sha256": "ffc33861ed071a1ad74d58daec2b18e6b69ef47ef46acaec8a5f8f3b8ba46cf1",
+        "evidence_source": "public_receipt_verified",
+        "label": "before-login",
+        "tls_chain_and_san_verified": true,
+        "same_synthetic_username_password_and_mfa": true,
+        "logout": true
+      },
+      "after_apply_login": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/after-apply-login-20261019-233833-ed6a06.json",
+        "evidence_sha256": "48d5c8fe725dd5bd1e405f1168dabe539872697e00b73fa2154a2df24ba7c351",
+        "evidence_source": "public_receipt_verified",
+        "label": "after-apply-login",
+        "tls_chain_and_san_verified": true,
+        "same_synthetic_username_password_and_mfa": true,
+        "logout": true
+      },
+      "newer_object_added": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/newer-data-add.json",
+        "evidence_sha256": "91a0278deb2ea9868413f6e8838e36140b03a9f36fa7a4b0e355916e1095bad9",
+        "evidence_source": "public_receipt_verified",
+        "bytes": 50
+      },
+      "after_restore": {
+        "status": "not_run_after_restore_failure"
+      },
+      "after_restore_login": {
+        "status": "not_run_after_restore_failure"
+      },
+      "retained_newer_data": {
+        "status": "not_run_after_restore_failure"
+      },
+      "cleanup": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/cleanup-20261020-001921-368752.json",
+        "evidence_sha256": "20ee21a1275fe0e46f407831c68133c1796edf8b0ff4466246313d8293610833",
+        "evidence_source": "public_receipt_verified",
+        "synthetic_account_disabled": true,
+        "synthetic_sessions_revoked": true,
+        "note": "Performed after the initial r3 harness preparation refused the active account; r2 restore remains failed. The existing synthetic account was then prepared afresh for r3."
+      },
+      "final_stop": {
+        "status": "passed",
+        "synthetic_only": true,
+        "elapsed_seconds": 28.73,
+        "ports_closed": {
+          "postgres": true,
+          "opensearch": true,
+          "api": true
+        },
+        "postgres_pid_file_absent": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/final-stop-20261020-000513-b2143e.json",
+        "evidence_sha256": "bdb1e68f4ca7c71a37001702e7043e2a9b42589d1cb5695c546303e5277e14a5",
+        "evidence_source": "public_receipt_verified",
+        "execution": "Existing guarded stop helper after the failed restore; not evidence of a successful restore or account cleanup."
+      }
+    },
+    "native_restore_attempts": [
+      {
+        "status": "failed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r2/restore-form-20261019-233833-431da8.json",
+        "evidence_sha256": "a3dddef8b959c508846f3811911fcf9877bb6308f144065e6a399135c48764c5",
+        "evidence_source": "public_receipt_verified",
+        "action": "restore",
+        "candidate": "updater-stabilization-20261019-candidate6",
+        "elapsed_seconds": 40.52,
+        "ui_events_used": true,
+        "physical_double_click": "not_tested",
+        "controller_status": "failed",
+        "code": "unsafe_access",
+        "current_step": "validate",
+        "needs_acceptance": false,
+        "requires_admin": false,
+        "inspection_rows": [
+          {
+            "id": "paths",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "access",
+            "status": "fail",
+            "code": "unsafe_access"
+          },
+          {
+            "id": "baseline",
+            "status": "not_run",
+            "code": "not_run"
+          },
+          {
+            "id": "media",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "services",
+            "status": "not_run",
+            "code": "not_run"
+          },
+          {
+            "id": "stores",
+            "status": "not_run",
+            "code": "not_run"
+          },
+          {
+            "id": "configuration_runtime",
+            "status": "not_run",
+            "code": "not_run"
+          },
+          {
+            "id": "recovery",
+            "status": "not_run",
+            "code": "not_run"
+          },
+          {
+            "id": "overall",
+            "status": "fail",
+            "code": "preflight_failed"
+          }
+        ],
+        "can_retry": true,
+        "recovery_verified": true,
+        "screenshot": "docs/UPDATER-STABILIZATION-GUIDE-20261019.html#native6-restore-failed",
+        "screenshot_source": ".qa/packaging/updater-stabilization-20261019-r2/restore-form-20261019-233833-431da8.json.after.png",
+        "screenshot_sha256": "ba98ec3c12aaf9e04acddd32571c30c308ef2dd328da9091fe241b77f18e6f14",
+        "screenshot_storage": "Original PNG bytes embedded as data:image/png;base64; no image editing.",
+        "attempt": 1,
+        "cause_status": "access_metadata_read_failures_observed_root_cause_pending",
+        "retained_installation_reported": false
+      }
+    ],
+    "diagnostic_followup": {
+      "status": "metadata_investigation_in_progress",
+      "evidence_source": "parent_reported_user_approved_aggregate",
+      "approved_read_scope": "Synthetic error categories and counts only.",
+      "scope": "installation",
+      "checked": 32690,
+      "violations": 4,
+      "reason_counts": {
+        "access_metadata_unreadable": 4
+      },
+      "truncated": false,
+      "paths_sids_or_file_contents_read": false,
+      "confirmed_root_cause": false,
+      "note": "The prior aggregate-read approval blocker is cleared. Metadata read failures are observed; their underlying cause is not established.",
+      "metadata_only_recheck": {
+        "status": "passed",
+        "checked": 32690,
+        "elapsed_seconds": 8.0,
+        "permission_changes": false,
+        "evidence_source": "parent_reported_user_approved_metadata_only_probe",
+        "evidence_script": ".qa/packaging/probe-updater-access-reasons-20261019.py",
+        "limits": "A separate later metadata scan passed. The first failure discarded its Win32 codes, so its root cause remains unconfirmed."
+      }
+    }
+  },
+  "evidence_scope_note": "Candidate 7 final frozen production code passed the full server suite (1733 passed, 6 skipped, 2 existing warnings) and the complete native synthetic sequence, including restore and final stop. Candidate 6 first restore failure with exact cause unconfirmed and all earlier test failures remain history. Target LTSC operational acceptance remains separate. Distribution sealing and publication are recorded separately after the source commit.",
+  "acl_summary_followup": {
+    "status": "implemented_targeted_tests_passed",
+    "present_in_candidate6": false,
+    "scope": "Fixed Korean reason/expected mapping, bounded safe path and counts, strict 1-3 whole-scan attempt display; no access-policy relaxation.",
+    "original_red": {
+      "tests_failed": 29,
+      "tests_passed": 1
+    },
+    "whole_diagnostics_file_before_wording_and_enum_followups": {
+      "tests_passed": 51,
+      "warnings": 1,
+      "elapsed_seconds": 115.16,
+      "evidence_source": "review_agent_tool_execution"
+    },
+    "wording_only_retest": {
+      "tests_passed": 30,
+      "tests_deselected": 21,
+      "warnings": 1,
+      "elapsed_seconds": 0.08
+    },
+    "five_metadata_enum_and_attempts_retest": {
+      "tests_passed": 45,
+      "tests_deselected": 21,
+      "warnings": 1,
+      "elapsed_seconds": 0.09
+    },
+    "final_enumeration_missing_retest": {
+      "tests_passed": 46,
+      "tests_deselected": 21,
+      "warnings": 1,
+      "elapsed_seconds": 0.09,
+      "red_tests_failed": 1,
+      "red_tests_passed": 45
+    },
+    "warning": "Existing Starlette/httpx deprecation",
+    "lint": {
+      "existing_findings": 24,
+      "introduced_findings": 0
+    },
+    "final_full_integration": "passed_in_third_full_suite",
+    "new_candidate_rebuild": "candidate7_completed"
+  },
+  "live_acl_retry_followup": {
+    "status": "implemented_full_suite_and_candidate7_native_passed",
+    "evidence_source": "parent_reported_code_and_test_results",
+    "scope": "Live preflight opt-in only; at most 3 fresh whole-tree scans, no item skipping, real policy violations fail immediately, cold default remains strict.",
+    "desktop_targeted_tests_passed": 37,
+    "present_in_candidate6": false,
+    "original_candidate6_failure_cause": "unconfirmed"
+  },
+  "candidate7": {
+    "status": "native_sequence_complete",
+    "evidence_source": "public_receipts_verified_build_parent_reported",
+    "harness": "Separate r3 private/public/recovery paths prepared.",
+    "recovery_path": ".qa/us19-r3",
+    "native_start": "passed",
+    "native_inspect": "passed",
+    "native_apply": "passed",
+    "native_restore": "passed",
+    "preservation": {
+      "before_login": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/before-login-20261020-001954-38168e.json",
+        "evidence_sha256": "ffc33861ed071a1ad74d58daec2b18e6b69ef47ef46acaec8a5f8f3b8ba46cf1",
+        "evidence_source": "public_receipt_verified",
+        "same_synthetic_username_password_and_mfa": true,
+        "tls_chain_and_san_verified": true,
+        "logout": true
+      },
+      "before": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/before-20261020-002003-7989bf.json",
+        "evidence_sha256": "fd4df62a43e46e7f9004ad73de9bf89329e59aa4caaf5ea42bc0280b5e9e4847",
+        "evidence_source": "public_receipt_verified",
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2
+      },
+      "after_inspect": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/after-inspect-20261020-002052-2afdc7.json",
+        "evidence_sha256": "bdd898d47516badabdafbfaab9c1eaf0a7462ae2213e6d1867db76b6fcb31ab0",
+        "evidence_source": "public_receipt_verified",
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2,
+        "account_ids_password_hashes_roles_mfa_status_equal": true,
+        "evidence_ids_jobs_and_notes_equal": true,
+        "configuration_keys_tls_and_original_objects_equal": true,
+        "read_only": true
+      },
+      "after_apply": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/after-apply-20261020-002915-eabdeb.json",
+        "evidence_sha256": "fd0aa59d876ca2b1cb0128f4aff2125bd4e530b24ccfc613bf8833b2463913ed",
+        "evidence_source": "public_receipt_verified",
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2,
+        "account_ids_password_hashes_roles_mfa_status_equal": true,
+        "evidence_ids_jobs_and_notes_equal": true,
+        "configuration_keys_tls_and_original_objects_equal": true,
+        "read_only": true
+      },
+      "after_restore": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/after-restore-20261020-003745-ca7d03.json",
+        "evidence_sha256": "4c66b8123aadd9dce6ff91cdeb884334bc2263e06b44e9ba09ad7dc2b869edb6",
+        "evidence_source": "public_receipt_verified",
+        "schema": "0014",
+        "events": 9,
+        "findings": 10,
+        "evidence_count": 2,
+        "note_count": 1,
+        "completed_jobs": 2,
+        "account_count": 2,
+        "account_ids_password_hashes_roles_mfa_status_equal": true,
+        "evidence_ids_jobs_and_notes_equal": true,
+        "configuration_keys_tls_and_original_objects_equal": true,
+        "read_only": true
+      },
+      "retained_newer_data": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/newer-data-verify.json",
+        "evidence_sha256": "e8339857560b152dc7c0f25a6a9ee53aab12e09fca5139c027e9d27b00d3af5a",
+        "evidence_source": "public_receipt_verified",
+        "newer_object_in_retained_installation": true,
+        "absent_from_restored_snapshot": true,
+        "bytes": 50,
+        "scope": "One 50-byte synthetic object added after apply; not every type of later account or database change."
+      },
+      "cleanup": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/cleanup-20261020-003748-1c22f2.json",
+        "evidence_sha256": "20ee21a1275fe0e46f407831c68133c1796edf8b0ff4466246313d8293610833",
+        "evidence_source": "public_receipt_verified",
+        "synthetic_account_disabled": true,
+        "synthetic_sessions_revoked": true
+      },
+      "final_stop": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/final-stop-20261020-003818-5d09d0.json",
+        "evidence_sha256": "66b50e752568c9dd6871f54611b12f47aafb2b729fb5f86197312636205d3e0b",
+        "evidence_source": "public_receipt_verified",
+        "elapsed_seconds": 28.56,
+        "ports_closed": {
+          "postgres": true,
+          "opensearch": true,
+          "api": true
+        },
+        "postgres_pid_file_absent": true
+      },
+      "after_apply_login": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/after-apply-login-20261020-002917-6185e6.json",
+        "evidence_sha256": "48d5c8fe725dd5bd1e405f1168dabe539872697e00b73fa2154a2df24ba7c351",
+        "evidence_source": "public_receipt_verified",
+        "same_synthetic_username_password_and_mfa": true,
+        "tls_chain_and_san_verified": true,
+        "logout": true
+      },
+      "newer_data_add": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/newer-data-add.json",
+        "evidence_sha256": "91a0278deb2ea9868413f6e8838e36140b03a9f36fa7a4b0e355916e1095bad9",
+        "evidence_source": "public_receipt_verified",
+        "bytes": 50
+      },
+      "after_restore_login": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/after-restore-login-20261020-003747-0d4f8e.json",
+        "evidence_sha256": "49578080dbff7756284019ca1a992959dc3fe2417ce09ff1dbab566a4e55b6e1",
+        "evidence_source": "public_receipt_verified",
+        "same_synthetic_username_password_and_mfa": true,
+        "tls_chain_and_san_verified": true,
+        "logout": true
+      }
+    },
+    "cleanup": "passed",
+    "final_stop": "passed",
+    "final_code_integration_validation": "passed_1733_6_skipped_2_warnings_1305_21_seconds",
+    "build": "completed_candidate_verified",
+    "build_evidence_source": "parent_reported_completed_build",
+    "manifest_sha256": "e60ed0a62768ab28427df1f7d4b480e8dce2a71d1c0189c9d06ad10090b81781",
+    "manifest_files": 675,
+    "manifest_total_bytes": 1494876567,
+    "native_session_id": 75049,
+    "native_started_at": "2026-10-20T00:16:00+09:00",
+    "limits": "Final frozen production source passed native synthetic start/inspect/apply/restore, preservation, same-account/MFA/TLS, retained-object, cleanup and normal stop checks. Windows 11/PS5.1/NoAdmin UI events; target LTSC administrator/service/443/reboot acceptance remains separate. Candidate inventory is not final distribution ZIP metadata.",
+    "initial_native_session_id": 27747,
+    "native_runs": {
+      "start": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/start-form-20261020-001643-e9c7b3.json",
+        "evidence_sha256": "44c1b3d5647ca8ceae4524f43bffd0a83c6ee5dc1bf3013943f9478a4e75bfaa",
+        "evidence_source": "public_receipt_verified",
+        "action": "start",
+        "elapsed_seconds": 69.47,
+        "ui_events_used": true,
+        "acl_objects_checked": 32688,
+        "rows": [
+          {
+            "id": "paths",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "access",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "baseline",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "media",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "services",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "stores",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "configuration_runtime",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "recovery",
+            "status": "pass",
+            "code": "recovery_not_required"
+          },
+          {
+            "id": "overall",
+            "status": "pass",
+            "code": "ready"
+          }
+        ],
+        "phase": "completed",
+        "code": "completed",
+        "requires_admin": false,
+        "needs_acceptance": true,
+        "current_step": "completed",
+        "last_completed_step": "health"
+      },
+      "inspect": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/inspect-form-20261020-002003-572942.json",
+        "evidence_sha256": "70d3cbb6d8c664f85af98338771a3b68fa0ca36b7b59b536624638437b3cf260",
+        "evidence_source": "public_receipt_verified",
+        "action": "inspect",
+        "elapsed_seconds": 39.36,
+        "ui_events_used": true,
+        "acl_objects_checked": 32698,
+        "rows": [
+          {
+            "id": "paths",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "access",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "baseline",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "media",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "services",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "stores",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "configuration_runtime",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "recovery",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "overall",
+            "status": "pass",
+            "code": "ready"
+          }
+        ],
+        "phase": "ready",
+        "code": "ready",
+        "requires_admin": false,
+        "needs_acceptance": false,
+        "current_step": "validate"
+      },
+      "apply": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/apply-form-20261020-002053-a87ea8.json",
+        "evidence_sha256": "7469f202d409de549752795f20420ba6cc7521651a9dee5428ca4d53f44d9392",
+        "evidence_source": "public_receipt_verified",
+        "action": "apply",
+        "elapsed_seconds": 492.39,
+        "ui_events_used": true,
+        "acl_objects_checked": 32698,
+        "rows": [
+          {
+            "id": "paths",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "access",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "baseline",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "media",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "services",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "stores",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "configuration_runtime",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "recovery",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "overall",
+            "status": "pass",
+            "code": "ready"
+          }
+        ],
+        "phase": "completed",
+        "code": "completed",
+        "requires_admin": false,
+        "needs_acceptance": true,
+        "current_step": "completed",
+        "last_completed_step": "health",
+        "screenshot": {
+          "path": ".qa/packaging/updater-stabilization-20261019-r3/apply-form-20261020-002053-a87ea8.json.after.png",
+          "sha256": "0b00e4b47b6e9563a87dc9f9b71b212b8172499496e5560023711236eb656546",
+          "bytes": 55939,
+          "embedded_original_bytes": true,
+          "guide_anchor": "native7-apply"
+        }
+      },
+      "restore": {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/restore-form-20261020-002918-d753c3.json",
+        "evidence_sha256": "4d3e3afa6cbf197172f7d01cf51dbd4959f6aab519f303ce2cc19eb8b75f2c87",
+        "evidence_source": "public_receipt_verified",
+        "action": "restore",
+        "elapsed_seconds": 497.54,
+        "ui_events_used": true,
+        "acl_objects_checked": 32701,
+        "rows": [
+          {
+            "id": "paths",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "access",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "baseline",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "media",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "services",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "stores",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "configuration_runtime",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "recovery",
+            "status": "pass",
+            "code": "verified"
+          },
+          {
+            "id": "overall",
+            "status": "pass",
+            "code": "ready"
+          }
+        ],
+        "phase": "completed",
+        "code": "completed",
+        "requires_admin": false,
+        "needs_acceptance": true,
+        "current_step": "completed",
+        "last_completed_step": "health",
+        "retained_installation_basename": ".saw-k-4ec0f9a9037e",
+        "screenshot": {
+          "path": ".qa/packaging/updater-stabilization-20261019-r3/restore-form-20261020-002918-d753c3.json.after.png",
+          "sha256": "db447b8c0798c198378f8cb94128974f9d56199c9d2ad34e166f52272f53443f",
+          "bytes": 56123,
+          "embedded_original_bytes": true,
+          "guide_anchor": "native7-restore"
+        }
+      }
+    },
+    "preparation_history": [
+      {
+        "status": "failed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/prepare-20261020-001802-b09665.json",
+        "evidence_sha256": "54a3288e7a33f82ebf5eaf44aba416e224618cada2ab0f24b95634bca9289b9f",
+        "evidence_source": "public_receipt_verified",
+        "code": "synthetic_account_state_not_disabled",
+        "classification": "synthetic_harness_precondition",
+        "updater_failure": false,
+        "note": "Prior r2 account cleanup had not run after the restore failure. Preparation refused an active existing synthetic account; no production code change was made."
+      },
+      {
+        "status": "passed",
+        "synthetic_only": true,
+        "evidence": ".qa/packaging/updater-stabilization-20261019-r3/prepare-20261020-001951-4de966.json",
+        "evidence_sha256": "dab8316984192d58e76857acdf7ed7caab18fdb96b7d33aeda0eeffbad775b35",
+        "evidence_source": "public_receipt_verified",
+        "only_existing_synthetic_account_prepared": true,
+        "secrets_disclosed": false
+      }
+    ],
+    "resume_note": "Guarded r2 fixture cleanup passed, then preparation resumed with a fresh protected r3-ready work directory. No production source changes.",
+    "native_sequence_exit_code": 0,
+    "native_sequence_exit_evidence_source": "parent_reported_tool_output"
+  },
+  "guide_standalone_images": {
+    "status": "all_embedded_original_bytes",
+    "initial_screenshots": [
+      {
+        "source": "docs/assets/updater-20261019/01-baseline-required.png",
+        "sha256": "0882772e82797f9a3b33b4903841de7e392eb570452affaf079c83b54cdf7b68",
+        "bytes": 56592,
+        "image_and_anchor_embedded_original_bytes": true
+      },
+      {
+        "source": "docs/assets/updater-20261019/02-media-diagnosis.png",
+        "sha256": "ba94aa5f742d53d2b0ecacada2717287f0f2f179a6213b9287e55ff79c30613b",
+        "bytes": 56131,
+        "image_and_anchor_embedded_original_bytes": true
+      },
+      {
+        "source": "docs/assets/updater-20261019/03-compact-window.png",
+        "sha256": "64b70cfb4d7fe1ceaf94a7b0d669f326e58a39f06fb9a596a8286b27bad62408",
+        "bytes": 49143,
+        "image_and_anchor_embedded_original_bytes": true
+      },
+      {
+        "source": "docs/assets/updater-20261019/04-native-start.png",
+        "sha256": "7fd74f775dace954394107cf80a6f3b72fa64dc9012b64ea63d54c6beb9b7b67",
+        "bytes": 56405,
+        "image_and_anchor_embedded_original_bytes": true
+      }
+    ],
+    "total_embedded_img_elements": 10,
+    "relative_image_or_image_anchor_dependencies": 0,
+    "limits": "All screenshots display without the separate assets folder. External documentation hyperlinks remain optional links."
+  }
+}

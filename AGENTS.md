@@ -24,4 +24,6 @@ cd apps/web && pnpm vitest run && pnpm tsc --noEmit                  # 화면
 
 ## 지금 가장 먼저 할 일
 
-[STATE.md](STATE.md)의 현재 작업 범위부터 확인하세요. 2026-10-18 저장소·로컬 생성물 정리와 합성 실제 UI 확인 결과를 STATE에 기록했습니다. 다음 작업과 검증 범위를 확인하고, HANDOVER의 과거 탐지 묶음 할 일을 현재 미완료 작업으로 되풀이하지 않습니다. 원본 F:/claude/saw, 운영 자료·계정, 기존 사용자 설치는 보존합니다.
+[STATE.md](STATE.md)의 현재 작업 범위부터 확인하세요. 통합 브랜치 codex/updater-stabilization-20261019에서 코드와 개발기 실제 업데이트·복구 검증을 완료했습니다. 최종 서버1,733통과·6건너뜀, 웹177통과이며 후보7 실제 업데이트492.39초·복구497.54초와 계정·자료 보존을 확인했습니다. 현재 새 전체 ZIP 봉인·PR·비공개 사전 배포를 진행합니다. 대상 LTSC2019의 실제 관리자 서비스·재부팅 인수는 미검증입니다. 과거 후보6 권한 조회4건의 정확한 원인은 미확정으로 유지합니다.
+
+[새 사용자 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.md), [24단계 흐름 감사](docs/verification/updater-flow-audit-20261019.md), [현장 읽기 전용 점검](docs/verification/updater-native-acceptance-20261019.md)을 함께 확인하세요. HANDOVER의 날짜별 기록은 과거 검증 범위이며 현재 완료 근거로 재사용하지 않습니다. 원본 F:/claude/saw, 운영 C:/SAW·D:/SAW-0.1.0, 운영 자료·계정은 보존합니다.
