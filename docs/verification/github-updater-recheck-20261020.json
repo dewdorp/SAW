@@ -1,0 +1,40 @@
+{
+  "schema": "saw.github-recheck-publication/1",
+  "date": "2026-10-20",
+  "state": "PASS",
+  "tag": "v0.1.0-pilot.20261019",
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019",
+  "release_id": 417472995,
+  "private_repository": true,
+  "prerelease": true,
+  "asset_count": 12,
+  "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+  "original_nine_assets_unchanged": true,
+  "original_zip_and_manifest_unchanged": true,
+  "previous_four_releases_unchanged": true,
+  "main_unchanged": true,
+  "added_assets": [
+    {
+      "name": "UPDATER-RECHECK-20261020.html",
+      "bytes": 230862,
+      "sha256": "e54c380bee65140058fc49c4e1a273586be7eeccf27ecad2d1e2b1581d18376d",
+      "asset_id": 656770988
+    },
+    {
+      "name": "UPDATER-RECHECK-20261020.md",
+      "bytes": 6035,
+      "sha256": "ad73516ceb4e7411dadc1c16d011093b81d7c895c04adae758d67d1b5aff195e",
+      "asset_id": 656771037
+    },
+    {
+      "name": "updater-release-recheck-20261020.json",
+      "bytes": 14316,
+      "sha256": "4fcb54a5032d5ca7f1044d09d7424c16a8fae2c9f38dbc56d302c76fcf89d0a1",
+      "asset_id": 656771085
+    }
+  ],
+  "release_notes_updated_and_read_back": true,
+  "notes_comparison": "CRLF/LF normalized only; otherwise exact content",
+  "initial_post_publication_check": "Failed raw text equality because remote notes used 59 CRLF line endings; normalized equality proved identical content. Rechecked without reupload or overwrite.",
+  "operational_acceptance": false
+}

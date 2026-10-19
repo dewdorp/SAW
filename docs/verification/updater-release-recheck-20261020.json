@@ -1,0 +1,484 @@
+{
+  "schema": "saw.updater-release-recheck/1",
+  "date": "2026-10-20",
+  "state": "PASS_WITH_TARGET_ENVIRONMENT_GATES",
+  "scope": "Published ZIP directly extracted and exercised; synthetic Windows 11 / PS 5.1 / NoAdmin only",
+  "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+  "production_code_changed": false,
+  "environment": {
+    "os_caption": "Microsoft Windows 11 Pro",
+    "version": "10.0.26200",
+    "build": 26200,
+    "sku": 48,
+    "product_type": 1,
+    "os_and_process_64bit": true,
+    "native_harness_powershell": "5.1.26100.9711",
+    "orchestration_shell_powershell": "7.6.5",
+    "installation_mode": "noadmin",
+    "native_powershell_path": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    "probed_this_turn": true
+  },
+  "archive": {
+    "state": "PASS",
+    "sha256": "b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5",
+    "bytes": 1445832542,
+    "entries": 677,
+    "extracted_dir": "F:\\codex\\SAW-Claude-main\\.release\\updater-published-20261020",
+    "verified": {
+      "verified": true,
+      "file_count": 675,
+      "bytes": 1495643898,
+      "manifest_sha256": "e960e0b5117815ad3ca12a96ca9881de6c5f13162f0803232b764bde8359b211"
+    }
+  },
+  "native": {
+    "start": {
+      "state": "PASS",
+      "elapsed_seconds": 48.32,
+      "status": "completed",
+      "rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "recovery_not_required"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "acl_counts": [
+        32698,
+        1
+      ],
+      "receipt": ".qa/packaging/updater-release-20261020-final/start-form-20261020-005841-3e5bb1.json",
+      "receipt_sha256": "36e5337cfa900c230121e27726a5c30b1aace817b7d5b5af5938c9bb8fad4c1e"
+    },
+    "inspect": {
+      "state": "PASS",
+      "elapsed_seconds": 38.21,
+      "status": "ready",
+      "rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "acl_counts": [
+        32705,
+        1
+      ],
+      "receipt": ".qa/packaging/updater-release-20261020-final/inspect-form-20261020-005951-d95fec.json",
+      "receipt_sha256": "a2ec5320843b63db705dc4880e3fa378ea549b9d21b3d39a1f46805bd19ce41d"
+    },
+    "apply": {
+      "state": "PASS",
+      "elapsed_seconds": 485.55,
+      "status": "completed",
+      "rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "acl_counts": [
+        32705,
+        1
+      ],
+      "receipt": ".qa/packaging/updater-release-20261020-final/apply-form-20261020-010040-72a0d5.json",
+      "receipt_sha256": "514aab780c5164b2841c21b39a047752f2f06a7195afcecf2359376eceab4c55"
+    },
+    "restore": {
+      "state": "PASS",
+      "elapsed_seconds": 488.11,
+      "status": "completed",
+      "rows": [
+        {
+          "id": "paths",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "access",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "baseline",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "media",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "services",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "stores",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "configuration_runtime",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "recovery",
+          "status": "pass",
+          "code": "verified"
+        },
+        {
+          "id": "overall",
+          "status": "pass",
+          "code": "ready"
+        }
+      ],
+      "acl_counts": [
+        32708,
+        1
+      ],
+      "receipt": ".qa/packaging/updater-release-20261020-final/restore-form-20261020-010858-e500cc.json",
+      "receipt_sha256": "512add5b25c590a0d69c3fca513c504576ed6b0e89b752df0812cc828070ad16"
+    }
+  },
+  "preservation": {
+    "before": {
+      "events": 9,
+      "findings": 10,
+      "evidence_count": 2,
+      "note_count": 1,
+      "completed_jobs": 2,
+      "account_count": 2,
+      "schema": "0014"
+    },
+    "after-inspect": {
+      "events": 9,
+      "findings": 10,
+      "evidence_count": 2,
+      "note_count": 1,
+      "completed_jobs": 2,
+      "account_count": 2,
+      "schema": "0014",
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true,
+      "installed_manifest_source": "723e2a677dfc19e2079acbc0c6b604518a8c76aa"
+    },
+    "after-apply": {
+      "events": 9,
+      "findings": 10,
+      "evidence_count": 2,
+      "note_count": 1,
+      "completed_jobs": 2,
+      "account_count": 2,
+      "schema": "0014",
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true,
+      "installed_manifest_source": "26f5d1a448668c127383c2e73d47d60d00ed2a28"
+    },
+    "after-restore": {
+      "events": 9,
+      "findings": 10,
+      "evidence_count": 2,
+      "note_count": 1,
+      "completed_jobs": 2,
+      "account_count": 2,
+      "schema": "0014",
+      "account_ids_password_hashes_roles_mfa_status_equal": true,
+      "evidence_ids_jobs_and_notes_equal": true,
+      "configuration_keys_tls_and_original_objects_equal": true,
+      "installed_manifest_source": "723e2a677dfc19e2079acbc0c6b604518a8c76aa"
+    }
+  },
+  "logins": {
+    "before-login": {
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    },
+    "after-apply-login": {
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    },
+    "after-restore-login": {
+      "tls_chain_and_san_verified": true,
+      "same_synthetic_username_password_and_mfa": true,
+      "logout": true
+    }
+  },
+  "newer_data_retention": {
+    "newer_object_in_retained_installation": true,
+    "absent_from_restored_snapshot": true
+  },
+  "cleanup": {
+    "synthetic_account_disabled": true,
+    "sessions_revoked": true
+  },
+  "stop": {
+    "state": "PASS",
+    "elapsed_seconds": 28.77,
+    "ports_closed": {
+      "postgres": true,
+      "opensearch": true,
+      "api": true
+    },
+    "postgres_pid_file_absent": true
+  },
+  "regression": {
+    "tests": 619,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 618,
+    "elapsed_seconds": 795.213,
+    "wrapper_elapsed_seconds": 796.49,
+    "warnings": 2,
+    "warning_kinds": [
+      "existing Starlette httpx deprecation",
+      "JUnit record_property/xunit2 compatibility"
+    ],
+    "state_handoff_token": "non-elevated current-user default owner",
+    "files": [
+      "tests\\unit\\test_desktop_update.py",
+      "tests\\unit\\test_offline_update.py",
+      "tests\\unit\\test_private_update_state.py",
+      "tests\\unit\\test_release_manifest.py",
+      "tests\\unit\\test_restore_interruption.py",
+      "tests\\unit\\test_update_acl_policy.py",
+      "tests\\unit\\test_update_diagnostics.py",
+      "tests\\unit\\test_update_mutation_access.py",
+      "tests\\unit\\test_update_native_acceptance.py",
+      "tests\\unit\\test_update_review_regressions.py",
+      "tests\\unit\\test_update_state_handoff.py",
+      "tests\\unit\\test_update_ui.py",
+      "tests\\unit\\test_update_worker.py",
+      "tests\\unit\\test_updater_services.py"
+    ],
+    "skipped_tests": [
+      {
+        "test": "test_untrusted_existing_state_is_still_rejected",
+        "reason": "POSIX access-bit rejection; native ACL cases use the handoff test"
+      }
+    ]
+  },
+  "independent_review": {
+    "date": "2026-10-20",
+    "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+    "read_only": true,
+    "tests_executed_by_reviewers": false,
+    "new_critical_or_important_findings": [],
+    "reviews": [
+      {
+        "scope": "A-C media, private state owner, ACL",
+        "reviewer": "release_recheck_acl",
+        "confirmed": [
+          "media verified before runtime extraction",
+          "explicit user owner and protected DACL",
+          "OWNER RIGHTS resolved against actual owner",
+          "NetworkService scoped access",
+          "bounded full-tree retry for known transient errors only"
+        ],
+        "limits": [
+          "no real elevated administrator token or LTSC service execution",
+          "historical four metadata failures have no captured Win32 cause"
+        ]
+      },
+      {
+        "scope": "D-E baseline, service config, apply/restore",
+        "reviewer": "release_recheck_flow",
+        "confirmed": [
+          "installed manifest priority and corrupt manifest rejection",
+          "legacy exact-media validation",
+          "independent Registry32 and Registry64 complete configuration checks",
+          "full cold snapshot before replacement",
+          "restore interruption journal and retained newer installation"
+        ],
+        "limits": [
+          "no actual LTSC administrator SCM/UAC/443/reboot acceptance"
+        ]
+      }
+    ]
+  },
+  "screenshots": [
+    {
+      "action": "inspect",
+      "path": "docs/assets/updater-recheck-20261020/inspect.png",
+      "sha256": "e68eed5a638b0c9a6c6f4c906d41c4eb63bea1169134eaadb2f41fb586742a4f",
+      "bytes": 55983
+    },
+    {
+      "action": "apply",
+      "path": "docs/assets/updater-recheck-20261020/apply.png",
+      "sha256": "8b3cd4e1a8b73992a5476876a9f645a3caf1b1c1c97ea9f80b80e6274782697e",
+      "bytes": 55727
+    },
+    {
+      "action": "restore",
+      "path": "docs/assets/updater-recheck-20261020/restore.png",
+      "sha256": "480bbe4cbdd60c63e73da48d4598617728e5cb0fd856a0b302a8b6e72b00a3ae",
+      "bytes": 55898
+    }
+  ],
+  "prior_full_suite": {
+    "passed": 1733,
+    "skipped": 6,
+    "web_passed": 177,
+    "typescript_exit_code": 0,
+    "rerun_this_turn": false,
+    "production_source_unchanged": true
+  },
+  "unresolved": [
+    "Target LTSC 17763 elevated administrator/UAC/SCM/LocalSystem/NetworkService/Registry32 service/443/reboot acceptance",
+    "Historical candidate6 metadata query failures: four errors; original Win32 cause was not captured and remains unknown",
+    "Historical History 503 root cause remains unknown; this updater verification does not resolve it",
+    "Physical airgap, organizational signing/MOTW/TLS, multi-analyst low-memory load and operational approval"
+  ],
+  "physical_double_click_tested": false,
+  "fresh_install_tested": false,
+  "operational_acceptance": false,
+  "guide_browser_verification": {
+    "url": "http://127.0.0.1:58369/UPDATER-RECHECK-20261020.html",
+    "title": "SAW 최종 ZIP 재검증",
+    "embedded_images": 3,
+    "loaded_images": 3,
+    "image_dimensions": [
+      1040,
+      850
+    ],
+    "restore_anchor_and_screenshot_visually_checked": true,
+    "native_screenshot_pixels_unmodified": true
+  },
+  "report_review": {
+    "reviewer": "release_recheck_flow",
+    "read_only": true,
+    "new_important_findings": [],
+    "downloadable_markdown_links_checked": true,
+    "release_notes_concurrent_edit_guard_checked": true
+  }
+}

@@ -1,16 +1,18 @@
 # SAW 현재 상태 — 2026-10-20
 
-## 현재 상태: 업데이트 안정화 시험 배포 게시 완료 · 운영 인수 별도
+## 현재 상태: 최종 배포 ZIP 직접 재검증·게시 완료 · LTSC 운영 인수 별도
 
-- [새 모델 제외 전체 매체](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019)와 [통합 PR #3](https://github.com/dewdorp/SAW/pull/3)을 제출했다. main에 병합하지 않았고 기존4개 릴리스·원본 F:/claude/saw·운영 C:/SAW·D:/SAW-0.1.0은 보존했다.
-- ZIP: SAW-0.1.0-pilot.20261019-model-free-win-x64.zip, 1,445,832,542바이트, SHA256 b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5. 로컬 .release/에 보관했다. 677항목 전부 크기·hash 검증, 게시9자산 원격 크기·digest와 tag/source 대조 PASS.
-- 매체 소스26f5d1a448668c127383c2e73d47d60d00ed2a28. 실제 시험한 후보7과 실행코드·런타임·의존성 및 라이선스/SBOM(발행 필드 제외)의 동일성을 확인했다. 최종 ZIP 자체로 업데이트·복구를 재실행한 것은 아니다. 이후 커밋은 게시 기록·링크만 정리한다.
-- 최종 서버1,733통과·6건너뜀·2경고(1,305.21초), 웹177통과·TypeScript 성공. 실제 Windows11/PS5.1/NoAdmin 합성 업데이트492.39초·복구497.54초, 계정·암호·MFA·DB/색인·증거·노트·설정·키·TLS·원본 대조 PASS. 새50바이트객체 별도 보관·계정 정리·정상 종료28.56초 PASS.
-- HTML에 원본 화면10개를 모두 내장했고 브라우저에서10개 로딩과 단계 이동·최신 실제 복구 화면을 확인했다. [그림 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.html), 로컬 열람 http://127.0.0.1:58369/UPDATER-STABILIZATION-GUIDE-20261019.html#prepare (docs 서버92434 유지).
-- 사용: 새 ZIP을 D:/SAW-update-20261019에 해제 → UPDATE-SAW.cmd → 기존 C:/SAW·새 C:/SAW-r-20261019 선택 → 설치 점검 → 동의 후 업데이트. 수동 hash 대조는 없고 자동 전체 검증을 유지한다. 전체 복구는 백업 시점으로 돌아가며 이후 자료를 별도 보관하고 자동 병합하지 않는다.
-- [매체 봉인](docs/verification/updater-release-20261019.json) · [게시 대조](docs/verification/github-updater-stabilization-20261019.json) · [전체 시험/실행 이력](docs/verification/updater-stabilization-20261019.json) · [24단계 감사](docs/verification/updater-flow-audit-20261019.md).
-- 남은 인수: 깨끗한 Windows10 Enterprise LTSC2019 x64 build17763, 실제 관리자/UAC/SCM·LocalSystem/NetworkService·HTTPS443·재부팅·조직TLS/서명·물리폐쇄망·공동부하·운영승인. [현장 읽기 전용 점검](docs/verification/updater-native-acceptance-20261019.md)을 포함했다. 운영 설치는 변경하지 않았고 제품 전체 완료/운영 인수 승인으로 보지 않는다.
-- 후보6의 권한 metadata 조회4건은 직접 Win32 원인 미확정이다. 이후 전체 재검사/후보7 통과로 최초 원인이 해결됐다고 기록하지 않는다. 모든 실패·수정·재검증 이력을 보존했다.
+- [모델 제외 전체 ZIP](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019)을 직접 풀어 실제 업데이트·전체 복구를 재실행했다. 실행 코드 추가 변경 없이 source 26f5d1a448668c127383c2e73d47d60d00ed2a28와 설치 ZIP을 유지한다.
+- 이번 실제 Windows11 Pro build26200 / Windows PowerShell5.1.26100.9711 / NoAdmin 합성 흐름: 시작48.32초·점검38.21초·업데이트485.55초·복구488.11초 모두 PASS. 실제 WinForms 버튼 이벤트→worker→포함 런타임→PostgreSQL/OpenSearch/HTTPS이다. 물리 마우스 더블클릭·관리자 SCM 서비스·대상 LTSC 인수는 아니다.
+- 점검 전후·적용 후·복구 후 계정2·이벤트9·Finding10·증거2·노트1·완료작업2/schema0014 일치. 계정ID·암호hash·권한·MFA·설정·키·TLS·원본 대조 및 같은 계정 로그인 PASS. 새 합성 객체1개 별도 보관·합성 계정 정리·정상 종료28.77초, 세 포트 닫힘/PG PID 부재 PASS.
+- 이번 오류 회귀14파일 **618통과·1건너뜀·2기존경고·실패0**, 795.23초. POSIX 권한 비트 시험1건만 건너뛰었고 native Windows ACL 회귀는 실행했다. 기존 전체 서버1733/6skip·웹177/TypeScript PASS는 이전 실행이며 이번 재실행으로 표시하지 않는다. 실행 코드·기존 시험은 변경되지 않았다.
+- ZIP **SAW-0.1.0-pilot.20261019-model-free-win-x64.zip**, 1,445,832,542바이트, SHA256 b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5. 677항목 직접 해제 및675 payload 검증 PASS. 기존 ZIP·manifest·9자산·tag/main·이전4개 릴리스 보존, 문서3개 추가 후12자산 원격 크기/digest 대조 PASS.
+- [최신 그림·사용 안내](docs/UPDATER-RECHECK-20261020.html) · [Markdown 안내](docs/UPDATER-RECHECK-20261020.md) · [직접 실행 검증](docs/verification/updater-release-recheck-20261020.json) · [게시 검증](docs/verification/github-updater-recheck-20261020.json). 실제 화면3장을 원본 그대로 HTML에 내장했고 브라우저3개 로딩과 복구 화면을 확인했다.
+- [통합 PR #3](https://github.com/dewdorp/SAW/pull/3), 브랜치 codex/updater-stabilization-20261019. main은 병합하지 않는다. 원본 F:/claude/saw, 운영 C:/SAW·D:/SAW-0.1.0, 운영 계정·자료를 변경하지 않았다.
+- 사용: 새 ZIP을 D:/SAW-update-20261019 같은 새 폴더에 해제 → UPDATE-SAW.cmd → 기존 C:/SAW·새 C:/SAW-r-20261019 선택 → 설치 점검 → 중지 동의 후 업데이트. 수동 hash 대조는 없고 자동 검증을 유지한다. 복구는 전체 시점 복구이며 이후 새 자료는 별도 보관한다.
+- 남은 인수: 깨끗한 LTSC2019 build17763·실제 관리자/UAC/SCM/LocalSystem/NetworkService·Registry32 서비스·HTTPS443·재부팅·조직TLS/서명/MOTW·물리폐쇄망·저사양 공동부하·운영 승인. [현장 읽기 전용 점검 절차](docs/verification/updater-native-acceptance-20261019.md)를 사용한다. 이번 ZIP으로 빈 폴더 최초 설치는 재실행하지 않았다.
+- 과거 후보6 권한 metadata 조회4건과 History503의 정확한 원인은 미확정이다. 후속 성공을 원인 해결로 취급하지 않는다. 게시 설명의 첫 대조는 GitHub의 CRLF 변환으로 실패했으며 내용이 같은 것을 확인한 뒤 줄 끝만 정규화해 재검증했다. 업로드·기존 자산을 덮어쓰지 않았다.
+- 합성 시험 설치 .qa/packaging/installed-new2-20261017는 정지/계정 비활성 상태다. 새 복구본 .qa/ur20-final과 보관 설치·기존 모든 시험 이력은 보존한다. 최신 안내 URL: http://127.0.0.1:58369/UPDATER-RECHECK-20261020.html (기존 docs 서버 유지).
 
 이하 기록은 각 시점의 경과 이력이다. 과거 승인 대기·실행 중 문구보다 위 최신 게시·검증 상태를 우선한다.
 

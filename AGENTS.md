@@ -27,3 +27,7 @@ cd apps/web && pnpm vitest run && pnpm tsc --noEmit                  # 화면
 [STATE.md](STATE.md)의 현재 작업 범위부터 확인하세요. 통합 브랜치 codex/updater-stabilization-20261019에서 코드와 개발기 실제 업데이트·복구 검증을 완료했습니다. 최종 서버1,733통과·6건너뜀, 웹177통과이며 후보7 실제 업데이트492.39초·복구497.54초와 계정·자료 보존을 확인했습니다. 새 전체 ZIP v0.1.0-pilot.20261019과 통합 PR #3을 게시했고 원격 크기·hash·tag 및 기존 릴리스/main 보존을 확인했습니다. 현재 다음 인수 범위는 STATE를 따릅니다. 대상 LTSC2019의 실제 관리자 서비스·재부팅 인수는 미검증입니다. 과거 후보6 권한 조회4건의 정확한 원인은 미확정으로 유지합니다.
 
 [새 사용자 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.md), [24단계 흐름 감사](docs/verification/updater-flow-audit-20261019.md), [현장 읽기 전용 점검](docs/verification/updater-native-acceptance-20261019.md)을 함께 확인하세요. HANDOVER의 날짜별 기록은 과거 검증 범위이며 현재 완료 근거로 재사용하지 않습니다. 원본 F:/claude/saw, 운영 C:/SAW·D:/SAW-0.1.0, 운영 자료·계정은 보존합니다.
+
+## 2026-10-20 최신 재검증
+
+게시된 최종 ZIP 자체의 업데이트485.55초·복구488.11초와 자료/계정/MFA 보존·새 객체 보관·정상종료를 확인했다. 관련 회귀618통과·1POSIX건너뜀, 실행 코드 변경 없음. 기존ZIP/manifest/9자산을 유지하고 검증문서3개를 추가해 원격12자산을 대조했다. 최신 상태는 STATE.md 및 docs/UPDATER-RECHECK-20261020.html을 따른다. 대상 LTSC 관리자서비스 인수와 과거권한조회4건/History503 원인 미확정은 유지한다.
