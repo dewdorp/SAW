@@ -1,3 +1,14 @@
+## 2026-10-20 업데이트 안정화 매체·PR 제출 완료
+
+- 비공개 사전 배포 v0.1.0-pilot.20261019에 실제 모델 제외 전체 ZIP·그림 안내·검증 기록 등9자산을 게시했다. ZIP1,445,832,542바이트, SHA256 b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5,677항목 검증 PASS.
+- 매체 source26f5d1a448668c127383c2e73d47d60d00ed2a28와 후보7 실행payload 동일성, SBOM/라이선스(발행 필드 제외), 원격9자산 크기·digest 및 실제tag 확인. 최종 ZIP 자체의 native 재실행과 구분한다.
+- 통합 PR https://github.com/dewdorp/SAW/pull/3 제출. main723e2a6·이전4개 릴리스와 원본Claude·운영C:/SAW 보존. 후속 문서 커밋만 추가한다.
+- 최종 서버1733/6skip,웹177/TypeScript PASS. 실제 합성 적용492.39초·복구497.54초·계정/MFA/자료보존·새객체보관·정상종료 PASS. HTML10화면 내장/브라우저10개로드·단계이동 확인.
+- 대상 LTSC17763·관리자 서비스/UAC/443/재부팅·조직서명/물리폐쇄망/공동부하·운영 승인은 별도다. 기존 후보6 권한조회 실패의 정확한 원인은 미확정으로 유지한다.
+- 게시: https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019. 매체 안의 START-HERE와 그림 안내를 사용하며 수동 hash 대조 없이 자동 검증한다. 상세 봉인·게시 영수증은 docs/verification/updater-release-20261019.json 및 docs/verification/github-updater-stabilization-20261019.json에 기록했다.
+
+---
+
 ## 2026-10-20 업데이트 안정화 — 코드·개발기 실제 복구 검증 완료
 
 - 최종 서버1,733통과·6건너뜀·2경고(1,305.21초), 웹177통과·TypeScript 성공. 독립 검토 후 생산코드를 동결했다.

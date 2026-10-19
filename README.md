@@ -7,15 +7,15 @@
 |---|---|
 | 현재 상태 | **Windows 폐쇄망 개발 파일럿 · 개발기 설치/분석/업데이트/복구 확인** |
 | 문서 기준일 | 2026-10-20 |
-| 최신 매체 | **v0.1.0-pilot.20261018.1 · 모델 제외 · 더블클릭 업데이트 포함** |
-| 업데이트 안정화 | **서버1,733통과 · 후보7 실제 업데이트/복구·계정/자료 보존 확인 · 새 ZIP 봉인 중** |
+| 최신 매체 | **v0.1.0-pilot.20261019 · 모델 제외 · 더블클릭 업데이트 포함** |
+| 업데이트 안정화 | **서버1,733통과 · 후보7 실제 업데이트/복구·계정/자료 보존 확인 · 새 ZIP 게시 완료** |
 | 남은 인수 | 깨끗한 LTSC2019 x64·실제 관리자 서비스·무GPU 16/32GB 공동 부하·모델 품질·운영 승인 |
 
 모델 가중치를 제외한 본체 설치 매체와 별도 모델 반입을 지원합니다. 지정 모델의 CPU 생성은 확인했지만 한국어·인용 품질은 미채택이며 운영 답변에 자동 적용하지 않습니다. 최신 구현·검증 범위와 현재 작업은 [STATE.md](STATE.md)에 기록합니다. 상세 이력은 [PROGRESS.md](PROGRESS.md)에 보존합니다.
 
-**설치 매체:** [최신 비공개 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261018.1)에서 `SAW-0.1.0-pilot.20261018.1-model-free-win-x64.zip`을 받습니다. 저장소 접근 권한이 필요합니다. 기존 설치를 업데이트하려면 ZIP을 기존 설치 밖에 해제하고 `UPDATE-SAW.cmd`를 실행한 뒤 창에서 기존 설치를 선택합니다. [더블클릭 그림 안내](docs/DOUBLE-CLICK-UPDATE-GUIDE.html)와 [업데이트·전체 복구 설명](docs/DOUBLE-CLICK-UPDATE-GUIDE.md)을 먼저 확인하세요. 새 설치와 실패 재개는 매체의 START-HERE.md 및 [설치 위치·재개 안내](docs/INSTALL-RECOVERY-2026-10-18.md)를 따릅니다.
+**설치 매체:** [최신 비공개 사전 배포](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019)에서 `SAW-0.1.0-pilot.20261019-model-free-win-x64.zip`을 받습니다. 저장소 접근 권한이 필요합니다. 기존 설치를 업데이트하려면 ZIP을 기존 설치 밖에 해제하고 `UPDATE-SAW.cmd`를 실행한 뒤 창에서 기존 설치를 선택합니다. [최신 그림 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.html)와 [업데이트·전체 복구 설명](docs/UPDATER-STABILIZATION-GUIDE-20261019.md)을 먼저 확인하세요. 새 설치와 실패 재개는 매체의 START-HERE.md 및 [설치 위치·재개 안내](docs/INSTALL-RECOVERY-2026-10-18.md)를 따릅니다.
 
-**2026-10-20 안정화 검증:** 상태 소유권·ACL·Registry32/64, 9행 점검과 중단 복구를 보완했습니다. 전체 서버1,733통과·6건너뜀, 웹177통과이며 Windows11/PS5.1/NoAdmin 합성 설치에서 실제 업데이트492.39초·복구497.54초와 계정·자료 보존을 확인했습니다. 새 ZIP·게시·통합 PR은 제작 중입니다. 위 기존 배포에 이번 수정이 포함됐다고 가정하지 마세요. 대상 LTSC17763의 실제 관리자 서비스·443·재부팅 인수는 미검증입니다.
+**2026-10-20 안정화 검증:** 상태 소유권·ACL·Registry32/64, 9행 점검과 중단 복구를 보완했습니다. 전체 서버1,733통과·6건너뜀, 웹177통과이며 Windows11/PS5.1/NoAdmin 합성 설치에서 실제 업데이트492.39초·복구497.54초와 계정·자료 보존을 확인했습니다. 새 전체 ZIP과 [통합 PR #3](https://github.com/dewdorp/SAW/pull/3)을 게시했고 [매체 봉인](docs/verification/updater-release-20261019.json)과 [원격 대조](docs/verification/github-updater-stabilization-20261019.json)를 확인했습니다. 기존 릴리스·main·운영 설치는 보존했습니다. 대상 LTSC17763의 실제 관리자 서비스·443·재부팅 인수는 미검증입니다.
 
 [새 점검·복구 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.md) · [그림 안내 HTML](docs/UPDATER-STABILIZATION-GUIDE-20261019.html) · [24단계 흐름 감사](docs/verification/updater-flow-audit-20261019.md) · [현장 읽기 전용 점검](docs/verification/updater-native-acceptance-20261019.md). 그림01–03은 합성 UI 렌더입니다. 최신 후보7의 실제 합성 설치 업데이트·복구와 과거 후보6 실패 화면을 별도 절에 구분했습니다. 대상 운영 환경의 인수 결과가 아닙니다.
 

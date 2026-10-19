@@ -1,25 +1,18 @@
 # SAW 현재 상태 — 2026-10-20
 
-## 현재 작업: 검증된 업데이트 코드의 새 ZIP 봉인·GitHub 제출
+## 현재 상태: 업데이트 안정화 시험 배포 게시 완료 · 운영 인수 별도
 
-작업 저장소는 F:/codex/SAW-Claude-main, 브랜치는 codex/updater-stabilization-20261019다. 기존 main 기준은 723e2a677dfc19e2079acbc0c6b604518a8c76aa다. 원본 F:/claude/saw, 운영 C:/SAW·D:/SAW-0.1.0과 이전 배포는 보존한다.
+- [새 모델 제외 전체 매체](https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019)와 [통합 PR #3](https://github.com/dewdorp/SAW/pull/3)을 제출했다. main에 병합하지 않았고 기존4개 릴리스·원본 F:/claude/saw·운영 C:/SAW·D:/SAW-0.1.0은 보존했다.
+- ZIP: SAW-0.1.0-pilot.20261019-model-free-win-x64.zip, 1,445,832,542바이트, SHA256 b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5. 로컬 .release/에 보관했다. 677항목 전부 크기·hash 검증, 게시9자산 원격 크기·digest와 tag/source 대조 PASS.
+- 매체 소스26f5d1a448668c127383c2e73d47d60d00ed2a28. 실제 시험한 후보7과 실행코드·런타임·의존성 및 라이선스/SBOM(발행 필드 제외)의 동일성을 확인했다. 최종 ZIP 자체로 업데이트·복구를 재실행한 것은 아니다. 이후 커밋은 게시 기록·링크만 정리한다.
+- 최종 서버1,733통과·6건너뜀·2경고(1,305.21초), 웹177통과·TypeScript 성공. 실제 Windows11/PS5.1/NoAdmin 합성 업데이트492.39초·복구497.54초, 계정·암호·MFA·DB/색인·증거·노트·설정·키·TLS·원본 대조 PASS. 새50바이트객체 별도 보관·계정 정리·정상 종료28.56초 PASS.
+- HTML에 원본 화면10개를 모두 내장했고 브라우저에서10개 로딩과 단계 이동·최신 실제 복구 화면을 확인했다. [그림 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.html), 로컬 열람 http://127.0.0.1:58369/UPDATER-STABILIZATION-GUIDE-20261019.html#prepare (docs 서버92434 유지).
+- 사용: 새 ZIP을 D:/SAW-update-20261019에 해제 → UPDATE-SAW.cmd → 기존 C:/SAW·새 C:/SAW-r-20261019 선택 → 설치 점검 → 동의 후 업데이트. 수동 hash 대조는 없고 자동 전체 검증을 유지한다. 전체 복구는 백업 시점으로 돌아가며 이후 자료를 별도 보관하고 자동 병합하지 않는다.
+- [매체 봉인](docs/verification/updater-release-20261019.json) · [게시 대조](docs/verification/github-updater-stabilization-20261019.json) · [전체 시험/실행 이력](docs/verification/updater-stabilization-20261019.json) · [24단계 감사](docs/verification/updater-flow-audit-20261019.md).
+- 남은 인수: 깨끗한 Windows10 Enterprise LTSC2019 x64 build17763, 실제 관리자/UAC/SCM·LocalSystem/NetworkService·HTTPS443·재부팅·조직TLS/서명·물리폐쇄망·공동부하·운영승인. [현장 읽기 전용 점검](docs/verification/updater-native-acceptance-20261019.md)을 포함했다. 운영 설치는 변경하지 않았고 제품 전체 완료/운영 인수 승인으로 보지 않는다.
+- 후보6의 권한 metadata 조회4건은 직접 Win32 원인 미확정이다. 이후 전체 재검사/후보7 통과로 최초 원인이 해결됐다고 기록하지 않는다. 모든 실패·수정·재검증 이력을 보존했다.
 
-- 코드 수정·독립 검토 완료. PR #1의 상태 소유권과 #2의 Procrun 두 registry view 검증을 통합·확장했다. 24단계 업데이트 흐름, OWNER RIGHTS/NetworkService, 사전 교체 권한·공간 확인, 9행 진단, 중단 복구와 새 자료 보관을 검증했다.
-- 최종 서버 r3: 1,733통과·6건너뜀·2경고, 1,305.21초, 세션35105 exit0. 웹177통과/31파일, TypeScript exit0. 경고는 기존 Starlette/httpx와 JUnit record_property 형식이다.
-- 실제 후보7: 시작69.47초/점검39.36초/업데이트492.39초/복구497.54초 PASS. Windows11 build26200/PowerShell5.1/NoAdmin 합성 설치에서 WinForms 버튼 이벤트→worker→실제 PostgreSQL·OpenSearch·HTTPS로 실행했다. 물리 더블클릭이나 대상 LTSC 서비스 인수와 구분한다.
-- 점검·적용·복구 후 계정2/이벤트9/Finding10/증거2/노트1/완료작업2/schema0014와 계정ID·암호hash·역할·MFA·설정·키·TLS·원본 동일성 PASS. 같은 계정·암호·MFA로 HTTPS 로그인 PASS.
-- 업데이트 후 만든 합성 객체50바이트가 복구된 설치에는 없고 복구 직전 보관본에 남음을 확인했다. 계정 비활성화·세션 폐기 및 정상 중지28.56초 PASS, 세 시험 포트 닫힘/PG PID 파일 부재. 실제 시험 설치는 현재 정지 상태다.
-- 후보7 675파일/1,494,876,567바이트, manifest e60ed0a62768ab28427df1f7d4b480e8dce2a71d1c0189c9d06ad10090b81781. .release/updater-stabilization-20261019-candidate7. 공개 영수증 .qa/packaging/updater-stabilization-20261019-r3. 복구 .qa/us19-r3, 최신 보관 .qa/packaging/.saw-k-4ec0f9a9037e. 생산코드는 동결했다.
-- 최초 후보6 복구는 권한 정보 조회4건 때문에 중지 전에 실패했다. 승인된 오류 종류·건수만 읽었고 당시 Win32 번호가 없어 정확한 원인은 미확정이다. 후보7은 오류 분류·안전한 표시와 live에서만 최대3회 전체 재검사를 보완했다. 후속 통과가 최초 원인 규명이라는 뜻은 아니다.
-- 후보7 첫 prepare는 이전 합성 계정 활성 상태로 차단됐다. 기존 guarded cleanup 후 새 private 준비 범위로 이어 실행했고 전체 순서를 완료했다. 실패 영수증과 기존 빈 폴더는 보존했다.
-- 사용자 승인된 RemoteSigned는 시험 프로세스에만 적용했다. 시스템·사용자/조직 정책과 무결성·ACL 검사는 유지했다. 활성 설치 안내3개도 RemoteSigned로 맞추고 PS5.1 명령17개 구문 오류0을 확인했다. 관리 서비스 설치/권한 변경은 실행하지 않았다.
-- 다음: 현재 검증된 소스·문서 커밋 → 새 .release/updater-stabilization-20261019 빌드 → 후보7과 실행 payload/라이선스/SBOM 동일성 및 ZIP 각 파일 검증 → 새 PR·비공개 prerelease → 원격 크기/hash/tag/기존 릴리스·main 보존 대조 → 게시 기록 커밋. .qa/updater-stabilization-20261019/build-final.py, .qa/packaging/seal_zip.py, .qa/updater-stabilization-20261019/verify-release.py 준비 완료.
-- 대상 LTSC2019 build17763·실제 관리자/UAC/SCM·LocalSystem/NetworkService·443·재부팅·물리 폐쇄망·공동 부하·운영 인수는 미검증이다. 현장 읽기 전용 점검 도구와 절차를 포함한다.
-
-[그림 안내](docs/UPDATER-STABILIZATION-GUIDE-20261019.html) · [전체 검증](docs/verification/updater-stabilization-20261019.json) · [24단계 감사](docs/verification/updater-flow-audit-20261019.md).
-열람 주소: http://127.0.0.1:58369/UPDATER-STABILIZATION-GUIDE-20261019.html (docs 서버 세션92434).
-
-이하 2026-10-19 기록은 당시의 경과 이력이다. 과거 승인 대기·실행 중 문구보다 위의 최신 상태를 우선한다.
+이하 기록은 각 시점의 경과 이력이다. 과거 승인 대기·실행 중 문구보다 위 최신 게시·검증 상태를 우선한다.
 
 ## 2026-10-19 업데이트 안정화 — 최종 리뷰 수정 중
 

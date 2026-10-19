@@ -1,0 +1,76 @@
+{
+  "schema": "saw.github-release-verification/1",
+  "state": "PASS",
+  "tag": "v0.1.0-pilot.20261019",
+  "url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019",
+  "release_id": 417472995,
+  "draft": false,
+  "prerelease": true,
+  "private_repository": true,
+  "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+  "published_tag_verified": true,
+  "assets": [
+    {
+      "name": "SAW-0.1.0-pilot.20261019-model-free-win-x64.zip",
+      "bytes": 1445832542,
+      "sha256": "b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5",
+      "asset_id": 656701325
+    },
+    {
+      "name": "SAW-0.1.0-pilot.20261019-model-free-win-x64.sha256",
+      "bytes": 115,
+      "sha256": "311bb3ef59d2121fabc2e76936986646590927f4c6701c3d4f4e3ee9ef1ca04b",
+      "asset_id": 656701326
+    },
+    {
+      "name": "SAW-0.1.0-pilot.20261019-model-free-win-x64.receipt.json",
+      "bytes": 652,
+      "sha256": "39e95db900d4e9e03da97c349e8f88438f1e77d2c831ac280215f29760b57ccc",
+      "asset_id": 656701328
+    },
+    {
+      "name": "UPDATER-STABILIZATION-GUIDE-20261019.html",
+      "bytes": 1057934,
+      "sha256": "695a9b31caa622dd7040fcf6fe406dbe19fb4f528f333d5b3c997f5bcf3f8139",
+      "asset_id": 656701327
+    },
+    {
+      "name": "UPDATER-STABILIZATION-GUIDE-20261019.md",
+      "bytes": 20682,
+      "sha256": "b050615494b45ff8768deff7ce72a45536fdf66bde4bcf9c3bdef9cc3fe4eef2",
+      "asset_id": 656701322
+    },
+    {
+      "name": "updater-stabilization-20261019.json",
+      "bytes": 63279,
+      "sha256": "6df41454e35ed959e892a243a05f3f5722d76d80c937e9e03fe460b657081748",
+      "asset_id": 656701369
+    },
+    {
+      "name": "updater-flow-audit-20261019.md",
+      "bytes": 35956,
+      "sha256": "9e324b8776df659f02174b88beb2fc2e5e6986c90eaccd5696d4ac30f2dbabb4",
+      "asset_id": 656701376
+    },
+    {
+      "name": "updater-native-acceptance-20261019.md",
+      "bytes": 8422,
+      "sha256": "af1f6847e214550b1c134d7b2de038c1e85c7ebb0b1522e8817e46209f075adb",
+      "asset_id": 656701381
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 126840,
+      "sha256": "e960e0b5117815ad3ca12a96ca9881de6c5f13162f0803232b764bde8359b211",
+      "asset_id": 656701394
+    }
+  ],
+  "all_asset_sizes_and_remote_digests_match": true,
+  "old_release_untouched": true,
+  "target_os_operational_acceptance": false,
+  "verified_at_utc": "2026-10-19T15:51:39.011678+00:00",
+  "integration_pr": "https://github.com/dewdorp/SAW/pull/3",
+  "main_preserved": "723e2a677dfc19e2079acbc0c6b604518a8c76aa",
+  "previous_release_count_preserved": 4,
+  "operational_installation_modified": false
+}

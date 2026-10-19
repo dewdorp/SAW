@@ -1,0 +1,51 @@
+{
+  "state": "PASS",
+  "archive": "SAW-0.1.0-pilot.20261019-model-free-win-x64.zip",
+  "bytes": 1445832542,
+  "sha256": "b9d7e0e7d9b3658c17690dcd276b072c03bb3330518431e1eba4e04d56b30cb5",
+  "file_count": 677,
+  "manifest_sha256": "e960e0b5117815ad3ca12a96ca9881de6c5f13162f0803232b764bde8359b211",
+  "tested_candidate_manifest_sha256": "e60ed0a62768ab28427df1f7d4b480e8dce2a71d1c0189c9d06ad10090b81781",
+  "tested_payload_identical": true,
+  "license_notices_identical_except_issuance": true,
+  "sbom_identical_except_issuance": true,
+  "zip_each_file_hash_verified": true,
+  "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+  "schema": "saw.updater-release-seal/1",
+  "verified_at_utc": "2026-10-19T15:51:39.011678+00:00",
+  "release_url": "https://github.com/dewdorp/SAW/releases/tag/v0.1.0-pilot.20261019",
+  "integration_pr": "https://github.com/dewdorp/SAW/pull/3",
+  "source_and_archive_immutable": true,
+  "final_zip_native_flow_rerun": false,
+  "tested_candidate_native_flow": {
+    "environment": "Windows 11 build 26200 / Windows PowerShell 5.1 / NoAdmin / synthetic only",
+    "apply_seconds": 492.39,
+    "restore_seconds": 497.54,
+    "normal_stop_seconds": 28.56,
+    "account_mfa_data_preservation": "PASS",
+    "newer_synthetic_object_retained": "PASS",
+    "physical_double_click_tested": false
+  },
+  "automated_verification": {
+    "server_passed": 1733,
+    "server_skipped": 6,
+    "server_warnings": 2,
+    "server_seconds": 1305.21,
+    "web_passed": 177,
+    "typescript_exit_code": 0
+  },
+  "post_test_changes": "Documentation and one test-file trailing blank line only; executable payload unchanged.",
+  "browser_guide": {
+    "embedded_pngs": 10,
+    "loaded_pngs_verified": 10,
+    "steps_and_latest_native_results_observed": true
+  },
+  "environment_acceptance": {
+    "LTSC2019_build17763": "NOT_TESTED",
+    "administrator_SCM_UAC_service_identities": "NOT_TESTED",
+    "production_port_443_reboot": "NOT_TESTED",
+    "physical_airgap_multiuser_load": "NOT_TESTED",
+    "production_deployment_approved": false
+  },
+  "initial_candidate6_access_failure_exact_cause": "UNCONFIRMED"
+}
