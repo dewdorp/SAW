@@ -88,7 +88,24 @@ function Write-WorkerState([string]$Status, [string]$Code, [string]$Message) {
         if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe state file' }
     }
     $temporary = Join-Path $StateDir ('.state-' + [guid]::NewGuid().ToString('N') + '.json')
-    [IO.File]::WriteAllText($temporary,($value | ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding($false)))
+    # Specify ownership at creation: elevated tokens may default to Administrators.
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $security = New-Object Security.AccessControl.FileSecurity
+    $security.SetOwner($sid)
+    $security.SetAccessRuleProtection($true,$false)
+    foreach ($id in @($sid,(New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($id,'FullControl','Allow')
+        $security.AddAccessRule($rule)
+    }
+    $stream = [IO.FileStream]::new($temporary,[IO.FileMode]::CreateNew,
+        [Security.AccessControl.FileSystemRights]::Write,[IO.FileShare]::None,
+        4096,[IO.FileOptions]::None,$security)
+    try {
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $bytes = $encoding.GetBytes(($value | ConvertTo-Json -Depth 6))
+        $stream.Write($bytes,0,$bytes.Length)
+        $stream.Flush($true)
+    } finally { $stream.Dispose() }
     if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary,$path,[NullString]::Value) }
     else { [IO.File]::Move($temporary,$path) }
 }
