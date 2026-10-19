@@ -159,6 +159,55 @@ def _state_directory(state_dir, paths):
         raise DesktopError('unsafe_state_directory') from None
 
 
+def _private_state_fd(path, flags):
+    """Create a new private file without inheriting the token's default owner."""
+    if os.name != 'nt':
+        return os.open(path, flags, 0o600)
+
+    from ctypes import wintypes
+    import msvcrt
+
+    class SecurityAttributes(ctypes.Structure):
+        _fields_ = [('length', wintypes.DWORD), ('descriptor', ctypes.c_void_p),
+                    ('inherit_handle', wintypes.BOOL)]
+
+    current = _current_sid()
+    if not re.fullmatch(r'S-\d+(?:-\d+)+', current):
+        raise DesktopError('unsafe_state_directory')
+    policy = f'O:{current}D:P(A;;FA;;;{current})(A;;FA;;;SY)'
+    advapi = ctypes.WinDLL('advapi32', use_last_error=True)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  ctypes.POINTER(SecurityAttributes), wintypes.DWORD,
+                                  wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+    descriptor = ctypes.c_void_p()
+    if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            policy, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        attributes = SecurityAttributes(ctypes.sizeof(SecurityAttributes), descriptor, False)
+        # GENERIC_WRITE, no sharing, CREATE_NEW, FILE_ATTRIBUTE_NORMAL.
+        handle = kernel.CreateFileW(str(path), 0x40000000, 0, ctypes.byref(attributes), 1, 0x80, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.LocalFree(descriptor)
+    try:
+        # The returned CRT descriptor owns the handle; open() will close it.
+        return msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+
+
 class State:
     def __init__(self, directory, action, root, recovery):
         self.directory = directory
@@ -172,7 +221,7 @@ class State:
         self.value.update(fields, phase=phase, status=status, code=code or status,
                           message=MESSAGES.get(code or phase, MESSAGES.get(phase, MESSAGES['failed'])))
         temporary = self.directory / ('state-' + uuid.uuid4().hex + '.writing')
-        with temporary.open('x', encoding='utf-8') as stream:
+        with open(temporary, 'x', encoding='utf-8', opener=_private_state_fd) as stream:
             json.dump(self.value, stream, ensure_ascii=True)
             stream.flush()
             os.fsync(stream.fileno())
