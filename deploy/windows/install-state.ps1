@@ -106,6 +106,13 @@ function Assert-SawPrivateInstall([string]$Root) {
         if ($owner -notin $trusted -and -not ($owner -eq 'S-1-5-20' -and $rel -match '^(data/postgresql|logs/postgresql)(/|$)')) { throw "Installation owner needs review: $path" }
         foreach ($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
             if ($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.Value -in $trusted) { continue }
+            # OWNER RIGHTS applies only to the current owner. Pip may add
+            # this SID with FullControl in venv even when the owner is an
+            # already trusted principal. Do not allow other SIDs, rights,
+            # owners or folders through this exception.
+            if ($ace.IdentityReference.Value -eq 'S-1-3-4' -and
+                $owner -in $trusted -and $rel -match '^venv(/|$)' -and
+                [int]$ace.FileSystemRights -eq 0x1f01ff) { continue }
             $rel=$path.Substring($Root.Length).TrimStart('\').Replace('\','/').ToLowerInvariant()
             # Existing PostgreSQL service access is scoped; no access to secrets or application data.
             if ($ace.IdentityReference.Value -eq 'S-1-5-20' -and (

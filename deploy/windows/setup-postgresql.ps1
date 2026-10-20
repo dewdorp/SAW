@@ -230,6 +230,15 @@ if ($started) {
         if ([IO.Path]::GetFullPath($actualData).TrimEnd('\') -ine [IO.Path]::GetFullPath($data).TrimEnd('\')) {
             throw 'PostgreSQL endpoint belongs to another data directory; no application role or database was changed'
         }
+        # Verify the effective settings on the authenticated, identity-matched
+        # NetworkService-backed server, never by invoking postgres.exe as admin.
+        $expectedLive = @{port=[string]$Port; listen_addresses='127.0.0.1'; password_encryption='scram-sha-256'}
+        foreach ($setting in $expectedLive.Keys) {
+            $actual = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw ("SELECT current_setting('" + $setting + "')")
+            if ($actual -cne $expectedLive[$setting]) {
+                throw "Running NetworkService PostgreSQL security configuration differs: $setting"
+            }
+        }
         $exists = Invoke-SawPostgresqlSql $psql $Port 'postgres' 'postgres' $suPw "SELECT 1 FROM pg_roles WHERE rolname='saw'"
         if ($exists -ne '1') {
             $quoted = $appPw.Replace("'", "''")

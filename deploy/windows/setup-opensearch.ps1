@@ -16,10 +16,23 @@ param(
 
 function Invoke-SawOpenSearchNative {
     param([string]$FilePath, [string[]]$Arguments, [hashtable]$Environment = @{})
-    # Quotes in command arguments are unsupported by these setup commands. Reject instead of shell expansion.
-    $quoted = @($Arguments | ForEach-Object {
-        if ($_ -match '["\r\n]') { throw "Unsupported native argument for $FilePath" }
-        '"' + $_.TrimEnd('\') + '"'
+    # OpenSearch service.bat uses raw %1 / %2 comparisons, so the action and
+    # service name must NOT contain literal double quotes. All other command
+    # arguments retain the original quoting needed for spaces and metacharacters.
+    $serviceBat = [IO.Path]::GetFileName($FilePath) -ieq 'opensearch-service.bat'
+    $index = 0
+    $quoted = @(foreach ($argument in $Arguments) {
+        if ($null -eq $argument -or $argument -match '["\r\n]') { throw "Unsupported native argument for $FilePath" }
+        if ($serviceBat -and $index -le 1) {
+            if (($index -eq 0 -and $argument -notmatch '^(install|remove|start|stop|manager)$') -or
+                ($index -eq 1 -and $argument -notmatch '^[A-Za-z0-9_.-]+$')) {
+                throw "Unsupported OpenSearch service argument for $FilePath"
+            }
+            $argument
+        } else {
+            '"' + $argument.TrimEnd('\') + '"'
+        }
+        $index += 1
     })
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.UseShellExecute = $false
@@ -88,22 +101,36 @@ function Get-SawOpenSearchServiceRecord {
     if ($Name -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid OpenSearch service name" }
     $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$Name'" -ErrorAction Stop
     if (-not $service) { return $null }
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-        [Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
-    $key = $null; $start = $null
-    try {
-        $prefix = 'SOFTWARE\Apache Software Foundation\ProcRun 2.0\' + $Name + '\Parameters'
-        $key = $base.OpenSubKey($prefix + '\Java')
-        $start = $base.OpenSubKey($prefix + '\Start')
-        return [pscustomobject]@{
-            BinaryPath = $service.PathName; State = $service.State
-            Jvm = $(if ($key) { $key.GetValue('Jvm') } else { $null })
-            Options = $(if ($key) { @($key.GetValue('Options')) + @($key.GetValue('Options9')) } else { @() })
-            WorkingPath = $(if ($start) { $start.GetValue('WorkingPath') } else { $null })
+    $records = @()
+    # The bundled Procrun service executable can write its configuration to
+    # Registry32 even when the host OS is 64-bit; inspect both actual views.
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+        $key = $null; $start = $null
+        try {
+            $prefix = 'SOFTWARE\Apache Software Foundation\ProcRun 2.0\' + $Name + '\Parameters'
+            $key = $base.OpenSubKey($prefix + '\Java')
+            $start = $base.OpenSubKey($prefix + '\Start')
+            if (-not $key -and -not $start) { continue }
+            $records += [pscustomobject]@{
+                BinaryPath = $service.PathName; State = $service.State; RegistryView = $view.ToString()
+                Jvm = $(if ($key) { $key.GetValue('Jvm') } else { $null })
+                Options = $(if ($key) { @($key.GetValue('Options')) + @($key.GetValue('Options9')) } else { @() })
+                WorkingPath = $(if ($start) { $start.GetValue('WorkingPath') } else { $null })
+            }
+        } finally {
+            if ($key) { $key.Dispose() }; if ($start) { $start.Dispose() }; $base.Dispose()
         }
-    } finally {
-        if ($key) { $key.Dispose() }; if ($start) { $start.Dispose() }; $base.Dispose()
     }
+    # Missing Procrun settings are not guessed or automatically recreated.
+    if ($records.Count -eq 0) {
+        return [pscustomobject]@{ BinaryPath=$service.PathName; State=$service.State;
+            Jvm=$null; Options=@(); WorkingPath=$null }
+    }
+    $record = $records[0]
+    $additional = @($records | Select-Object -Skip 1)
+    $record | Add-Member -MemberType NoteProperty -Name AdditionalViewRecords -Value $additional
+    return $record
 }
 
 function Assert-SawOpenSearchService {
@@ -113,16 +140,23 @@ function Assert-SawOpenSearchService {
     $expectedBinary = '^\s*"?'+ [regex]::Escape($exe) + '"?\s+//RS//' + [regex]::Escape($Name) + '\s*$'
     $expectedHome = '-Dopensearch.path.home=' + $OpenSearchHome
     $expectedConfig = '-Dopensearch.path.conf=' + (Join-Path $OpenSearchHome 'config')
-    $options = @($Record.Options | Where-Object { $_ } | ForEach-Object { $_ -replace '"', '' })
-    if ($Record.BinaryPath -notmatch $expectedBinary -or $Record.Jvm -ine $Jvm -or
-        $Record.WorkingPath -ine $OpenSearchHome -or $options -inotcontains $expectedHome -or $options -inotcontains $expectedConfig) {
-        throw "OpenSearch service conflict: '$Name' executable/JVM/working/config paths do not match $OpenSearchHome; existing service was not changed"
+    $views = @($Record)
+    if ($Record.PSObject.Properties['AdditionalViewRecords']) {
+        $views += @($Record.AdditionalViewRecords | Where-Object { $null -ne $_ })
     }
-    # Reject duplicate conflicting home/conf options even when the expected value is also present.
-    foreach ($option in $options) {
-        if (($option -like '-Dopensearch.path.home=*' -and $option -ine $expectedHome) -or
-            ($option -like '-Dopensearch.path.conf=*' -and $option -ine $expectedConfig)) {
-            throw "OpenSearch service conflict: '$Name' has ambiguous home/config options; existing service was not changed"
+    foreach ($candidate in $views) {
+        $options = @($candidate.Options | Where-Object { $_ } | ForEach-Object { $_ -replace '"', '' })
+        if ($candidate.BinaryPath -notmatch $expectedBinary -or $candidate.Jvm -ine $Jvm -or
+            $candidate.WorkingPath -ine $OpenSearchHome -or $options -inotcontains $expectedHome -or $options -inotcontains $expectedConfig) {
+            throw "OpenSearch service conflict: '$Name' executable/JVM/working/config paths do not match $OpenSearchHome; existing service was not changed"
+        }
+        # Reject duplicate or conflicting home/config options, including secondary registry views.
+        foreach ($prefix in @('-Dopensearch.path.home=', '-Dopensearch.path.conf=')) {
+            $match = @($options | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+            $wanted = if ($prefix -eq '-Dopensearch.path.home=') { $expectedHome } else { $expectedConfig }
+            if ($match.Count -ne 1 -or $match[0] -ine $wanted) {
+                throw "OpenSearch service conflict: '$Name' has ambiguous home/config options; existing service was not changed"
+            }
         }
     }
 }

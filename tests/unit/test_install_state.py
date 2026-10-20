@@ -310,3 +310,36 @@ try {{ Assert-SawPrivateInstall $root; $accepted=$true }} catch {{ $failure=$_.E
 """)
     assert result["accepted"] == accepted, result
     assert result["unchanged"], result
+
+@pytest.mark.parametrize(("relative", "rights", "expected_ok"), [
+    ("venv/Lib/site-packages/alembic", "FullControl", True),
+    ("venv/Lib/site-packages/alembic", "Modify", False),
+    ("app", "FullControl", False),
+    ("secrets", "FullControl", False),
+])
+def test_owner_rights_scoped_to_trusted_venv_owner(tmp_path, relative, rights, expected_ok):
+    """Windows pip venv OWNER RIGHTS is not an unrelated user grant.
+
+    All other OWNER RIGHTS grants remain disallowed. No system ACLs or services
+    are changed; all test objects live under pytest's disposable tmp_path.
+    """
+    media, root = fixture(tmp_path)
+    rel = relative.replace("/", "\\")
+    result = run(tmp_path, f"""
+$install=Initialize-SawInstallRoot -InstallRoot {lit(root)} -BundleDir {lit(media)} -NoAdmin
+$target=Join-Path $install {lit(rel)}
+$null=New-Item -ItemType Directory -Path $target -Force
+$sid=New-Object Security.Principal.SecurityIdentifier('S-1-3-4')
+$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid, {lit(rights)}, 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$acl=Get-Acl -LiteralPath $target
+$acl.AddAccessRule($rule)
+Set-Acl -LiteralPath $target -AclObject $acl
+$ok=$true
+$errorText=''
+try {{ Assert-SawPrivateInstall $install }}
+catch {{ $ok=$false; $errorText=$_.Exception.Message }}
+@{{ok=$ok;error=$errorText}} | ConvertTo-Json -Compress
+""")
+    assert result["ok"] is expected_ok, result
+    if not expected_ok:
+        assert "Installation grants unrelated access" in result["error"]
