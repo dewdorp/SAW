@@ -378,3 +378,73 @@ Initialize-SawOpenSearchPolicyReader
 @{available=([bool]('SawOpenSearchServicePolicy' -as [type]))}|ConvertTo-Json -Compress
 """)
     assert got["available"]
+
+
+def test_service_batch_action_is_unquoted_for_opensearch_2196(tmp_path):
+    """Actual upstream batch compares raw %1 with install, rejecting "install"."""
+    child = tmp_path / "한글 경로 & case" / "opensearch-service.bat"
+    child.parent.mkdir()
+    child.write_text(
+        '@echo off\n'
+        'if /i %1 == install goto supported\n'
+        'echo Unknown option "%1"\n'
+        'exit /b 41\n'
+        ':supported\n'
+        'if /i %2 == saw-opensearch exit /b 0\n'
+        'exit /b 42\n', encoding="ascii"
+    )
+    body = LOAD + f"""
+$result=Invoke-SawOpenSearchNative -FilePath {literal(child)} -Arguments @('install','saw-opensearch')
+@{{code=$result.ExitCode;output=$result.Output}}|ConvertTo-Json -Compress
+"""
+    got = run_ps(tmp_path, body)
+    assert got["code"] == 0, got
+
+
+def test_service_batch_rejects_shell_metacharacters_in_service_identifier(tmp_path):
+    child = tmp_path / "opensearch-service.bat"
+    child.write_text("@echo off\nexit /b 0\n", encoding="ascii")
+    body = LOAD + f"""
+$failure=$null
+try {{ $null=Invoke-SawOpenSearchNative -FilePath {literal(child)} -Arguments @('install','saw&other') }}
+catch {{ $failure=$_.Exception.Message }}
+@{{failure=$failure}}|ConvertTo-Json -Compress
+"""
+    got = run_ps(tmp_path, body)
+    assert got["failure"] and "Unsupported OpenSearch service argument" in got["failure"]
+
+
+def test_secondary_procrun_registry_view_with_conflicting_config_is_rejected(tmp_path):
+    home = tmp_path / "opensearch-2.19.6"
+    body = LOAD + f"""
+$home={literal(home)}
+$good=[pscustomobject]@{{BinaryPath=('"'+(Join-Path $home 'bin\opensearch-service-x64.exe')+'" //RS//saw-opensearch');
+    Jvm=(Join-Path $home 'jdk\bin\server\jvm.dll'); WorkingPath=$home;
+    Options=@(('-Dopensearch.path.home='+$home),('-Dopensearch.path.conf='+(Join-Path $home 'config'))) }}
+$bad=[pscustomobject]@{{BinaryPath=$good.BinaryPath;Jvm=$good.Jvm;WorkingPath=$good.WorkingPath;
+    Options=@('-Dopensearch.path.home=C:\incorrect','-Dopensearch.path.conf=C:\incorrect\config') }}
+$good | Add-Member -MemberType NoteProperty -Name AdditionalViewRecords -Value @($bad)
+$failure=$null
+try {{ Assert-SawOpenSearchService -Record $good -Name 'saw-opensearch' -OpenSearchHome $home -Jvm $good.Jvm }}
+catch {{ $failure=$_.Exception.Message }}
+@{{failure=$failure}}|ConvertTo-Json -Compress
+"""
+    got=run_ps(tmp_path,body)
+    assert got["failure"] and "conflict" in got["failure"].lower()
+
+
+def test_duplicate_procrun_home_option_is_rejected(tmp_path):
+    home = tmp_path / "opensearch-2.19.6"
+    body = LOAD + f"""
+$home={literal(home)}
+$record=[pscustomobject]@{{BinaryPath=('"'+(Join-Path $home 'bin\opensearch-service-x64.exe')+'" //RS//saw-opensearch');
+    Jvm=(Join-Path $home 'jdk\bin\server\jvm.dll');WorkingPath=$home;
+    Options=@(('-Dopensearch.path.home='+$home),('-Dopensearch.path.home='+$home),
+              ('-Dopensearch.path.conf='+(Join-Path $home 'config'))) }}
+$failure=$null
+try {{ Assert-SawOpenSearchService -Record $record -Name 'saw-opensearch' -OpenSearchHome $home -Jvm $record.Jvm }}
+catch {{ $failure=$_.Exception.Message }}
+@{{failure=$failure}}|ConvertTo-Json -Compress
+"""
+    got=run_ps(tmp_path,body)
+    assert got["failure"] and "ambiguous" in got["failure"].lower()
