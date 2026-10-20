@@ -310,3 +310,53 @@ catch {{$rejected=$_.Exception.Message -match 'LocalSystem'}}
 @{{rejected=$rejected}} | ConvertTo-Json -Compress
 """)
     assert result["rejected"]
+
+
+@pytest.mark.parametrize(("config", "expected_ok"), [
+    ("port = 55457\nlisten_addresses = '127.0.0.1'\npassword_encryption = scram-sha-256\n", True),
+    ("port = 5432\nlisten_addresses = '127.0.0.1'\npassword_encryption = scram-sha-256\n", False),
+    ("port = 55457\nport = 55457\nlisten_addresses = '127.0.0.1'\npassword_encryption = scram-sha-256\n", False),
+    ("include = 'unsafe.conf'\nport = 55457\nlisten_addresses = '127.0.0.1'\npassword_encryption = scram-sha-256\n", False),
+    ("port = 55457\nlisten_addresses = '*'\npassword_encryption = scram-sha-256\n", False),
+])
+def test_offline_pg_security_check_never_launches_admin_postgres(tmp_path, config, expected_ok):
+    """Inspect only pinned config files before starting any service.
+
+    No PostgreSQL executable exists at the supplied synthetic binary path,
+    so this also guards against accidentally invoking postgres -C as admin.
+    """
+    cluster = tmp_path / "data"
+    cluster.mkdir()
+    (cluster / "postgresql.conf").write_text(config, encoding="ascii")
+    (cluster / "pg_hba.conf").write_text(
+        "host all all 127.0.0.1/32 scram-sha-256\n", encoding="ascii"
+    )
+    got = run_ps(tmp_path, f"""
+$ok=$true;$reason=''
+try {{ Assert-SawPostgresqlClusterConfig {q(cluster)} {q(tmp_path/"missing-bin")} 55457 }}
+catch {{ $ok=$false; $reason=$_.Exception.Message }}
+@{{ok=$ok;reason=$reason}} | ConvertTo-Json -Compress
+""")
+    assert got["ok"] is expected_ok, got
+
+
+def test_postgresql_auto_conf_cannot_override_expected_security(tmp_path):
+    cluster = tmp_path / "data"
+    cluster.mkdir()
+    (cluster / "postgresql.conf").write_text(
+        "port=55457\nlisten_addresses='127.0.0.1'\npassword_encryption=scram-sha-256\n",
+        encoding="ascii",
+    )
+    (cluster / "postgresql.auto.conf").write_text(
+        "listen_addresses='*'\n", encoding="ascii",
+    )
+    (cluster / "pg_hba.conf").write_text(
+        "host all all 127.0.0.1/32 scram-sha-256\n", encoding="ascii",
+    )
+    got = run_ps(tmp_path, f"""
+$rejected=$false
+try {{ Assert-SawPostgresqlClusterConfig {q(cluster)} {q(tmp_path/"missing-bin")} 55457 }}
+catch {{ $rejected=$true }}
+@{{rejected=$rejected}} | ConvertTo-Json -Compress
+""")
+    assert got["rejected"]
