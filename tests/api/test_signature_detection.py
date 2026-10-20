@@ -89,22 +89,24 @@ def test_findings_in_order_for_one_address_become_a_named_flow(analyst):
     assert any("웹 서버 침투 흐름" in t["what"] for t in b["top_findings"])
 
 
-def test_a_signature_can_be_switched_off_for_this_site_and_back(analyst, senior):
+def test_legacy_site_disable_is_preserved_and_new_switches_require_governance(analyst, senior):
     cat = analyst.get("/detection-catalog").json()
     assert len(cat["signatures"]) >= 150 and len(cat["scenarios"]) >= 8 and len(cat["detectors"]) >= 30
     assert cat["can_switch"] is False and senior.get("/detection-catalog").json()["can_switch"] is True
     sid = "webshell.generic_names"
     assert analyst.put(f"/detection-catalog/signatures/{sid}", json={"enabled": False, "note": "시끄러움"}).status_code == 403
-    assert senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": False, "note": ""}).status_code == 400   # say why
-    assert senior.put("/detection-catalog/signatures/nope.none", json={"enabled": False, "note": "없는 규칙"}).status_code == 404
-    senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": False, "note": "우리 서비스의 정상 경로와 겹침"}).raise_for_status()
+    assert senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": False, "note": ""}).status_code == 409   # say why
+    assert senior.put("/detection-catalog/signatures/nope.none", json={"enabled": False, "note": "없는 규칙"}).status_code == 409
+    assert senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": False, "note": "우리 서비스의 정상 경로와 겹침"}).status_code == 409
+    # Synthetic pre-upgrade state: new mutations go through governed policy tests.
+    from saw.storage.db import session_scope
+    from saw.storage.models import SignatureSetting
+    with session_scope() as s:
+        s.add(SignatureSetting(sig_id=sid, enabled=False, updated_by="senior1", note="우리 서비스의 정상 경로와 겹침"))
     row = next(x for x in analyst.get("/detection-catalog").json()["signatures"] if x["id"] == sid)
     assert row["enabled"] is False and row["updated_by"] == "senior1" and "겹침" in row["note"]
     inv, fs = _run(analyst, "끄기")
     assert not any(f["evidence_refs"]["query"]["filters"] == [{"field": "tags", "op": "is", "value": f"sig:{sid}"}] for f in fs)
     assert any("웹셸 조종에 쓰이는 값 이름" in f["title"] for f in fs)          # other web shell signatures still report
-    # on again: the next analysis brings the finding back (events kept their tags)
-    senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": True}).raise_for_status()
-    analyst.post(f"/investigations/{inv['id']}/reanalyze")
-    fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
-    assert any(f["title"].startswith("흔한 웹셸 파일 이름") for f in fs)
+    assert senior.put(f"/detection-catalog/signatures/{sid}", json={"enabled": True}).status_code == 409
+    assert next(x for x in analyst.get("/detection-catalog").json()["signatures"] if x["id"] == sid)["enabled"] is False

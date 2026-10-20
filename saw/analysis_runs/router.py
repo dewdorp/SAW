@@ -23,8 +23,15 @@ def listing(inv_id: str, limit: int = Query(50, ge=1, le=200),
     if before_version is not None:
         query = query.where(AnalysisRun.version < before_version)
     rows = list(s.scalars(query.order_by(AnalysisRun.version.desc()).limit(limit + 1)))
-    return {"runs": [service.run_dict(s, row, full=False) for row in rows[:limit]],
-            "next_before_version": rows[limit - 1].version if len(rows) > limit else None}
+    visible = []
+    from saw.core.application.investigations import Forbidden, NotFound
+    for row in rows[:limit]:
+        try:
+            service.get(s, ctx.principal, inv_id, row.id)
+        except (Forbidden, NotFound):
+            continue
+        visible.append(service.run_dict(s, row, full=False))
+    return {"runs": visible, "next_before_version": rows[limit - 1].version if len(rows) > limit else None}
 
 
 @router.get("/investigations/{inv_id}/analysis-runs/{run_id}")

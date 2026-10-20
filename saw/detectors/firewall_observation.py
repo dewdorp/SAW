@@ -20,6 +20,8 @@ class FirewallObservation:
         events = ctx.events.iterate(ctx.investigation_id,
             [Filter(field="data_source", op="in", value=sorted(self.data_sources))], batch=500)
         result = analyze_firewall(events, policy=ctx.params.get("firewall_policy"),
+                                  max_records=ctx.params.get("device_max_records", 1_000_000),
+                                  max_results=ctx.params.get("device_max_results", 100),
                                   cancelled=ctx.params.get("cancelled"))
         ctx.params.setdefault("execution_reports", {})[self.id] = result
         drafts = []

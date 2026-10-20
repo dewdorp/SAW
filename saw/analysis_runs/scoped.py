@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from copy import deepcopy
 from datetime import datetime
+from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,8 +20,10 @@ from saw.core.application.identity import principal_of
 from saw.core.application.investigations import Forbidden, require
 from saw.core.application.provenance import canonical, digest
 from saw.core.schemas.query import Filter, TimeRange
+from saw.detection.runtime import run_for_request
+from saw.detection.runtime_capture import authorize, capture
+from saw.detection.specs import get_spec
 from saw.knowledge.golden import masked
-from saw.observation.firewall import ENGINE_VERSION, analyze_firewall
 from saw.storage.db import session_scope, utcnow
 from saw.storage.models import Investigation, Job, User
 from saw.workers.pipeline import Cancelled, StaleLease
@@ -36,6 +39,7 @@ MAX_RESULT_BYTES = 3 * 1024 * 1024
 
 class ScopedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    detector_id: Literal["fw.observation", "waf.observation", "ips.observation", "ddos.observation", "ndr.observation"] | None = None
     org_unit_id: str | None = Field(None, min_length=1, max_length=36)
     device_id: str | None = Field(None, min_length=1, max_length=36)
     filters: list[Filter] = Field(default_factory=list, max_length=30)
@@ -83,6 +87,10 @@ def _new_run(s, job, request):
     number = (s.scalar(select(func.max(AnalysisRun.version)).where(
         AnalysisRun.investigation_id == job.investigation_id)) or 0) + 1
     manifest = _manifest(s, job.investigation_id)
+    actor = s.get(User, job.requested_by)
+    if actor is None or actor.status != "active":
+        raise Forbidden("device_analysis_requester_unavailable")
+    manifest["runtime_pin"] = capture(s, principal_of(actor), job.investigation_id, request)
     run = AnalysisRun(investigation_id=job.investigation_id, job_id=job.id,
         version=number, created_by=job.requested_by, input_manifest=manifest,
         input_sha256=digest(manifest), scope=deepcopy(request))
@@ -131,6 +139,7 @@ def _authorized(s, job):
     if user is None or user.status != "active":
         raise Forbidden("device_analysis_requester_unavailable")
     require(s, principal_of(user), "investigation.write", job.investigation_id)
+    return principal_of(user)
 
 
 def _events(inv_id, request):
@@ -162,6 +171,8 @@ def device_analysis_run(job_id: str):
                 return
             epoch = job.attempt = (job.attempt or 0) + 1
             request = deepcopy(job.stages["device_analysis_request"])
+            detector_id = request.get("detector_id") or "fw.observation"
+            engine_version = get_spec(detector_id)["engine"]["version"]
             run = s.get(AnalysisRun, job.stages.get("analysis_run_id"))
             if run is None or run.status != "running":
                 run = _new_run(s, job, request)
@@ -176,9 +187,13 @@ def device_analysis_run(job_id: str):
             job = s.get(Job, job_id)
             if job.cancel_requested:
                 raise Cancelled("device_analysis_cancelled")
-            _authorized(s, job)
+            actor = _authorized(s, job)
             _idle(s, inv_id)
-            if digest(before) != input_sha256 or _manifest(s, inv_id) != before:
+            pin = before.get("runtime_pin")
+            if pin is None:
+                raise ValueError("device_analysis_runtime_pin_missing")
+            authorize(s, actor, inv_id, pin, writing=True)
+            if digest(before) != input_sha256 or _manifest(s, inv_id) != {k: v for k, v in before.items() if k != "runtime_pin"}:
                 raise ValueError("device_analysis_source_changed")
         last_poll = 0.0
         def check(force=False):
@@ -198,8 +213,8 @@ def device_analysis_run(job_id: str):
                 if current.state != "ANALYZING":
                     raise StaleLease("device_analysis_job_not_running")
             return False
-        result = analyze_firewall(_events(inv_id, request), max_records=MAX_EVENTS,
-                                  max_results=MAX_RESULTS, cancelled=check)
+        result = run_for_request(container.get().events, inv_id, request, pin, max_records=MAX_EVENTS,
+                                 max_results=MAX_RESULTS, cancelled=check)
         check(force=True)
         if result["status"] == "cancelled":
             raise Cancelled("device_analysis_cancelled")
@@ -214,18 +229,20 @@ def device_analysis_run(job_id: str):
                 raise Cancelled("device_analysis_cancelled")
             if job.state != "ANALYZING":
                 raise StaleLease("device_analysis_job_not_running")
-            _authorized(s, job)
+            actor = _authorized(s, job)
             _idle(s, inv_id)
-            if _manifest(s, inv_id) != before:
+            authorize(s, actor, inv_id, pin, writing=True)
+            if _manifest(s, inv_id) != {k: v for k, v in before.items() if k != "runtime_pin"}:
                 raise ValueError("device_analysis_source_changed")
             run = s.get(AnalysisRun, run_id)
-            status = {"completed_match": "complete", "completed_no_match": "complete"}.get(
+            status = {"completed_match": "complete", "completed_no_match": "complete",
+                      "disabled": "not_applicable"}.get(
                 result["status"], result["status"])
-            service.record(s, run, "fw.observation", ENGINE_VERSION, status,
+            service.record(s, run, detector_id, engine_version, status,
                 input_count=result["counts"]["records"],
-                match_count=None if status == "insufficient_data" else result["counts"]["candidates"],
+                match_count=None if status in {"insufficient_data", "not_applicable"} else result["counts"]["candidates"],
                 elapsed_ms=int((time.monotonic() - started) * 1000),
-                effective_config=result["policy"], detail=masked(result))
+                effective_config={"pins": result.get("effective_pins", []), "values": result.get("policy", {})}, detail=masked(result))
             service.finish(s, run, status=status, detail={"kind": KIND})
             job.state, job.finished_at = "COMPLETED", utcnow()
             job.events_done = result["counts"]["records"]
@@ -250,7 +267,8 @@ def device_analysis_run(job_id: str):
             run = s.get(AnalysisRun, run_id or job.stages.get("analysis_run_id"))
             if run is not None and run.status == "running":
                 status = job.state.lower()
-                service.record(s, run, "fw.observation", ENGINE_VERSION, status,
+                failed_detector = (job.stages.get("device_analysis_request") or {}).get("detector_id") or "fw.observation"
+                service.record(s, run, failed_detector, get_spec(failed_detector)["engine"]["version"], status,
                     elapsed_ms=int((time.monotonic() - started) * 1000),
                     detail={"error_type": type(exc).__name__})
                 service.finish(s, run, status=status, detail={"kind": KIND, "error_type": type(exc).__name__})
@@ -265,7 +283,8 @@ def cancel_queued(s, job):
         return
     run = s.get(AnalysisRun, (job.stages or {}).get("analysis_run_id"))
     if run is not None and run.status == "running":
-        service.record(s, run, "fw.observation", ENGINE_VERSION, "cancelled",
+        detector_id = (job.stages.get("device_analysis_request") or {}).get("detector_id") or "fw.observation"
+        service.record(s, run, detector_id, get_spec(detector_id)["engine"]["version"], "cancelled",
                        detail={"error_type": "Cancelled"})
         service.finish(s, run, status="cancelled", detail={"kind": KIND})
     job.finished_at = job.finished_at or utcnow()

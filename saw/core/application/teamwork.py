@@ -7,6 +7,7 @@ attached to the investigation, and the conclusion remains the owner's - which is
 reviewer of that conclusion.
 """
 from __future__ import annotations
+from saw.detection.derived_access import require_investigation_results
 
 from typing import Any
 
@@ -143,6 +144,7 @@ def closing_check(s: Session, inv: Investigation) -> list[dict[str, Any]]:
     from saw.core.application import briefing, reviews
     from saw.core.application import checks as check_svc
 
+    require_investigation_results(s, s.info.get("principal"), inv.id)
     b = briefing.build(s, inv, mask=True)
     rows = check_svc.list_checks(s, inv.id)
     chk = b["facts"]["checks"]

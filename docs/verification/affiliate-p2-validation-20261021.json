@@ -1,0 +1,74 @@
+{
+  "phase": "P2",
+  "backend": {
+    "passed": 1960,
+    "skipped": 6,
+    "initial_failed": 1,
+    "seconds": 1770.3,
+    "skips": [
+      {
+        "test": "tests.unit.test_migrations.test_fresh_upgrade_matches_models[1]",
+        "reason": "SAW_TEST_DATABASE_URL not set"
+      },
+      {
+        "test": "tests.unit.test_model_pack_builder.test_builder_rejects_source_links",
+        "reason": "Windows symlink creation is unavailable"
+      },
+      {
+        "test": "tests.unit.test_postgresql_setup.test_native_initdb_ba_system_only_secret_and_exact_acl_restore",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "tests.unit.test_postgresql_setup.test_native_initdb_success_already_has_selected_secure_configuration",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "tests.unit.test_postgresql_setup.test_native_initdb_with_korean_runtime_share_and_data_paths",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "tests.unit.test_private_update_state.test_untrusted_existing_state_is_still_rejected",
+        "reason": "POSIX access-bit rejection; native ACL cases use the handoff test"
+      }
+    ],
+    "failure": [
+      "tests.unit.test_release_manifest.test_shipped_guides_keep_local_links_inside_complete_media"
+    ],
+    "post_correction_media_passed": 67,
+    "post_correction_media_seconds": 7.7
+  },
+  "post_full_start_delta": {
+    "description": "PostgreSQL JSON DISTINCT to correlated EXISTS in inactive-rule lookup",
+    "default_passed": 6,
+    "native_passed": 11
+  },
+  "frontend": {
+    "passed": 268,
+    "files": 43,
+    "seconds": 16.08,
+    "typescript": "passed",
+    "build_seconds": 25.57,
+    "qa_probe_included": 1
+  },
+  "native": {
+    "initial_passed": 21,
+    "final_passed": 11,
+    "failed_attempt_preserved": true,
+    "stopped": true
+  },
+  "actual_browser": {
+    "synthetic": true,
+    "mfa": true,
+    "selected_positive_records": 6,
+    "selected_negative_records": 3,
+    "tp": 1,
+    "tn": 1,
+    "fp": 0,
+    "fn": 0,
+    "draft_version": 3,
+    "active_version": 2,
+    "reviewer_approval_via": "authenticated_api"
+  },
+  "operational_acceptance": false,
+  "new_release": false
+}

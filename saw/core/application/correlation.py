@@ -4,6 +4,7 @@ Strength: strong = same entity (IP/domain/session/account) seen in ≥2 source f
 weak = only the same asset/host and time proximity. Results feed Timeline/Story; nothing is auto-concluded.
 """
 from __future__ import annotations
+from saw.detection.derived_access import source_ids
 
 from datetime import datetime
 
@@ -90,7 +91,8 @@ def run_correlation(s: Session, inv_id: str) -> list[Correlation]:
             first, second = (a, b) if ta <= tb else (b, a)
             c = Correlation(investigation_id=inv_id, kind="finding_chain", strength="strong", entity_keys=shared,
                             steps=[{"finding_id": x.id, "display_id": x.display_id, "title": x.title, "family": fam_of[x.id],
-                                    "time": x.time_start.isoformat() if x.time_start else None} for x in (first, second)],
+                                    "time": x.time_start.isoformat() if x.time_start else None,
+                                    "_source_investigation_ids": sorted(source_ids(x))} for x in (first, second)],
                             explanation=f"{first.display_id} → {second.display_id}: 공통 {', '.join(shared)}")
             s.add(c)
             out.append(c)

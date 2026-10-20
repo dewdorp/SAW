@@ -14,7 +14,9 @@ describe("rule export and help", () => {
     mockApi({ "GET /auth/me": [200, ME] });
     renderUI(UI, { route: "/detections/help" });
     expect(await screen.findByText("룰 등록부터 탐지까지")).toBeTruthy();
-    expect(screen.getByText(/작성자와 다른/)).toBeTruthy();
+    expect(screen.getByText(/기여자가 아닌 독립 검토자/)).toBeTruthy();
+    expect(screen.getByText(/승인은 활성본을 바꾸지 않습니다/)).toBeTruthy();
+    expect(screen.getByText("승인본 SAW에 적용")).toBeTruthy();
     expect(screen.getByText("일치 예제와 정상 예제 등록")).toBeTruthy();
     expect(screen.getByText(/외부 SIEM/)).toBeTruthy();
   });

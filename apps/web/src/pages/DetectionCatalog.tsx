@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Empty, ErrorBox, Loading, Panel } from "../components/common";
 import { api } from "../lib/api";
@@ -25,8 +26,8 @@ type NetworkRule = {
 };
 type Catalog = { signatures: Signature[]; detectors: Detector[]; scenarios: Scenario[]; can_switch: boolean; network_rules?: NetworkRule[] };
 type Kind = "signatures" | "detectors" | "scenarios" | "network";
-type SwitchInput = { enabled: boolean; note: string };
-type SwitchResult = SwitchInput & { id: string; updated_by: string };
+
+
 
 const FIELDS: Record<string, string> = {
   ua: "사용자 에이전트", path: "요청 경로", query: "쿼리 문자열", uri: "요청 주소",
@@ -82,7 +83,7 @@ export function DetectionCatalog() {
         <div className="col small">
           <div>플랫폼에 포함된 탐지 조건과 확인 방법입니다. ATT&amp;CK 표시는 규칙의 관련 기술이며 실제 공격 여부는 조사 근거로 판단합니다.</div>
           <div>HTTP 2xx 응답만으로 공격 성공을 확정할 수 없습니다. 차단된 공격 시도도 차단 여부만으로 오탐으로 분류하지 않습니다.</div>
-          <div className="muted">시그니처 설정은 모든 조사에 공통이며 다음 분석부터 적용됩니다. 기존 결과를 갱신하려면 재분석하고, 새 규칙의 태그가 없는 기존 자료는 증거를 다시 처리해야 합니다.</div>
+          <div className="muted">시그니처 사용 여부는 범위별 정책의 초안·선택 시험·독립 승인·SAW 적용으로 변경합니다. 기존 결과를 갱신하려면 재분석하고, 새 규칙의 태그가 없는 기존 자료는 증거를 다시 처리해야 합니다.</div>
         </div>
       </Panel>
       <Panel title="룰 내보내기">
@@ -138,7 +139,7 @@ export function DetectionCatalog() {
         <Panel title="NDR 연결 정책 설정">
           <div className="col small">
             <div>조직마다 다른 내부망·허용 포트·업무시간 기준을 사용하는 정책입니다. 기본 제공 기준은 예시이므로 조직의 승인된 기준을 검토한 뒤 사용하세요.</div>
-            <div><code>saw/detectors/packs/ndr_policies.yaml</code>에서 기준과 켜짐 여부를 수정하고 서버를 다시 시작해 적용합니다.</div>
+            <div>아래 YAML 기준은 기존 기준의 참조 정보입니다. <Link to="/detections/policies/ndr.observation">NDR 관측 정책 변경</Link>에서 지원 명세와 현재 범위별 적용값을 검토하세요.</div>
             <div className="muted">각 시간 구간은 UTC 기준으로 고정됩니다. 경계에 걸친 연결은 서로 다른 구간에 집계될 수 있습니다.</div>
           </div>
         </Panel>
@@ -162,23 +163,14 @@ export function DetectionCatalog() {
 }
 
 function SignatureDetail({ signature, canSwitch, onClose }: { signature: Signature; canSwitch: boolean; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [note, setNote] = useState("");
-  const [saved, setSaved] = useState(false);
+
+
+
   const detailRef = useRef<HTMLElement>(null);
   useEffect(() => {
     detailRef.current?.focus({ preventScroll: true });
     detailRef.current?.scrollIntoView?.({ block: "start" });
   }, []);
-  const change = useMutation({
-    mutationFn: (body: SwitchInput) => api.put<SwitchResult>(`/detection-catalog/signatures/${encodeURIComponent(signature.id)}`, body),
-    onSuccess: async () => {
-      setNote("");
-      await qc.invalidateQueries({ queryKey: ["detection-catalog"] });
-      setSaved(true);
-    },
-  });
-  const reasonValid = !signature.enabled || note.trim().length >= 5;
   return (
     <section ref={detailRef} tabIndex={-1} aria-label="시그니처 상세">
       <Panel title={signature.title} right={<button className="btn ghost sm" onClick={onClose}>상세 닫기</button>}>
@@ -199,22 +191,8 @@ function SignatureDetail({ signature, canSwitch, onClose }: { signature: Signatu
             <div className="muted">{signature.updated_by ? `${signature.updated_by} · ${fmtTime(signature.updated_at)}` : "변경 기록 없음"}</div>
             {signature.note && <div style={{ whiteSpace: "pre-wrap" }}>{signature.note}</div>}
           </div>
-          {canSwitch && <form className="col" onSubmit={(event) => {
-            event.preventDefault();
-            if (!reasonValid || note.length > 512 || change.isPending) return;
-            setSaved(false);
-            change.mutate({ enabled: !signature.enabled, note: note.trim() });
-          }}>
-            <label className="col">변경 사유 (끄기 5자 이상·켜기 선택)
-              <textarea className="input" rows={2} maxLength={512} required={signature.enabled} value={note}
-                disabled={change.isPending} onChange={(event) => { setNote(event.target.value); setSaved(false); }} />
-            </label>
-            <div className="muted">이유는 다른 분석가에게 표시되고 변경 기록에 남습니다. 모든 조사에 적용됩니다.</div>
-            <div><button className="btn sm" type="submit" disabled={!reasonValid || note.length > 512 || change.isPending}>
-              {change.isPending ? "저장 중…" : signature.enabled ? "시그니처 끄기" : "시그니처 켜기"}</button></div>
-            <ErrorBox error={change.error} />
-            {saved && <div className="tag ok" role="status">설정을 저장했습니다. 다음 분석부터 적용됩니다.</div>}
-          </form>}
+          <div className="small muted">초안·선택 시험·독립 승인·SAW 적용으로 사용 여부를 변경합니다. 현재 표시값은 기존 공통 설정이며 범위별 유효 설정은 정책 화면에서 확인하세요.</div>
+          <Link to={`/detections/policies/${encodeURIComponent(`signature:${signature.id}`)}`}>{canSwitch ? "설정 변경" : "정책·명세 보기"}</Link>
         </div>
       </Panel>
     </section>

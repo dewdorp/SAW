@@ -1,0 +1,44 @@
+{
+  "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+  "mode": "hidden_user_process_no_services",
+  "postgresql_version": "16.15",
+  "opensearch_version": "2.19.6",
+  "opensearch_plugins": [
+    "analysis-nori",
+    "opensearch-index-management",
+    "opensearch-job-scheduler"
+  ],
+  "test_counts": {
+    "passed": 11,
+    "failed": 0,
+    "skipped": 0
+  },
+  "pytest_exit_code": 0,
+  "pytest_summary": [
+    "11 passed, 1 warning in 113.97s (0:01:53)"
+  ],
+  "test_seconds": 114.969,
+  "elapsed_seconds": 163.547,
+  "tests": [
+    "tests/api/test_derived_run_lineage.py",
+    "tests/api/test_sigma_scope_completion.py",
+    "tests/api/test_detection_source_lineage.py"
+  ],
+  "opensearch_flush_failed_shards": 0,
+  "opensearch_stopped": true,
+  "postgresql_stopped": true,
+  "ports_closed": true,
+  "stop_complete": true,
+  "target_os_acceptance": false,
+  "scope": "Synthetic final P2 source-lineage supplement; not operational acceptance",
+  "prior_failure": {
+    "run": "native-p2-20261021-r2",
+    "passed": 8,
+    "failed": 1,
+    "not_run": 2,
+    "error": "PostgreSQL JSON DISTINCT equality unsupported",
+    "correction": "Correlated EXISTS with unchanged scope and ACL",
+    "default_delta_passed": 6,
+    "default_delta_seconds": 7.95
+  }
+}

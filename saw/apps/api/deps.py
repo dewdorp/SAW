@@ -62,7 +62,9 @@ def auth(request: Request, s: Session = Depends(db, scope="function")) -> AuthCo
     sess, u = _session(request, s)
     if not sess.mfa_passed:
         raise HTTPException(401, "MFA required")
-    return AuthContext(identity.principal_of(u), u, sess, client_ip(request))
+    principal = identity.principal_of(u)
+    s.info["principal"] = principal
+    return AuthContext(principal, u, sess, client_ip(request))
 
 
 def require_perm(permission: str):

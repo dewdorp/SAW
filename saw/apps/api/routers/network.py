@@ -17,6 +17,9 @@ from saw.core.application import audit
 from saw.core.application.investigations import require
 from saw.core.schemas.query import AggRequest, Filter, GroupMetric, TimeRange
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    visible_findings,
+)
 from saw.integrations.pcap import ARTIFACTS, tools_available
 from saw.integrations.pcapkit.extract import extract_session
 from saw.integrations.pcapkit.reader import PcapError
@@ -48,6 +51,7 @@ def overview(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends
     dns_edges = es.group_by(inv_id, [Filter(field="data_source", value="zeek_dns")], ["src_ip", "domain"], [], size=2000)
     nf = [f for f in s.execute(select(Finding).where(Finding.investigation_id == inv_id,
                                                      Finding.category.like("net.%"))).scalars()]
+    nf = visible_findings(s, ctx.principal, nf)
     flagged: dict[tuple, list[str]] = {}
     for f in nf:
         ips = [e.split(":", 1)[1] for e in f.entities if e.startswith("ip:")]

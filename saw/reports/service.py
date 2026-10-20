@@ -19,6 +19,8 @@ def create(s, p, inv_id, *, analysis_run_id):
     if run.status not in {"complete", "partial", "insufficient_data"}:
         raise ValueError("report_requires_finished_analysis")
     records, source_ids = [], checks.source_investigation_ids(s, p, inv_id)
+    from saw.detection.runtime_capture import sources
+    source_ids.update(sources(run.input_manifest.get("runtime_pin") or {}))
     for check in checks.list_checks(s, inv_id, principal=p):
         if check.source_check_id:
             source = s.get(Check, check.source_check_id)
@@ -33,6 +35,8 @@ def create(s, p, inv_id, *, analysis_run_id):
         "analysis": runs.run_dict(s, run), "checks": records,
         "masking_policy": "authenticated-source-acl-v1",
         "limits": ["기록된 관측 결과와 분석가 확인을 구분합니다. 허용·응답은 정상 또는 침해 성공의 증명이 아닙니다."]}))
+    from saw.detection.derived_access import source_ids as derived_sources
+    source_ids.update(derived_sources(content))
     number = (s.scalar(select(func.max(ReportVersion.version)).where(
         ReportVersion.investigation_id == inv_id)) or 0) + 1
     row = ReportVersion(investigation_id=inv_id, version=number, created_by=p.user_id,
@@ -50,7 +54,8 @@ def get(s, p, inv_id, report_id):
     row = s.get(ReportVersion, report_id)
     if row is None or row.investigation_id != inv_id:
         raise NotFound("report version not found")
-    for source_id in row.source_investigation_ids:
+    from saw.detection.derived_access import source_ids as derived_sources
+    for source_id in set(row.source_investigation_ids) | derived_sources(row.content):
         require(s, p, "investigation.read", source_id)
     if digest(row.content) != row.content_sha256:
         raise ValueError("report_content_corrupt")

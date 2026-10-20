@@ -116,7 +116,7 @@ def test_scoped_active_ingest_rejected(senior):
 def test_scoped_mutation_during_calculation_never_publishes(senior, monkeypatch, change):
     inv, _, _, _ = case(senior)
     from saw.analysis_runs import scoped
-    real = scoped.analyze_firewall
+    real = scoped.run_for_request
     def mutate(*args, **kwargs):
         result = real(*args, **kwargs)
         with session_scope() as s:
@@ -130,7 +130,7 @@ def test_scoped_mutation_during_calculation_never_publishes(senior, monkeypatch,
             else:
                 s.get(User,job.requested_by).roles=["viewer"]
         return result
-    monkeypatch.setattr(scoped,"analyze_firewall",mutate)
+    monkeypatch.setattr(scoped,"run_for_request",mutate)
     job, result = submit(senior,inv)
     assert job["state"] == ("CANCELLED" if change=="cancel" else "FAILED"), job
     assert result["status"] == job["state"].lower()
@@ -175,7 +175,7 @@ def test_scoped_limit_is_partial_and_failed_execution_is_recorded(senior, monkey
     assert fw(result)["detail"]["limits"]["coverage_complete"] is False
     def broken(*args,**kw):
         raise ValueError("synthetic analyzer failure")
-    monkeypatch.setattr(scoped,"analyze_firewall",broken)
+    monkeypatch.setattr(scoped,"run_for_request",broken)
     job, failure=submit(senior,inv)
     assert job["state"]=="FAILED"
     assert failure["status"]==fw(failure)["status"]=="failed"
@@ -184,12 +184,12 @@ def test_scoped_limit_is_partial_and_failed_execution_is_recorded(senior, monkey
 def test_scoped_retry_creates_new_run_without_rewriting_old(senior, monkeypatch):
     inv, _, _, _ = case(senior)
     from saw.analysis_runs import scoped
-    real=scoped.analyze_firewall
+    real=scoped.run_for_request
     def broken(*args,**kw):
         raise ValueError("synthetic analyzer failure")
-    monkeypatch.setattr(scoped,"analyze_firewall",broken)
+    monkeypatch.setattr(scoped,"run_for_request",broken)
     job, old=submit(senior,inv)
-    monkeypatch.setattr(scoped,"analyze_firewall",real)
+    monkeypatch.setattr(scoped,"run_for_request",real)
     response=senior.post(f"/jobs/{job['id']}/retry")
     assert response.status_code==200,response.text
     assert senior.get(f"/jobs/{job['id']}").json()["state"]=="COMPLETED"
@@ -201,7 +201,7 @@ def test_scoped_retry_creates_new_run_without_rewriting_old(senior, monkeypatch)
 def test_scoped_duplicate_delivery_does_not_steal_live_lease(senior, monkeypatch):
     inv, _, _, _ = case(senior)
     from saw.analysis_runs import scoped
-    real=scoped.analyze_firewall
+    real=scoped.run_for_request
     def duplicate(*args,**kw):
         with session_scope() as s:
             job=s.scalar(select(Job).where(Job.kind=="device_analysis"))
@@ -210,7 +210,7 @@ def test_scoped_duplicate_delivery_does_not_steal_live_lease(senior, monkeypatch
         with session_scope() as s:
             assert s.get(Job,job_id).attempt==epoch
         return real(*args,**kw)
-    monkeypatch.setattr(scoped,"analyze_firewall",duplicate)
+    monkeypatch.setattr(scoped,"run_for_request",duplicate)
     job,result=submit(senior,inv)
     assert job["state"]=="COMPLETED"
     assert result["version"]==1

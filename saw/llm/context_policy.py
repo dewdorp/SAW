@@ -1,5 +1,6 @@
 """Current authorization and approval gates for model context."""
 from __future__ import annotations
+from saw.detection.derived_access import visible_snapshot
 
 import hashlib
 import json
@@ -38,6 +39,8 @@ def allowed_experiences(s: Session, p: Principal) -> frozenset[str]:
                 continue
             if not can(p, "investigation.read", access_of(s, p, e.source_investigation_id)):
                 continue
+        if not visible_snapshot(s, p, e.approved_data):
+            continue
         allowed.add(e.id)
     return frozenset(allowed)
 

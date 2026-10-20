@@ -15,6 +15,12 @@ from saw.core.application.ids import next_display_id
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    require_investigation_results,
+    require_snapshot,
+    source_ids,
+    visible_snapshot,
+)
 from saw.knowledge.features import from_findings
 from saw.knowledge.models import Experience, KnowledgeRevision
 from saw.storage.db import utcnow
@@ -42,6 +48,10 @@ def _clean(data: dict) -> dict:
 
 
 def to_dict(e: Experience, include_working: bool = True) -> dict:
+    from sqlalchemy.orm import object_session
+    session = object_session(e)
+    if session is not None:
+        require_snapshot(session, session.info.get("principal"), [e.data, e.approved_data])
     d = {"id": e.id, "display_id": e.display_id, "status": e.status, "rev": e.rev, "approved_rev": e.approved_rev,
          "analyst": e.analyst_name, "analyst_id": e.analyst_id, "reviewer": e.reviewer_name, "review_comment": e.review_comment,
          "expires_at": e.expires_at, "last_reviewed_at": e.last_reviewed_at, "deprecated": e.deprecated,
@@ -60,6 +70,13 @@ def create(s: Session, p: Principal, data: dict, source_inv: str | None = None) 
         from saw.core.application.investigations import require
         require(s, p, "investigation.read", source_inv)
     d = _clean(data)
+    if source_inv:
+        require_investigation_results(s, p, source_inv)
+        deps = set()
+        for finding in s.scalars(select(Finding).where(Finding.investigation_id == source_inv)):
+            deps.update(source_ids(finding))
+        if deps:
+            d["_source_investigation_ids"] = sorted(deps)
     if source_inv:
         from saw.behavior.service import closure_references
         source = s.get(Investigation, source_inv)
@@ -125,11 +142,16 @@ def _get(s: Session, eid: str) -> Experience:
     e = s.get(Experience, eid)
     if e is None:
         raise NotFound("experience not found")
+    require_snapshot(s, s.info.get("principal"), [e.data, e.approved_data])
     return e
 
 
 def visible(e: Experience, p: Principal) -> bool:
     """Drafts are private to their author until approved (docs/25 §2 safety)."""
+    from sqlalchemy.orm import object_session
+    session = object_session(e)
+    if session is not None and not visible_snapshot(session, p, [e.data, e.approved_data]):
+        return False
     return e.approved_data is not None or e.analyst_id == p.user_id or can(p, "knowledge.approve")
 
 
@@ -220,7 +242,8 @@ def deprecate(s: Session, p: Principal, eid: str, reason: str) -> Experience:
 def revisions(s: Session, eid: str) -> list[dict]:
     return [{"rev": r.rev, "status": r.status, "actor": r.actor, "note": r.note, "at": r.at, "data": r.data}
             for r in s.execute(select(KnowledgeRevision).where(KnowledgeRevision.kind == "experience",
-                                                               KnowledgeRevision.ref_id == eid).order_by(KnowledgeRevision.at)).scalars()]
+                                                               KnowledgeRevision.ref_id == eid).order_by(KnowledgeRevision.at)).scalars()
+            if visible_snapshot(s, s.info.get("principal"), r.data)]
 
 
 def fp_conflicts(s: Session, p: Principal, conditions: list[dict]) -> dict:

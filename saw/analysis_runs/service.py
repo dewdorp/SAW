@@ -40,11 +40,38 @@ def record(s, run, detector_id, version, status, *, input_count=None, match_coun
     return row
 
 
+def _derived_sources(s, run):
+    from saw.detection.derived_access import source_ids
+    ids = set()
+    for snap in s.scalars(select(FindingSnapshot).where(FindingSnapshot.run_id == run.id)):
+        ids.update(source_ids(snap.payload))
+    for execution in s.scalars(select(DetectorExecution).where(DetectorExecution.run_id == run.id)):
+        ids.update(source_ids([execution.effective_config, execution.detail]))
+    return ids
+
+
+def _authorize_derived(s, run, ids):
+    if not ids:
+        return
+    from saw.core.application.identity import principal_of
+    from saw.core.application.investigations import Forbidden
+    from saw.storage.models import User
+    inv = s.get(Investigation, run.investigation_id)
+    actor = s.get(User, run.created_by or inv.owner_id, populate_existing=True)
+    if actor is None or actor.status != "active":
+        raise Forbidden("derived_run_actor_unavailable")
+    p = principal_of(actor)
+    for source_id in sorted(ids):
+        require(s, p, "investigation.read", source_id)
+
+
 def capture_findings(s, run, findings):
     from saw.core.application.analysis import finding_dict
     s.flush()
     existing = set(s.scalars(select(FindingSnapshot.finding_id).where(FindingSnapshot.run_id == run.id)))
+    from saw.detection.derived_access import source_ids
     for finding in findings:
+        _authorize_derived(s, run, source_ids(finding))
         if finding.id in existing:
             continue
         payload = json.loads(canonical(finding_dict(finding)))
@@ -55,6 +82,8 @@ def capture_findings(s, run, findings):
 
 def finish(s, run, *, status=None, detail=None):
     s.flush()
+    if status not in {"failed", "cancelled"}:
+        _authorize_derived(s, run, _derived_sources(s, run))
     executions = list(s.scalars(select(DetectorExecution).where(DetectorExecution.run_id == run.id)))
     inv = s.get(Investigation, run.investigation_id)
     changed = int((inv.settings or {}).get("data_epoch", 0)) != run.input_manifest["data_epoch"]
@@ -75,6 +104,13 @@ def get(s, p, inv_id, run_id):
     row = s.get(AnalysisRun, run_id)
     if row is None or row.investigation_id != inv_id:
         raise NotFound("analysis run not found")
+    pin = row.input_manifest.get("runtime_pin")
+    if pin:
+        from saw.detection.runtime_capture import sources
+        for source_id in sources(pin):
+            require(s, p, "investigation.read", source_id)
+    for source_id in _derived_sources(s, row):
+        require(s, p, "investigation.read", source_id)
     if digest(row.input_manifest) != row.input_sha256:
         raise ValueError("analysis_input_manifest_corrupt")
     return row

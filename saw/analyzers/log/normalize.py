@@ -250,6 +250,8 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
     from saw.observation.connection import connection_observation
     obs = connection_observation(ev, context_snapshot=context_snapshot)
     ev["ext"]["observation"] = obs
+    from saw.observation.device import device_observation
+    ev["ext"]["device_observation"] = device_observation(ev, context_snapshot=context_snapshot)
     profile = (context_snapshot or {}).get("profile") or {}
     time_profile = profile.get("time") or {}
     # The same verified occurrence time must drive indexing, scope filters, and analysis.

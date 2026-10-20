@@ -55,19 +55,19 @@ def test_detection_lifecycle(analyst, senior):
     d = analyst.post(f"/detections/from-finding/{enum['id']}").json()
     assert d["status"] == "draft" and d["format"] == "sigma" and d["current"]["threshold"]["count_gte"] == 300
     assert d["source"]["finding_id"] == enum["id"]
-    # cannot approve untested; creator cannot approve
-    assert senior.post(f"/detections/{d['id']}/approve").status_code == 400
+    # Legacy investigation replay remains useful but cannot authorize a new active version.
+    assert senior.post(f"/detections/{d['id']}/approve").status_code == 409
     t = analyst.post(f"/detections/{d['id']}/test", json={}).json()
     res = t["result"]
     assert res["tp"] > 0 and res["fp"] == 0 and res["detects_confirmed_attacks"] is True and t["passed"]
-    assert analyst.post(f"/detections/{d['id']}/approve").status_code == 403  # analysts lack approve; 4-eyes anyway
-    ap = senior.post(f"/detections/{d['id']}/approve").json()
-    assert ap["status"] == "approved" and ap["current"]["reviewed_by"] == "senior1"
+    assert analyst.post(f"/detections/{d['id']}/approve").status_code == 403
+    assert senior.post(f"/detections/{d['id']}/approve").status_code == 409
+    assert analyst.get(f"/detections/{d['id']}").json()["pointers"]["active"] is None
     os_q = analyst.get(f"/detections/{d['id']}/export?fmt=opensearch").text
     assert "url_path:" in os_q and "status_code:200" in os_q and "cs-uri-stem" not in os_q  # pySigma + SAW CES field mapping
     assert analyst.get(f"/detections/{d['id']}/export?fmt=logpresso").status_code == 501  # ENV-11
-    dep = senior.post(f"/detections/{d['id']}/deployed", json={"target": "SIEM rule set (manual)", "note": "CHG-123"}).json()
-    assert dep["status"] == "deployed" and dep["deployments"][0]["by"] == "senior1"
+    dep = senior.post(f"/detections/{d['id']}/deployed", json={"target": "SIEM rule set (manual)", "note": "CHG-123"})
+    assert dep.status_code == 409
     # editing creates a new version and drops back to draft (re-test + re-approve needed)
     ed = analyst.patch(f"/detections/{d['id']}", json={"severity": "critical"}).json()
     assert ed["version"] == 2 and ed["status"] == "draft" and len(ed["versions"]) == 2

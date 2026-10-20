@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import time
 import uuid
-from saw.analysis_runs import service as run_history
 
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from saw import container
+from saw.analysis_runs import service as run_history
 from saw.analyzers.parameter.profile import collect_many, profile_values
 from saw.analyzers.pattern.cluster import STRUCTURED_SOURCES, text_patterns, web_patterns
 from saw.analyzers.relation.build import build as build_relations
@@ -32,17 +32,22 @@ RISK_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
 def all_detectors():
     from saw.detectors.anomaly import ANOMALY_DETECTORS
+    from saw.detectors.device_observation import (
+        DdosObservation,
+        IpsObservation,
+        NdrObservation,
+        WafObservation,
+    )
+    from saw.detectors.firewall_observation import FirewallObservation
+    from saw.detectors.ndr_policy import NdrPolicy
     from saw.detectors.network import NETWORK_DETECTORS
     from saw.detectors.pcap_forensics import PCAP_DETECTORS
+    from saw.detectors.peer_behavior import PeerBehavior
+    from saw.detectors.signatures import SignatureMatch
+    from saw.detectors.temporal_behavior import TemporalBehavior
     from saw.detectors.web import WEB_DETECTORS
 
-    from saw.detectors.signatures import SignatureMatch
-    from saw.detectors.ndr_policy import NdrPolicy
-    from saw.detectors.firewall_observation import FirewallObservation
-    from saw.detectors.peer_behavior import PeerBehavior
-    from saw.detectors.temporal_behavior import TemporalBehavior
-
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior(), FirewallObservation()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior(), FirewallObservation(), WafObservation(), IpsObservation(), DdosObservation(), NdrObservation()]
 
 
 def _flow_roles(finding: Finding) -> dict[str, list[str]]:
@@ -69,6 +74,8 @@ def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
              "time_start": f.time_start, "time_end": f.time_end}
             for f in s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars()
             if f.detector_id != scenarios.DETECTOR_ID and f.status not in ("false_positive", "duplicate", "benign")]
+    from saw.detection.derived_access import source_ids
+
     es = container.get().events
     drafts = scenarios.match(rows)
     for d in drafts:  # evidence: what this address did, whichever side of the connection it was on
@@ -77,6 +84,9 @@ def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
         d.evidence_query = {"filters": [{"field": side, "op": "is", "value": ip}],
                             "time": {"start": d.time_start, "end": d.time_end},
                             "finding_ids": d.evidence_query.get("finding_ids", [])}
+        d.evidence_query["source_investigation_ids"] = sorted({
+            source for fid in d.evidence_query["finding_ids"]
+            for source in source_ids(s.get(Finding, fid))})
         from saw.core.schemas.query import TimeRange
 
         d.total_events = es.count(inv_id, [Filter(field=side, value=ip)], time=TimeRange(start=d.time_start, end=d.time_end))
@@ -134,7 +144,11 @@ def _finding_from_draft(s: Session, inv_id: str, d: FindingDraft) -> Finding:
 
 def finding_dict(f: Finding) -> dict:
     from saw.core.domain.claims import annotate_finding
+    from saw.detection.derived_access import require_finding
 
+    session = object_session(f)
+    if session is not None and session.info.get("principal") is not None:
+        require_finding(session, session.info["principal"], f)
     return annotate_finding({"id": f.id, "display_id": f.display_id, "title": f.title, "category": f.category, "stage": f.stage,
             "risk_level": f.risk_level, "risk_score": f.risk_score, "risk_factors": f.risk_factors,
             "confidence": f.confidence, "status": f.status, "time_start": f.time_start, "time_end": f.time_end,
@@ -148,6 +162,9 @@ def finding_dict(f: Finding) -> dict:
 def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) -> list[Finding]:
     owns_run = analysis_run is None
     analysis_run = analysis_run or run_history.start(s, inv_id)
+    from saw.detection.runtime import run_device_scopes
+    from saw.detection.runtime_capture import authorize, pin_run
+    actor, runtime_pin = pin_run(s, analysis_run, s.get(Investigation, inv_id))
     es = container.get().events
     sources = set(present_sources(inv_id))
     assets = None
@@ -163,7 +180,7 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
 
     off = set(s.execute(select(SignatureSetting.sig_id).where(SignatureSetting.enabled.is_(False))).scalars())
     ctx = DetectorContext(inv_id, es, assets=assets, data_sources=sources,
-                          params={"history": history_baseline(s, inv_id), "iocs": iocs, "sig_disabled": off})
+                          params={"history": history_baseline(s, inv_id), "iocs": iocs, "sig_disabled": off, "runtime_pin": runtime_pin})
     from saw.workers.pipeline import Cancelled, StaleLease, _cancelled
     ctx.params["cancelled"] = (lambda: _cancelled(analysis_run.job_id)) if analysis_run.job_id else (lambda: False)
     out = []
@@ -182,7 +199,9 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
         started = time.monotonic()
         input_count = es.count(inv_id, [Filter(field="data_source", op="in", value=sorted(det.data_sources))])
         try:
-            drafts = det.run(ctx)
+            drafts = (run_device_scopes(det, ctx, runtime_pin)
+                      if det.id in {"fw.observation", "waf.observation", "ips.observation", "ddos.observation", "ndr.observation", "sig.match"}
+                      else det.run(ctx))
         except (Cancelled, StaleLease):
             raise
         except Exception as e:  # noqa: BLE001 - one detector must not abort the run
@@ -193,8 +212,9 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
                 elapsed_ms=round((time.monotonic() - started) * 1000), detail={"error_type": type(e).__name__})
             continue
         report = ctx.params.get("execution_reports", {}).get(det.id) or {}
-        result_status = {"partial": "partial", "insufficient_data": "insufficient_data",
-                         "cancelled": "cancelled"}.get(report.get("status"), "complete")
+        result_status = {"partial": "partial", "insufficient_data": "insufficient_data", "failed": "failed",
+                         "disabled": "not_applicable", "not_applicable": "not_applicable", "cancelled": "cancelled"}.get(report.get("status"), "complete")
+        authorize(s, actor, inv_id, runtime_pin, writing=True)
         run_history.record(s, analysis_run, det.id, det.version, result_status, input_count=input_count,
             match_count=None if result_status in {"not_applicable", "insufficient_data", "cancelled"} else len(drafts),
             elapsed_ms=round((time.monotonic() - started) * 1000), detail=report,
@@ -207,6 +227,7 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
         if result_status == "complete":
             settled.add(det.id)
         for d in drafts:
+            d.evidence_query["source_investigation_ids"] = _runtime_finding_sources(runtime_pin, det.id)
             out.append(_finding_from_draft(s, inv_id, d))
         run_history.capture_findings(s, analysis_run, out)
         if analysis_run.job_id:
@@ -214,15 +235,17 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
         if progress:
             progress((i + 1) / max(1, len(dets)))
     s.flush()
-    from saw.detectors import scenarios
     from saw.detection.auto import run_approved
+    from saw.detectors import scenarios
 
     sigma_started = time.monotonic()
-    sigma_drafts, sigma_settled = run_approved(s, ctx)
-    run_history.record(s, analysis_run, "sigma.approved", "1", "complete",
+    sigma_drafts, sigma_settled, sigma_reports = _run_pinned_sigma(s, ctx, runtime_pin, run_approved)
+    authorize(s, actor, inv_id, runtime_pin, writing=True)
+    sigma_status = "partial" if any(r.get("status") in {"partial", "failed", "insufficient_data", "unsupported"} for r in sigma_reports) else "complete"
+    run_history.record(s, analysis_run, "sigma.approved", "1", sigma_status,
         input_count=es.count(inv_id, []), match_count=len(sigma_drafts),
         elapsed_ms=round((time.monotonic() - sigma_started) * 1000),
-        detail={"settled_rule_ids": sorted(sigma_settled), "match_unit": "finding"})
+        detail={"settled_rule_ids": sorted(sigma_settled), "match_unit": "finding", "executions": sigma_reports})
     settled.update(sigma_settled)
     out.extend(_finding_from_draft(s, inv_id, draft) for draft in sigma_drafts)
     s.flush()
@@ -247,6 +270,58 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
     if owns_run:
         run_history.finish(s, analysis_run)
     return out
+
+
+def _runtime_finding_sources(pinset, detector_id):
+    """Freeze source authority into derived findings, including approved policy layers."""
+    from saw.detection.runtime_capture import sources
+
+    if detector_id.startswith("sigma.approved:"):
+        selected = {"rules": [pin for pin in pinset.get("rules", [])
+                              if "sigma.approved:" + pin["rule"]["id"] == detector_id]}
+    elif detector_id == "sig.match":
+        selected = {"signatures": pinset.get("signatures", [])}
+    else:
+        selected = {"devices": [pin for pin in pinset.get("devices", [])
+                                if pin.get("detector_id") == detector_id]}
+    return sorted(sources(selected))
+
+
+def _run_pinned_sigma(s, ctx, pinset, evaluate):
+    from copy import deepcopy
+
+    from saw.core.application.provenance import digest
+    from saw.detection.runtime import ScopedEventStore, scope_filters
+    budget = {"deadline": time.monotonic() + 30, "evaluations": 0, "rules": 0}
+    by_scope = {}
+    for pin in pinset.get("rules", []):
+        scope = pin["context_scope"]
+        by_scope.setdefault(digest(scope), {"scope": scope, "pins": []})["pins"].append(pin)
+    if not by_scope:
+        by_scope["none"] = {"scope": {"kind": "group"}, "pins": []}
+    findings, reports, settled = [], list(pinset.get("execution_reports", [])), set()
+    unfinished = set()
+    for partition in by_scope.values():
+        scope = partition["scope"]
+        params = {**ctx.params, "runtime_scope": scope, "sigma_runtime_budget": budget, "execution_reports": [],
+                  "runtime_pin": {"schema": "det-runtime-set/1", "rules": deepcopy(partition["pins"])}}
+        with ScopedEventStore(ctx.events, ctx.investigation_id, scope_filters(scope),
+                              cancelled=ctx.params.get("cancelled"), max_records=500000) as view:
+            child = DetectorContext(ctx.investigation_id, view, data_sources=ctx.data_sources,
+                                    assets=ctx.assets, params=params)
+            found, completed = evaluate(s, child)
+            for draft in found:
+                draft.dedup_key += ":" + digest(scope)[:16]
+                draft.evidence_query["runtime_scope"] = deepcopy(scope)
+                draft.evidence_query["source_investigation_ids"] = _runtime_finding_sources(
+                    {"rules": partition["pins"]}, draft.detector_id)
+            findings.extend(found)
+            reports.extend({**r, "runtime_scope": scope} for r in params["execution_reports"])
+            settled.update(completed)
+            expected = {"sigma.approved:" + pin["rule"]["id"] for pin in partition["pins"]}
+            unfinished.update(expected - completed)
+    incomplete = {r["detector_id"] for r in reports if r.get("status") in {"partial", "failed", "insufficient_data", "unsupported"}}
+    return findings, settled - unfinished - incomplete, reports
 
 
 def _drop_unsupported(s: Session, inv_id: str, settled: set[str], produced: set[str]) -> int:
@@ -349,10 +424,14 @@ def run_story(s: Session, inv_id: str) -> AttackStory:
                 f[k] = f[k].isoformat()
     cors = [{"kind": c.kind, "strength": c.strength, "steps": c.steps, "explanation": c.explanation}
             for c in s.execute(select(Correlation).where(Correlation.investigation_id == inv_id)).scalars()]
+    from saw.detection.derived_access import source_ids
+
     graph = build_story(fs, cors)
+    graph["_source_investigation_ids"] = sorted(source_ids(fs) | source_ids(cors))
     last = s.execute(select(AttackStory).where(AttackStory.investigation_id == inv_id)
                      .order_by(AttackStory.version.desc())).scalars().first()
     if last and last.origin == "analyst":
+        graph["_source_investigation_ids"] = sorted(source_ids(graph) | source_ids(last.graph))
         # keep analyst edits: carry pinned/manual nodes forward and flag new auto nodes
         keep = [n for n in last.graph.get("nodes", []) if n.get("origin") == "analyst" or n.get("pinned")]
         known = {fid for n in last.graph.get("nodes", []) for fid in n.get("finding_ids", [])}

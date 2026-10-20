@@ -10,6 +10,7 @@ signature - but the open need stays visible in the investigation, on the board a
 - an investigation is closed as an attack (the conclusion goes into reports).
 """
 from __future__ import annotations
+from saw.detection.derived_access import source_ids, require_finding, visible_snapshot
 
 import hashlib
 from typing import Any
@@ -18,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saw.core.application import audit
-from saw.core.application.investigations import NotFound, require
+from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.domain.enums import Role
 from saw.core.security.authz import Principal
 from saw.storage.db import utcnow
@@ -59,7 +60,18 @@ def _still_required(s: Session, r: Review) -> bool:
     return True
 
 
+
+def _derived_visible(s, p, review):
+    payload = list(review.evidence or [])
+    if review.subject_type == "finding":
+        finding = s.get(Finding, review.subject_id)
+        if finding:
+            payload.append(finding.evidence_refs or {})
+    return visible_snapshot(s, p, payload)
+
 def to_dict(s: Session, r: Review) -> dict[str, Any]:
+    if not _derived_visible(s, s.info.get("principal"), r):
+        raise Forbidden("derived_review_source")
     decided = r.status in OUTCOMES
     stale = decided and r.snapshot != state_of(s, r)
     if r.status in OPEN:
@@ -70,7 +82,7 @@ def to_dict(s: Session, r: Review) -> dict[str, Any]:
         is_open = r.status in ("too_broad", "insufficient", "changes_requested")
     return {"id": r.id, "investigation_id": r.investigation_id, "subject_type": r.subject_type, "subject_id": r.subject_id,
             "subject_ko": SUBJECTS.get(r.subject_type, r.subject_type), "subject_label": r.subject_label,
-            "conclusion": r.conclusion, "scope_note": r.scope_note, "limits": r.limits or [], "evidence": r.evidence or [],
+            "conclusion": r.conclusion, "scope_note": r.scope_note, "limits": r.limits or [], "evidence": [x for x in r.evidence or [] if not isinstance(x, dict)],
             "required": r.required, "status": r.status, "status_ko": STATUS_KO.get(r.status, r.status),
             "stale": stale, "open": is_open,
             "requested_by": r.requested_by_name, "requested_by_id": r.requested_by, "reviewer": r.reviewer_name,
@@ -127,6 +139,7 @@ def request(s: Session, p: Principal, inv_id: str, data: dict) -> Review:
         f = s.get(Finding, sid)
         if f is None or f.investigation_id != inv_id:
             raise NotFound("finding not found")
+        require_finding(s, p, f)
         label = label or f"{f.display_id} {f.title}"
     u = _reviewer(s, p, str(data.get("reviewer_id") or ""))
     if st == "conclusion":
@@ -145,6 +158,8 @@ def request(s: Session, p: Principal, inv_id: str, data: dict) -> Review:
     r.subject_label, r.conclusion = label[:256], conclusion[:1000]
     r.scope_note = str(data.get("scope_note") or "").strip()[:1000]
     r.evidence = [str(x) for x in (data.get("evidence") or [])][:20]
+    if st == "finding" and source_ids(f):
+        r.evidence = [*r.evidence, {"_source_investigation_ids": sorted(source_ids(f))}]
     r.limits = limits
     r.requested_by, r.requested_by_name = p.user_id, p.username
     r.reviewer_id, r.reviewer_name, r.status = u.id, u.display_name or u.username, "requested"
@@ -165,6 +180,12 @@ def need(s: Session, p: Principal, inv_id: str, subject_type: str, subject_id: s
         r = Review(investigation_id=inv_id, subject_type=subject_type, subject_id=subject_id, status="needed", required=True,
                    requested_by=p.user_id, requested_by_name=p.username)
         s.add(r)
+    if subject_type == "finding":
+        finding = s.get(Finding, subject_id)
+        if finding:
+            require_finding(s, p, finding)
+            if source_ids(finding):
+                r.evidence = [*(r.evidence or []), {"_source_investigation_ids": sorted(source_ids(finding))}]
     r.subject_label, r.conclusion, r.required = label[:256], conclusion[:1000], True
     s.flush()
     r.snapshot = state_of(s, r)
@@ -236,6 +257,8 @@ def list_for_investigation(s: Session, inv_id: str) -> list[dict[str, Any]]:
     seen: set[tuple[str, str]] = set()
     out = []
     for r in rows:
+        if not _derived_visible(s, s.info.get("principal"), r):
+            continue
         d = to_dict(s, r)
         key = (r.subject_type, r.subject_id or r.id)
         d["latest"] = key not in seen
@@ -266,4 +289,4 @@ def inbox(s: Session, p: Principal) -> dict[str, Any]:
         return d | {"investigation": {"id": r.investigation_id, "display_id": i.display_id if i else "", "title": i.title if i else ""}}
 
     usable = lambda r: r.investigation_id in invs and not (invs[r.investigation_id].settings or {}).get("data_deletion")
-    return {"to_review": [out(r) for r in mine if usable(r)], "returned": [out(r) for r in back if usable(r)]}
+    return {"to_review": [out(r) for r in mine if usable(r) and _derived_visible(s, p, r)], "returned": [out(r) for r in back if usable(r) and _derived_visible(s, p, r)]}

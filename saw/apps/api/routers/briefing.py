@@ -12,6 +12,9 @@ from saw.apps.api.deps import AuthContext, auth, client_ip, db
 from saw.core.application import audit, briefing
 from saw.core.application.investigations import require
 from saw.core.security.authz import can
+from saw.detection.derived_access import (
+    require_investigation_results,
+)
 
 router = APIRouter(tags=["briefing"])
 
@@ -22,6 +25,7 @@ class BriefingIn(BaseModel):
 
 def _out(s: Session, ctx: AuthContext, inv_id: str, mask: bool) -> dict:
     inv = require(s, ctx.principal, "investigation.read", inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     out = briefing.build(s, inv, mask=mask)
     from saw.core.application.investigations import access_of
 
@@ -47,6 +51,7 @@ def page(inv_id: str, request: Request, mask: bool = True, ctx: AuthContext = De
          s: Session = Depends(db, scope="function")):
     """Self-contained page for printing or saving as PDF; leaving the system, so the export is audited."""
     inv = require(s, ctx.principal, "investigation.read", inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     body = briefing.render_html(briefing.build(s, inv, mask=mask), ctx.principal.username)
     audit.record(s, "briefing.export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  actor_ip=client_ip(request), target_type="investigation", target_id=inv_id, investigation_id=inv_id,

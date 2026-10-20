@@ -61,6 +61,31 @@ class TimeProfile(StrictModel):
 Action = Literal["allowed", "blocked", "reset", "detected", "challenged", "unknown", "conflicting"]
 
 
+class DeviceSemantics(StrictModel):
+    verified: bool = False
+    basis: str = Field(default="", max_length=1000)
+    record_kind: Literal["request", "rule_hit", "alert", "interval_summary", "flow", "dns", "http", "tls", "unknown"] = "unknown"
+    mode: Literal["inline", "mirror", "unknown"] = "unknown"
+    packet_available: bool | None = None
+    response_location: Literal["edge", "origin", "unknown"] = "unknown"
+    trusted_forwarded: bool = False
+    forwarded_basis: str = Field(default="", max_length=1000)
+    rate_unit: Literal["bps", "pps", "rps", "unknown"] = "unknown"
+    rate_statistic: Literal["mean", "peak", "unknown"] = "unknown"
+    sampling_ratio: float | None = Field(default=None, gt=0, le=1, allow_inf_nan=False)
+    sampling_version: str = Field(default="unknown", max_length=128)
+    bidirectional: bool | None = None
+    capture_kind: Literal["flows", "alerts_only", "pcap", "mixed", "unknown"] = "unknown"
+
+    @model_validator(mode="after")
+    def verify_source(self):
+        if self.verified and not self.basis:
+            raise ValueError("verified device semantics require a source basis")
+        if self.trusted_forwarded and (not self.verified or not self.forwarded_basis):
+            raise ValueError("trusted forwarding requires verified source and basis")
+        return self
+
+
 class DeviceProfileInput(StrictModel):
     owner_org_unit_id: str | None = Field(default=None, max_length=36)
     operator_org_unit_id: str | None = Field(default=None, max_length=36)
@@ -73,12 +98,14 @@ class DeviceProfileInput(StrictModel):
     observation_point: str = Field(default="", max_length=256)
     collection_path: str = Field(default="", max_length=256)
     source_fields: dict[str, str] = Field(default_factory=dict, max_length=64)
-    record_kind_map: dict[str, Literal["session_start", "session_interim", "session_end", "unknown"]] = Field(default_factory=dict, max_length=128)
+    record_kind_map: dict[str, Literal["session_start", "session_interim", "session_end", "request", "rule_hit", "alert",
+                                  "interval_summary", "flow", "dns", "http", "tls", "unknown"]] = Field(default_factory=dict, max_length=128)
     action_map: dict[str, Action] = Field(default_factory=dict, max_length=128)
     action_verified: bool = False
     action_basis: str = Field(default="", max_length=1000)
     measurement_profile: MeasurementProfile = Field(default_factory=MeasurementProfile)
     time: TimeProfile = Field(default_factory=TimeProfile)
+    device_semantics: DeviceSemantics = Field(default_factory=DeviceSemantics)
 
     @field_validator("source_fields", "action_map", "record_kind_map")
     @classmethod
@@ -92,7 +119,10 @@ class DeviceProfileInput(StrictModel):
     def supported_semantics(cls, value):
         supported = {"org_unit_id", "device_id", "device_profile_version_id", "network", "virtual_domain",
                      "timestamp", "start_time", "end_time", "collected_time", "record_kind", "session_id",
-                     "action", "src_bytes", "dst_bytes", "src_packets", "dst_packets", "duration"}
+                     "action", "src_bytes", "dst_bytes", "src_packets", "dst_packets", "duration",
+                     "request_id", "signature_id", "origin_status", "edge_status", "mode", "forwarded_ip",
+                     "interval_start", "interval_end", "rate", "target", "attack_type", "mitigation",
+                     "sampling_ratio", "tls_version", "domain", "http_status", "uri", "user_agent", "severity"}
         if set(value) - supported:
             raise ValueError("unsupported source semantics")
         return value

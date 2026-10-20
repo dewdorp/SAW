@@ -24,7 +24,7 @@ def _lookup(event, field):
         return True, event[field]
     ext = event.get("ext") or {}
     for product, values in ext.items():
-        if product in {"observation", "saw_observation"} or not isinstance(values, dict):
+        if product in {"observation", "saw_observation", "device_observation"} or not isinstance(values, dict):
             continue
         if field in values:
             return True, values[field]
@@ -41,7 +41,7 @@ def _original_time(event, field):
     if not field:
         return None
     for key, values in (event.get("ext") or {}).items():
-        if key not in {"observation", "saw_observation"} and isinstance(values, dict) and field in values:
+        if key not in {"observation", "saw_observation", "device_observation"} and isinstance(values, dict) and field in values:
             return values[field]
     from saw.parsers.structured import alias_for
 
@@ -82,7 +82,7 @@ def _row_context(event, context, mapping):
     from saw.parsers.structured import compact_key
 
     raw_sources = [event] + [values for key, values in (event.get("ext") or {}).items()
-                             if key not in {"observation", "saw_observation"} and isinstance(values, dict)]
+                             if key not in {"observation", "saw_observation", "device_observation"} and isinstance(values, dict)]
     attribution, flags = {}, set()
     for semantic, aliases in _CONTEXT_HINTS.items():
         declared = mapping.get(semantic)

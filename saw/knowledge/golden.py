@@ -19,11 +19,27 @@ from saw.core.application.provenance import canonical, digest
 from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_event, mask_text
 from saw.core.security.sanitize import csv_safe
+from saw.detection.derived_access import (
+    require_investigation_results,
+    require_snapshot,
+)
 from saw.knowledge import experience
 from saw.knowledge.golden_models import GoldenBlob, GoldenFamily, GoldenFamilyMember, GoldenVersion
 from saw.knowledge.models import Experience, KnowledgeRevision
 from saw.storage.db import utcnow
-from saw.storage.models import AttackStory, Case, CaseItem, Check, Evidence, EvidenceFile, Finding, Investigation, Note, ProcessingRun, User
+from saw.storage.models import (
+    AttackStory,
+    Case,
+    CaseItem,
+    Check,
+    Evidence,
+    EvidenceFile,
+    Finding,
+    Investigation,
+    Note,
+    ProcessingRun,
+    User,
+)
 
 MAX_BLOB = 256 * 1024
 MAX_CASE = 4 * 1024 * 1024
@@ -99,6 +115,8 @@ def _experience(s, p, eid, write=False):
     if not e.source_investigation_id:
         raise ValueError("golden_source_investigation_required")
     require(s, p, "investigation.read", e.source_investigation_id)
+    require_snapshot(s, p, [e.data, e.approved_data])
+    require_investigation_results(s, p, e.source_investigation_id)
     if write and e.analyst_id != p.user_id and not can(p, "knowledge.approve"):
         raise Forbidden("only the author or a reviewer can edit golden")
     if not experience.visible(e, p):
@@ -494,6 +512,7 @@ def review(s, p, vid, expected_content_sha256, decision, split, confirmations, r
 
 
 def to_dict(s, p, g, full=False):
+    _experience(s, p, g.experience_id)
     f = s.get(GoldenFamily, g.family_id) if g.family_id else None
     d = {"id": g.id, "experience_id": g.experience_id, "experience_rev": g.experience_rev, "version": g.version,
          "status": g.status, "methodology_version": g.methodology_version, "as_of": g.as_of,
@@ -536,7 +555,10 @@ def list_for(s, p, **filters):
             continue
         if g.status != "adopted" and p.user_id != g.author_id and not can(p, "knowledge.approve"):
             continue
-        row = to_dict(s, p, g)
+        try:
+            row = to_dict(s, p, g)
+        except (Forbidden, NotFound):
+            continue
         if any(value and (str(value).lower() not in str(row.get("title", "")).lower() if key == "q"
                          else row.get(key) != value) for key, value in filters.items()):
             continue

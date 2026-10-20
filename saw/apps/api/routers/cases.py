@@ -12,6 +12,11 @@ from saw.core.application.analysis import finding_dict
 from saw.core.application.ids import next_display_id
 from saw.core.application.investigations import NotFound, list_for, require
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    require_finding,
+    require_snapshot,
+    visible_snapshot,
+)
 from saw.storage.db import utcnow
 from saw.storage.models import AttackStory, Case, CaseItem, CaseRevision, Finding, Investigation
 
@@ -47,6 +52,8 @@ def _readable(s: Session, ctx: AuthContext, c: Case) -> None:
     s.refresh(c)
     if c.status in ("deleted", "deleting"):
         raise NotFound("case not found")
+    for item in s.scalars(select(CaseItem).where(CaseItem.case_id == c.id)):
+        require_snapshot(s, ctx.principal, item.snapshot)
     ok = {i.id for i in list_for(s, ctx.principal, 500)}
     if c.created_by != ctx.principal.user_id and not (set(c.investigation_ids or []) & ok):
         from saw.core.application.investigations import Forbidden
@@ -55,6 +62,8 @@ def _readable(s: Session, ctx: AuthContext, c: Case) -> None:
 
 
 def case_out(s: Session, c: Case, items: bool = False) -> dict:
+    for item in s.scalars(select(CaseItem).where(CaseItem.case_id == c.id)):
+        require_snapshot(s, s.info.get("principal"), item.snapshot)
     d = {"id": c.id, "display_id": c.display_id, "title": c.title, "severity": c.severity, "status": c.status,
          "assignee_id": c.assignee_id, "summary_md": c.summary_md, "response_md": c.response_md, "verdict": c.verdict,
          "investigation_ids": c.investigation_ids, "related_detection_ids": c.related_detection_ids,
@@ -83,7 +92,9 @@ def create(body: CaseIn, ctx: AuthContext = Depends(require_perm("case.write")),
 def list_cases(ctx: AuthContext = Depends(require_perm("case.read")), s: Session = Depends(db, scope="function")):
     ok = {i.id for i in list_for(s, ctx.principal, 500)}
     return [case_out(s, c) for c in s.execute(select(Case).where(Case.status.notin_(["deleted", "deleting"])).order_by(Case.created_at.desc())).scalars()
-            if c.created_by == ctx.principal.user_id or set(c.investigation_ids or []) & ok]
+            if (c.created_by == ctx.principal.user_id or set(c.investigation_ids or []) & ok)
+            and all(visible_snapshot(s, ctx.principal, item.snapshot) for item in
+                    s.scalars(select(CaseItem).where(CaseItem.case_id == c.id)))]
 
 
 @router.get("/{cid}")
@@ -132,6 +143,7 @@ def add_item(cid: str, body: ItemIn, ctx: AuthContext = Depends(require_perm("ca
         if f is None:
             raise NotFound("finding not found")
         require(s, ctx.principal, "investigation.read", f.investigation_id)
+        require_finding(s, ctx.principal, f)
         snap = finding_dict(f)
         for k in ("time_start", "time_end"):
             snap[k] = snap[k].isoformat() if snap[k] else None
@@ -142,6 +154,7 @@ def add_item(cid: str, body: ItemIn, ctx: AuthContext = Depends(require_perm("ca
         if st is None:
             raise NotFound("story not found")
         require(s, ctx.principal, "investigation.read", st.investigation_id)
+        require_snapshot(s, ctx.principal, st.graph)
         snap = {"version": st.version, "graph": st.graph}
     elif body.item_type == "event_ref" and body.investigation_id:
         from saw import container

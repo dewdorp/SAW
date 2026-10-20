@@ -22,9 +22,20 @@ from saw.core.application import audit
 from saw.core.application.investigations import list_for, require
 from saw.core.schemas.query import AggRequest
 from saw.core.security.authz import Principal
+from saw.detection.derived_access import (
+    require_investigation_results,
+)
 from saw.storage.db import utcnow
 from saw.storage.models import (
-    AuditEvent, Briefing, Evidence, EvidenceFile, Finding, Investigation, InvestigationMember, Job, User,
+    AuditEvent,
+    Briefing,
+    Evidence,
+    EvidenceFile,
+    Finding,
+    Investigation,
+    InvestigationMember,
+    Job,
+    User,
 )
 
 KST = ZoneInfo("Asia/Seoul")
@@ -210,6 +221,8 @@ def build(s: Session, inv: Investigation, mask: bool = True) -> dict[str, Any]:
                       .where(Evidence.investigation_id == inv.id)).scalars().all()
     parents = {f.parent_file_id for f in files if f.parent_file_id}
     leaves = [f for f in files if f.id not in parents]
+    if s.info.get("principal") is not None:
+        require_investigation_results(s, s.info["principal"], inv.id)
     findings = [f for f in s.execute(select(Finding).where(Finding.investigation_id == inv.id)
                                      .order_by(Finding.risk_score.desc())).scalars()
                 if f.status not in ("false_positive", "duplicate")]
@@ -276,7 +289,6 @@ def build(s: Session, inv: Investigation, mask: bool = True) -> dict[str, Any]:
     elif detail.get("detection_idea"):
         todo.append(f"재발 탐지 방안 검토: {detail['detection_idea']}")
     from saw.core.application import checks as check_svc
-
     from saw.core.application import reviews as review_svc
 
     chk = check_svc.summary(s, inv.id)
@@ -407,6 +419,15 @@ def board(s: Session, p: Principal, days: int = 30) -> dict[str, Any]:
     now = utcnow()
     since = now - timedelta(days=days)
     invs = list_for(s, p, 1000)
+    visible = []
+    from saw.core.application.investigations import Forbidden, NotFound
+    for inv in invs:
+        try:
+            require_investigation_results(s, p, inv.id)
+        except (Forbidden, NotFound):
+            continue
+        visible.append(inv)
+    invs = visible
     ids = [i.id for i in invs]
     names = _names(s, list({i.owner_id for i in invs}))
     highs: dict[str, int] = {}

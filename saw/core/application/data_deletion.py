@@ -188,6 +188,9 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
                 blockers.add("case_reference")
     from saw.knowledge.models import Experience
     from saw.detection.service import Detection, TestRun
+    from saw.detection.truth_models import DetectionCase
+    if _count(s, DetectionCase, DetectionCase.investigation_id == inv_id):
+        blockers.add("detection_reference")
     from saw.hunting.service import HuntSession, HuntStep
     if _count(s, Experience, Experience.source_investigation_id == inv_id):
         blockers.add("knowledge_reference")

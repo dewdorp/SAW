@@ -13,6 +13,10 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
  'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
 PUBLIC_DOCS = (
+ 'docs/AFFILIATE-DETECTION-GUIDE-20261021.md',
+ 'docs/images/affiliate-p2-20261021/draft-active.png',
+ 'docs/images/affiliate-p2-20261021/selected-truth.png',
+ 'docs/images/affiliate-p2-20261021/policy-form.png',
  'docs/UPDATER-STABILIZATION-GUIDE-20261019.md',
  'docs/UPDATER-STABILIZATION-GUIDE-20261019.html',
  'docs/verification/updater-native-acceptance-20261019.md',

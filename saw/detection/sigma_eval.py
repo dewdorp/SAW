@@ -29,8 +29,8 @@ FIELD_MAP = {
     "uri_template": "uri_template", "status_code": "status_code", "user_agent": "user_agent", "method": "method",
     "url_path": "url_path", "domain": "domain", "data_source": "data_source", "event_type": "event_type",
 }
-LOGSOURCE_SOURCES = {"webserver": ["web", "waf"], "proxy": ["web", "waf"], "dns": ["zeek_dns"], "firewall": ["firewall", "zeek_conn"],
-                     "network_connection": ["zeek_conn"], "authentication": ["linux", "windows", "vpn", "web"]}
+LOGSOURCE_SOURCES = {"webserver": ["web", "waf"], "proxy": ["web", "waf"], "dns": ["zeek_dns"], "firewall": ["firewall", "zeek_conn", "connection"],
+                     "network_connection": ["zeek_conn", "connection"], "authentication": ["linux", "windows", "vpn", "web"]}
 LOCAL_FIELDS = set(FIELD_MAP.values()) | {"event_id", "timestamp", "hostname", "bytes_out", "bytes_in", "protocol",
                                          "session_id", "src_ip_scope", "dst_ip_scope", "status_class", "params", "param_names", "tags"}
 MODIFIERS = {"contains", "startswith", "endswith", "re", "all", "cidr", "cased", "exists"}

@@ -15,6 +15,9 @@ from saw.core.application import audit
 from saw.core.application import evidence as svc
 from saw.core.application.investigations import NotFound, list_for, require
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    visible_findings,
+)
 from saw.storage.db import session_scope
 from saw.storage.models import Evidence, EvidenceFile, Job
 
@@ -85,7 +88,7 @@ async def put_part(sid: str, n: int, request: Request, ctx: AuthContext = Depend
 
 @router.get("/uploads/{sid}")
 def upload_state(sid: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    u = svc._session_for(s, ctx.principal, sid)  # noqa: SLF001
+    u = svc._session_for(s, ctx.principal, sid)
     return {"id": u.id, "received": u.received_bytes, "declared": u.declared_size, "parts": sorted(int(k) for k in u.parts)}
 
 
@@ -133,9 +136,8 @@ def set_parser(ev_id: str, fid: str, body: ParserIn, ctx: AuthContext = Depends(
     if e is None or f is None or f.evidence_id != ev_id:
         raise NotFound("file not found")
     require(s, ctx.principal, "investigation.write", e.investigation_id)
-    from saw.parsers.library import check_use
-
     from saw.core.application.data_deletion import lock_investigation
+    from saw.parsers.library import check_use
     lock_investigation(s, e.investigation_id)
     s.refresh(f)
     check_use(s, ctx.principal, body.parser_id)  # drafts: author only
@@ -321,7 +323,7 @@ def recent_findings(ctx: AuthContext = Depends(auth), s: Session = Depends(db, s
     rows = s.execute(select(Finding).where(Finding.investigation_id.in_(ids))
                      .order_by(Finding.created_at.desc(), Finding.risk_score.desc()).limit(10)).scalars()
     return [{"id": f.id, "display_id": f.display_id, "title": f.title, "risk_level": f.risk_level,
-             "investigation_id": f.investigation_id, "time_start": f.time_start} for f in rows]
+             "investigation_id": f.investigation_id, "time_start": f.time_start} for f in visible_findings(s, ctx.principal, rows)]
 
 
 @router.get("/parsers")

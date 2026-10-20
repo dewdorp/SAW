@@ -1,5 +1,6 @@
 """Deterministic contextual investigation guidance and immutable answer captures."""
 from __future__ import annotations
+from saw.detection.derived_access import source_ids, require_finding
 
 import copy
 import hashlib
@@ -155,6 +156,9 @@ def _scope(s, inv, body):
         finding = s.get(Finding, body.target_key)
         if not finding or finding.investigation_id != inv.id:
             raise ValueError("finding not in investigation")
+        require_finding(s, s.info.get("principal"), finding)
+        if source_ids(finding):
+            request["_source_investigation_ids"] = sorted(source_ids(finding))
         from saw.llm.service import _evidence_scope
         more, ft, available = _evidence_scope(finding.evidence_refs or {})
         if not available:

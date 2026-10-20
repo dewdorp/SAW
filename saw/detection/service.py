@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from time import monotonic
 
 import yaml
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func, select, update as sql_update
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, inspect, func, select, update as sql_update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from saw import container
@@ -42,6 +42,12 @@ class Detection(Base):
     display_id: Mapped[str] = mapped_column(String(32), unique=True)
     status: Mapped[str] = mapped_column(String(16), default="draft")
     current_version: Mapped[int] = mapped_column(Integer, default=1)
+    draft_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approved_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    active_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approved_approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    active_approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    activation_revision: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str] = mapped_column(String(36))
     created_by_name: Mapped[str] = mapped_column(String(64), default="")
     deployments: Mapped[list] = mapped_column(JSON, default=list)
@@ -52,6 +58,13 @@ class Detection(Base):
 
 class DetectionVersion(Base):
     __tablename__ = "det_version"
+    __table_args__ = (UniqueConstraint("detection_id", "version"),)
+    parent_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    author_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64), default="")
+    contributor_ids: Mapped[list] = mapped_column(JSON, default=list)
+    legacy_contributor_names: Mapped[list] = mapped_column(JSON, default=list)
+    contributor_resolution: Mapped[str] = mapped_column(String(32), default="resolved")
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     detection_id: Mapped[str] = mapped_column(ForeignKey("det_detection.id"), index=True)
     version: Mapped[int] = mapped_column(Integer)
@@ -198,7 +211,11 @@ def create(s: Session, p: Principal, data: dict, source: dict | None = None) -> 
                   source=source or {})
     s.add(d)
     s.flush()
-    s.add(_version_from(d.id, 1, data, p.username))
+    from saw.detection import governance as gov
+    v = gov.initialize_rule_version(s, d, _version_from(d.id, 1, data, p.username), p)
+    s.add(v)
+    s.flush()
+    d.draft_version_id = v.id
     audit.record(s, "detection.create", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=d.id)
     return d
 
@@ -223,10 +240,12 @@ def from_finding(s: Session, p: Principal, finding_id: str) -> Detection:
     f = s.get(Finding, finding_id)
     if f is None:
         raise NotFound("finding not found")
-    require(s, p, "investigation.read", f.investigation_id)
+    from saw.detection.derived_access import require_finding, source_ids
+    require_finding(s, p, f)
     c = candidate_from_finding(f)
     c["description"] = f"Generated from {f.display_id} ({f.title}). 검토·테스트 후 승인 필요."
-    return create(s, p, c, {"finding_id": f.id, "investigation_id": f.investigation_id})
+    return create(s, p, c, {"finding_id": f.id, "investigation_id": f.investigation_id,
+                            "source_investigation_ids": sorted({f.investigation_id, *source_ids(f)})})
 
 
 def update(s: Session, p: Principal, det_id: str, data: dict) -> Detection:
@@ -236,7 +255,12 @@ def update(s: Session, p: Principal, det_id: str, data: dict) -> Detection:
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    cur = _latest(s, det_id)
+    from saw.detection import governance as gov
+    gov._read_sources(s, p, gov._source_ids(s, "rule", d))
+    if "expected_draft_version_id" in data and data["expected_draft_version_id"] != d.draft_version_id:
+        raise gov.Conflict("초안 버전이 변경되었습니다.")
+    base_id = data.get("base_version_id") or d.draft_version_id or d.approved_version_id or d.active_version_id
+    cur = gov._version(s, "rule", d, base_id) if base_id else _latest(s, det_id)
     merged = {k: getattr(cur, k) for k in ("title", "description", "data_source", "format", "logic", "threshold", "exceptions",
                                            "false_positive", "severity", "confidence", "test_events", "attack")}
     merged.update({k: v for k, v in data.items() if v is not None})
@@ -245,7 +269,10 @@ def update(s: Session, p: Principal, det_id: str, data: dict) -> Detection:
         raise ValueError("; ".join(errs))
     d.current_version += 1
     d.status, d.updated_at = "draft", utcnow()  # any change leaves approved/deployed state → must be re-tested & approved
-    s.add(_version_from(det_id, d.current_version, merged, p.username))
+    v = gov.initialize_rule_version(s, d, _version_from(det_id, d.current_version, merged, p.username), p, cur)
+    s.add(v)
+    s.flush()
+    d.draft_version_id = v.id
     audit.record(s, "detection.update", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id,
                  detail={"version": d.current_version})
     return d
@@ -261,7 +288,9 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    v = _latest(s, det_id)
+    from saw.detection import governance as gov
+    gov._read_sources(s, p, gov._source_ids(s, "rule", d))
+    v = s.get(DetectionVersion, d.draft_version_id) if d.draft_version_id else _latest(s, det_id)
     if v.format != "sigma":
         raise ValueError(f"local historical testing supports sigma only ({v.format}: test on the target engine, ENV-06/ENV-11)")
     rule = compile_rule(v.logic)
@@ -370,6 +399,7 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
     d = s.scalar(select(Detection).where(Detection.id == det_id).execution_options(populate_existing=True))
     if d is None or d.current_version != tested_version:
         raise ValueError("탐지 룰 버전이 변경되었습니다. 다시 시험하세요.")
+    gov._read_sources(s, current_principal, gov._source_ids(s, "rule", d))
     v = _latest(s, det_id)
     tr = TestRun(detection_id=det_id, version=tested_version, scope={"investigations": scope}, result=result, passed=passed, ran_by=p.username)
     s.add(tr)
@@ -392,54 +422,51 @@ def has_passing_test(s: Session, det_id: str, version: int) -> bool:
     ).limit(1)).first() is not None
 
 
-def approve(s: Session, p: Principal, det_id: str) -> Detection:
-    if not can(p, "detection.approve"):
-        raise Forbidden("detection.approve")
+def approve(s: Session, p: Principal, det_id: str, request: dict | None = None) -> Detection:
+    from saw.detection import governance as gov
+    if request is None:
+        raise gov.Conflict("exact_test_proof_required")
+    return gov.approve_rule(s, p, det_id, request)
+
+
+def record_deployment(s: Session, p: Principal, det_id: str, target: str, note: str,
+                      version_id: str | None = None) -> Detection:
+    """Record a human's external deployment of an exact approved artifact."""
+    from saw.detection import governance as gov
     _lock_mutation(s)
+    p = gov._actor(s, p, "detection.approve")
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    v = _latest(s, det_id)
-    if v.created_by == p.username or d.created_by == p.user_id:
-        raise Forbidden("reviewer must differ from the creator (4-eyes)")
-    if v.format == "sigma" and not has_passing_test(s, det_id, v.version):
-        raise ValueError("a passing historical test run of the current version is required before approval")
-    d.status, v.status_at_version, v.reviewed_by = "approved", "approved", p.username
-    audit.record(s, "detection.approve", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id,
-                 detail={"version": v.version})
-    return d
-
-
-def record_deployment(s: Session, p: Principal, det_id: str, target: str, note: str) -> Detection:
-    """SAW does not deploy. A human deploys via the existing rule-management process and records it here."""
-    _lock_mutation(s)
-    d = s.get(Detection, det_id)
-    if d is None:
-        raise NotFound("detection not found")
-    if d.status not in ("approved", "deployed"):
-        raise ValueError("only approved detections can be recorded as deployed")
-    d.deployments = [*(d.deployments or []), {"target": target, "note": note, "by": p.username, "at": utcnow().isoformat(),
-                                               "version": d.current_version}]
-    d.status = "deployed"
-    audit.record(s, "detection.deployed_recorded", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id,
-                 detail={"target": target})
+    if not version_id:
+        raise gov.Conflict("exact_approved_version_required")
+    v = gov._version(s, "rule", d, version_id)
+    if d.approved_version_id != v.id:
+        raise gov.Conflict("현재 승인본의 버전을 지정하세요.")
+    gov.validate_approval(s, p, "rule", d, v, d.approved_approval_id)
+    d.deployments = [*(d.deployments or []), {"target": target, "note": note, "by": p.username,
+        "at": utcnow().isoformat(), "version": v.version, "version_id": v.id, "payload_sha256": v.payload_sha256}]
+    if not d.draft_version_id:
+        d.status = "deployed"
+    audit.record(s, "detection.deployed_recorded", actor_id=p.user_id, actor_name=p.username,
+                 target_type="detection", target_id=det_id, detail={"target": target, "version_id": v.id})
     return d
 
 
 def deprecate(s: Session, p: Principal, det_id: str) -> Detection:
+    from saw.detection.governance import Conflict
     if not can(p, "detection.approve"):
         raise Forbidden("detection.approve")
-    _lock_mutation(s)
+    raise Conflict("governed_policy_required")
+
+
+def export(s: Session, det_id: str, fmt: str, version_id: str | None = None) -> tuple[str, str]:
+    from saw.detection import governance as gov
     d = s.get(Detection, det_id)
     if d is None:
         raise NotFound("detection not found")
-    d.status = "deprecated"
-    audit.record(s, "detection.deprecate", actor_id=p.user_id, actor_name=p.username, target_type="detection", target_id=det_id)
-    return d
-
-
-def export(s: Session, det_id: str, fmt: str) -> tuple[str, str]:
-    v = _latest(s, det_id)
+    selected = version_id or d.draft_version_id or d.approved_version_id or d.active_version_id
+    v = gov._version(s, "rule", d, selected) if selected else _latest(s, det_id)
     if fmt == "native":
         return v.logic, "text/plain"
     if fmt == "opensearch":
@@ -459,21 +486,46 @@ def export(s: Session, det_id: str, fmt: str) -> tuple[str, str]:
     raise ValueError("format must be native|opensearch|generic|logpresso")
 
 
-def to_dict(s: Session, d: Detection, full: bool = False) -> dict:
-    v = _latest(s, d.id)
+def to_dict(s: Session, d: Detection, full: bool = False, *, p: Principal | None = None) -> dict:
+    from saw.detection import governance as gov
+    version_id = d.draft_version_id or d.approved_version_id or d.active_version_id
+    v = gov._version(s, "rule", d, version_id) if version_id else _latest(s, d.id)
+    source = dict(d.source or {})
+    sources = gov._source_ids(s, "rule", d)
+    if sources:
+        if p is None:
+            raise Forbidden("source ACL")
+        gov._read_sources(s, p, sources)
     out = {"id": d.id, "display_id": d.display_id, "status": d.status, "version": v.version, "title": v.title, "format": v.format,
            "data_source": v.data_source, "severity": v.severity, "attack": v.attack, "created_by": d.created_by_name,
-           "reviewed_by": v.reviewed_by, "deployments": d.deployments, "source": d.source, "updated_at": d.updated_at}
+           "reviewed_by": v.reviewed_by, "deployments": d.deployments, "source": source, "updated_at": d.updated_at,
+           **gov.governance_dict(s, p, "rule", d)}
     if full:
-        out["current"] = {k: getattr(v, k) for k in ("title", "description", "data_source", "format", "logic", "threshold",
-                                                     "exceptions", "false_positive", "severity", "confidence", "test_events", "attack",
-                                                     "created_by", "reviewed_by", "status_at_version", "created_at")}
-        out["versions"] = [{"version": x.version, "title": x.title, "created_by": x.created_by, "status": x.status_at_version,
-                            "created_at": x.created_at, "logic": x.logic}
-                           for x in s.execute(select(DetectionVersion).where(DetectionVersion.detection_id == d.id)
-                                              .order_by(DetectionVersion.version)).scalars()]
-        out["test_runs"] = [{"id": t.id, "version": t.version, "passed": t.passed, "ran_by": t.ran_by, "ran_at": t.ran_at, "result": t.result}
-                            for t in s.execute(select(TestRun).where(TestRun.detection_id == d.id).order_by(TestRun.ran_at.desc())).scalars()]
+        def view(x):
+            return {**gov.version_ref(x), **gov.rule_payload(x), "contributors": gov.contributors(x),
+                    "created_by": x.created_by, "reviewed_by": x.reviewed_by, "status_at_version": x.status_at_version,
+                    "status": x.status_at_version, "created_at": x.created_at}
+        out["current"] = view(v)
+        out["versions"] = [view(x) for x in s.scalars(select(DetectionVersion).where(DetectionVersion.detection_id == d.id)
+                                                     .order_by(DetectionVersion.version))]
+        out["test_runs"] = []
+        if p is not None:
+            for test in s.scalars(select(TestRun).where(TestRun.detection_id == d.id).order_by(TestRun.ran_at.desc())):
+                if (test.scope or {}).get("method") == "selected_truth_v1" or (test.result or {}).get("method") == "selected_truth_v1":
+                    from saw.detection.testing import serialized_test
+                    item = serialized_test(s, p, test)
+                    if item is not None:
+                        out["test_runs"].append(item)
+                    continue
+                ids = (test.scope or {}).get("investigations", [])
+                try:
+                    gov._read_sources(s, p, ids)
+                except (Forbidden, NotFound):
+                    continue
+                out["test_runs"].append({"id": test.id, "version": test.version, "passed": test.passed,
+                    "ran_by": test.ran_by, "ran_at": test.ran_at, "scope": test.scope,
+                    "method": "legacy_historical_replay", "proof": None,
+                    "result": {**test.result, "method": "legacy_historical_replay"}})
     return out
 
 
@@ -488,17 +540,25 @@ def coverage(s: Session, p: Principal) -> dict:
         sources |= set(present_sources(i.id))
     attack_ids = {i.id for i in invs if i.verdict == "attack"}
     observed: Counter = Counter()
-    for f in s.execute(select(Finding).where(Finding.investigation_id.in_(attack_ids))).scalars() if attack_ids else []:
+    from saw.detection.derived_access import visible_findings
+    rows = s.scalars(select(Finding).where(Finding.investigation_id.in_(attack_ids))) if attack_ids else []
+    for f in visible_findings(s, p, rows):
         for a in f.attack or []:
             if a.get("confidence") != "candidate":
                 observed[a["technique_id"]] += 1
     dets: dict[str, list[dict]] = {}
-    for d in s.execute(select(Detection).where(Detection.status.in_(["test", "approved", "deployed"]))).scalars():
-        v = _latest(s, d.id)
-        validated = s.execute(select(TestRun).where(TestRun.detection_id == d.id, TestRun.passed.is_(True))).first() is not None
+    from saw.detection import governance as gov
+    for d in s.scalars(select(Detection).where(Detection.active_version_id.is_not(None))):
+        try:
+            v = gov._version(s, "rule", d, d.active_version_id)
+            gov.validate_approval(s, p, "rule", d, v, d.active_approval_id)
+            gov._read_sources(s, p, gov._source_ids(s, "rule", d))
+        except (ValueError, Forbidden, NotFound):
+            continue
         for t in v.attack:
             tid = t.split(".", 1)[1].upper() if t.lower().startswith("attack.") else t.upper()
-            dets.setdefault(tid, []).append({"display_id": d.display_id, "status": d.status, "validated": validated})
+            dets.setdefault(tid, []).append({"display_id": d.display_id, "status": "approved",
+                "validated": True, "version": v.version, "version_id": v.id, "payload_sha256": v.payload_sha256})
     cells = []
     for tid, t in TECHNIQUES.items():
         if t.get("sub") and not observed[tid] and tid not in dets and tid not in DATA_NEEDS:
@@ -526,3 +586,21 @@ def coverage_layer(cov: dict) -> dict:
 
 
 _ = Investigation
+
+# Register tables for create_all and protect semantic payloads, including drafts.
+from saw.detection import policy_models as _policy_models
+
+_IMMUTABLE_VERSION_FIELDS = ("detection_id", "version", "parent_version_id", "author_id", "payload_sha256",
+    "contributor_ids", "legacy_contributor_names", "contributor_resolution", "title", "description", "data_source",
+    "format", "logic", "threshold", "exceptions", "false_positive", "severity", "confidence", "test_events",
+    "attack", "created_by", "created_at")
+
+def _protect_version(_mapper, _connection, target):
+    if any(inspect(target).attrs[key].history.has_changes() for key in _IMMUTABLE_VERSION_FIELDS):
+        raise ValueError("detection version payloads are immutable")
+
+def _no_delete_version(_mapper, _connection, target):
+    raise ValueError("detection version payloads are immutable")
+
+event.listen(DetectionVersion, "before_update", _protect_version)
+event.listen(DetectionVersion, "before_delete", _no_delete_version)

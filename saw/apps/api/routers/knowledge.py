@@ -11,6 +11,10 @@ from saw.apps.api.routers.golden import LinkedGoldenDecision
 from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.schemas.query import AggRequest, Filter
+from saw.detection.derived_access import (
+    require_snapshot,
+    visible_snapshot,
+)
 from saw.knowledge import asset as asset_svc
 from saw.knowledge import experience as exp_svc
 from saw.knowledge import fp as fp_svc
@@ -206,7 +210,8 @@ def _visible_results(s: Session, ctx: AuthContext, res: list[dict]) -> list[dict
     from saw.core.application.investigations import list_for
 
     readable = {i.id for i in list_for(s, ctx.principal, 1000)}
-    return [r for r in res if r["ref_type"] != "investigation" or r["ref_id"] in readable]
+    return [r for r in res if (r["ref_type"] != "investigation" or r["ref_id"] in readable)
+            and visible_snapshot(s, ctx.principal, r.get("extra") or {})]
 
 
 @router.post("/similar/feedback")
@@ -232,6 +237,7 @@ def context(inv_id: str, body: ContextIn, ctx: AuthContext = Depends(auth), s: S
         f = s.get(Finding, body.finding_id)
         if f is None or f.investigation_id != inv_id:
             raise NotFound("finding not found")
+        require_snapshot(s, ctx.principal, f.evidence_refs or {})
         finding = finding_dict(f)
     flt = []
     if body.entity and body.entity.get("type") == "ip":

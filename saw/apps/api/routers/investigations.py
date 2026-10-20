@@ -1,8 +1,9 @@
 from __future__ import annotations
+from saw.detection.derived_access import visible_findings
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saw.apps.api.deps import AuthContext, auth, db
@@ -39,12 +40,19 @@ class CloseIn(BaseModel):
 
 def inv_out(s: Session, i: Investigation) -> dict:
     ev = s.execute(select(Evidence).where(Evidence.investigation_id == i.id)).scalars().all()
-    fc = dict(s.execute(select(Finding.risk_level, func.count()).where(Finding.investigation_id == i.id)
-                        .group_by(Finding.risk_level)).all())
+    from collections import Counter
+    rows = list(s.scalars(select(Finding).where(Finding.investigation_id == i.id)))
+    visible = visible_findings(s, s.info.get("principal"), rows)
+    fc = dict(Counter(f.risk_level for f in visible))
+    hidden = len(visible) != len(rows)
+    top = max((f for f in visible if f.status not in {"false_positive", "duplicate", "benign"}),
+              key=lambda f: f.risk_score, default=None)
+    risk_level = i.risk_override or (top.risk_level if top else "unknown") if hidden else i.risk_override or i.risk_level
+    risk_score = top.risk_score if hidden and top else None if hidden else i.risk_score
     return {
         "id": i.id, "display_id": i.display_id, "title": i.title, "status": i.status,
         "org_unit": i.org_unit, "org_unit_id": i.org_unit_id,
-        "risk_level": i.risk_override or i.risk_level, "risk_score": i.risk_score,
+        "risk_level": risk_level, "risk_score": risk_score,
         "time_start": i.time_start, "time_end": i.time_end, "verdict": i.verdict,
         "created_at": i.created_at, "closed_at": i.closed_at, "settings": i.settings,
         "evidence": [{"id": e.id, "kind": e.kind, "title": e.title, "status": e.status, "size": e.total_size,

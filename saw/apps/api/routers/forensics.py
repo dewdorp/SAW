@@ -23,6 +23,9 @@ from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import require
 from saw.core.schemas.query import AggRequest, Filter
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    visible_findings,
+)
 from saw.integrations.pcap import ARTIFACTS, files_key
 from saw.integrations.pcapkit.extract import session_streams
 from saw.integrations.pcapkit.reader import PcapError
@@ -42,7 +45,7 @@ def _ext(e: dict) -> dict:
 
 def _net_findings(s: Session, inv_id: str) -> list[Finding]:
     rows = s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars().all()
-    return [f for f in rows if f.category.startswith(NET_CATS) and f.status not in ("false_positive", "duplicate")]
+    return [f for f in visible_findings(s, s.info.get("principal"), rows) if f.category.startswith(NET_CATS) and f.status not in ("false_positive", "duplicate")]
 
 
 def _captures(s: Session, inv_id: str) -> list[dict]:

@@ -16,6 +16,11 @@ from typing import Protocol
 from sqlalchemy import JSON, DateTime, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from saw.detection.derived_access import (
+    require_investigation_results,
+    source_ids,
+    visible_snapshot,
+)
 from saw.knowledge.features import compare, from_findings
 from saw.storage.db import Base, new_id, session_scope, utcnow
 
@@ -111,7 +116,8 @@ def index_experience(e, s: Session | None = None) -> None:
                 f"{a.get('reason', '')} {a.get('response', '')}",
                 {"recommended_checks": [c.get("check") for c in a.get("recommended_checks") or []],
                  "fp_conditions": [str(c) for c in a.get("false_positive_conditions") or []],
-                 "category": a.get("category"), "created": e.created_at.isoformat() if e.created_at else None})
+                 "category": a.get("category"), "created": e.created_at.isoformat() if e.created_at else None,
+                 "_source_investigation_ids": sorted(source_ids(a))})
 
 
 def index_investigation(s: Session, inv) -> KnowledgeDoc | None:
@@ -123,7 +129,8 @@ def index_investigation(s: Session, inv) -> KnowledgeDoc | None:
     if not fs:
         return None
     return _upsert(s, "investigation", inv.id, inv.display_id, inv.title, inv.verdict, from_findings(fs[:10]),
-                   inv.verdict_reason or "", {"closed_at": inv.closed_at.isoformat() if inv.closed_at else None})
+                   inv.verdict_reason or "", {"closed_at": inv.closed_at.isoformat() if inv.closed_at else None,
+                    "_source_investigation_ids": sorted(source_ids(fs))})
 
 
 def _bm25(query: list[str], docs: list[list[str]], k1: float = 1.2, b: float = 0.75) -> list[float]:
@@ -151,7 +158,7 @@ def search(s: Session, features: dict, text: str, k: int = 10, exclude_ref: str 
     if allowed_ref_ids is not None:
         q = q.where(KnowledgeDoc.ref_id.in_(allowed_ref_ids))
     docs = [d for d in s.execute(q).scalars()
-            if d.ref_id != exclude_ref]
+            if d.ref_id != exclude_ref and visible_snapshot(s, s.info.get("principal"), d.extra or {})]
     if not docs:
         return []
     qcard = card_text(text, features)
@@ -174,6 +181,7 @@ def features_for_investigation(s: Session, inv_id: str, finding_id: str | None =
     from saw.core.application.analysis import finding_dict
     from saw.storage.models import Finding, Investigation
 
+    require_investigation_results(s, s.info.get("principal"), inv_id)
     q = select(Finding).where(Finding.investigation_id == inv_id)
     if finding_id:
         q = q.where(Finding.id == finding_id)

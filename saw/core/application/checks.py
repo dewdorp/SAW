@@ -9,6 +9,7 @@ Principles (from the 2026-10-10 design):
 - A shared result shows the conditions it was made under next to the conditions of the investigation that reads it.
 """
 from __future__ import annotations
+from saw.detection.derived_access import require_snapshot
 
 import hashlib
 import json
@@ -63,6 +64,10 @@ def _expired(c: Check, now: datetime | None = None) -> bool:
 
 
 def to_dict(c: Check, full: bool = True) -> dict[str, Any]:
+    from sqlalchemy.orm import object_session
+    session = object_session(c)
+    if session is not None:
+        require_snapshot(session, session.info.get("principal"), [c.scope, c.context])
     scope = c.scope or {}
     d = {
         "id": c.id, "investigation_id": c.investigation_id, "target_type": c.target_type, "target_key": c.target_key,
