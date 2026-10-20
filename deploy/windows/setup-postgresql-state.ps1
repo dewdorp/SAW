@@ -206,12 +206,44 @@ function Assert-SawPostgresqlServiceConfig([string]$Path, [string]$Root, [string
 }
 
 function Assert-SawPostgresqlClusterConfig([string]$Data, [string]$Bin, [int]$Port) {
+    # Administrator tokens cannot launch the PostgreSQL backend, even for
+    # -C config inspection. Verify the initdb-managed security settings from
+    # PostgreSQL's configuration files before registering/starting the service.
+    # Confirm actual effective settings with an authenticated SQL query after
+    # the service has started under its restricted NetworkService account.
     $expected=@{port=[string]$Port;listen_addresses='127.0.0.1';password_encryption='scram-sha-256'}
-    foreach($name in $expected.Keys) {
-        $value=& (Join-Path $Bin 'postgres.exe') -D $Data -C $name 2>&1
-        $code=$LASTEXITCODE
-        if($code -ne 0 -or "$value".Trim() -cne $expected[$name]) {
-            throw "PostgreSQL existing configuration $name conflicts with this installation (exit $code); files preserved, review the interrupted configuration before retry"
+    $observed=@{}
+    $pattern="^(?<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?<value>'(?:[^']|'')*'|[^\s#]+)\s*(?:#.*)?$"
+    foreach ($configName in @('postgresql.conf','postgresql.auto.conf')) {
+        $path = Join-Path $Data $configName
+        if (-not [IO.File]::Exists($path)) {
+            if ($configName -eq 'postgresql.auto.conf') { continue }
+            throw 'PostgreSQL offline config file missing; installation was not started'
+        }
+        foreach ($raw in [IO.File]::ReadAllLines($path)) {
+            $line = $raw.Trim()
+            if (-not $line -or $line.StartsWith('#')) { continue }
+            if ($line -match '^(?i:include|include_dir|include_if_exists)\s*=') {
+                throw 'PostgreSQL includes are unsupported in the SAW-generated security config'
+            }
+            $match = [regex]::Match($line, $pattern)
+            if ($match.Success) {
+                $name = $match.Groups['key'].Value.ToLowerInvariant()
+                if (-not $expected.ContainsKey($name)) { continue }
+                if ($observed.ContainsKey($name)) { throw "Duplicate PostgreSQL security setting: $name" }
+                $value = $match.Groups['value'].Value
+                if ($value.StartsWith("'") -and $value.EndsWith("'")) {
+                    $value = $value.Substring(1,$value.Length-2).Replace("''","'")
+                }
+                $observed[$name] = $value
+            } elseif ($line -match '^(?i:port|listen_addresses|password_encryption|include|include_dir|include_if_exists)\b') {
+                throw 'Unsupported PostgreSQL security setting syntax; original configuration retained'
+            }
+        }
+    }
+    foreach ($name in $expected.Keys) {
+        if (-not $observed.ContainsKey($name) -or $observed[$name] -cne $expected[$name]) {
+            throw "PostgreSQL existing configuration $name conflicts with this installation (offline security precheck); service was not started"
         }
     }
     foreach($line in [IO.File]::ReadAllLines((Join-Path $Data 'pg_hba.conf'))) {
