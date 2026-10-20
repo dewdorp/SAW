@@ -330,8 +330,7 @@ $install=Initialize-SawInstallRoot -InstallRoot {lit(root)} -BundleDir {lit(medi
 $target=Join-Path $install {lit(rel)}
 $null=New-Item -ItemType Directory -Path $target -Force
 $sid=New-Object Security.Principal.SecurityIdentifier('S-1-3-4')
-$rule=New-Object Security.AccessControl.FileSystemAccessRule(
-    $sid, {lit(rights)}, 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid, {lit(rights)}, 'ContainerInherit,ObjectInherit', 'None', 'Allow')
 $acl=Get-Acl -LiteralPath $target
 $acl.AddAccessRule($rule)
 Set-Acl -LiteralPath $target -AclObject $acl
