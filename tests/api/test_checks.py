@@ -105,7 +105,7 @@ def test_change_keeps_history_and_only_the_author_changes_it(analyst, manager, a
 
 @pytest.fixture
 def two(app, analyst):
-    """Analyst 1 checked an address in investigation A and shared it; analyst 2 meets the address in B."""
+    """Analyst 1 shared an address check in A; analyst 2 reads A as a viewer and meets the address in B."""
     a = _inv(analyst, "A 조사")
     ip = _top_ip(analyst, a["id"])
     ev = _event(analyst, a["id"], ip)
@@ -113,7 +113,8 @@ def two(app, analyst):
         "target_type": "entity", "target_key": f"ip:{ip}", "target_label": ip, "questions": ["business"], "judgement": "normal",
         "note": "DB팀 확인", "evidence": [ev["event_id"]], "shared": True,
         "share": {"fact": "정산 배치 서버로 사용됨", "confirmed_scope": "새벽 고객 조회 API 호출", "unconfirmed_scope": "그 밖의 시간·경로"}}).json()
-    make_user("a2", ["analyst"])
+    reader_id = make_user("a2", ["analyst"])
+    analyst.post(f"/investigations/{a['id']}/members", json={"user_id": reader_id, "access": "viewer"}).raise_for_status()
     other = Api(app, "a2")
     b = _inv(other, "B 조사")
     return {"a": a, "b": b, "ip": ip, "shared": shared, "other": other, "event": ev}
@@ -127,7 +128,7 @@ def test_shared_result_is_a_reference_with_its_conditions_compared(analyst, two)
     t = items[0]
     assert t["share"]["fact"] == "정산 배치 서버로 사용됨" and t["share"]["unconfirmed_scope"] == "그 밖의 시간·경로"
     assert t["author"] == "analyst1" and t["share_status_ko"] == "미검토 참고" and t["expired"] is False
-    assert t["source"]["display_id"] and t["source"]["can_open"] is False and t["source"]["title"] is None   # A stays closed
+    assert t["source"]["display_id"] and t["source"]["can_open"] is True and t["source"]["title"] == "A 조사"
     assert "evidence" not in t and t["evidence_count"] == 1
     assert {c["label"] for c in t["comparison"]} >= {"시간대", "상대 주소", "경로"}
     assert all(c["result"] in ("match", "differ", "unknown") for c in t["comparison"])
@@ -192,7 +193,7 @@ def test_expired_or_questioned_results_cannot_be_relied_on(analyst, two):
 
 def test_evidence_of_a_shared_result_is_only_those_records_masked_and_audited(analyst, two, app):
     other, a, shared, ev = two["other"], two["a"], two["shared"], two["event"]
-    assert other.get(f"/investigations/{a['id']}/events/{ev['event_id']}").status_code in (403, 404)   # A itself stays closed
+    assert other.get(f"/investigations/{a['id']}/events/{ev['event_id']}").status_code == 200
     got = other.get(f"/team-checks/{shared['id']}/evidence").json()
     assert [e["event_id"] for e in got["events"]] == [ev["event_id"]] and "raw_event" not in got["events"][0]
     make_user("adm", ["admin"])

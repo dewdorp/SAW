@@ -19,6 +19,21 @@ def timestamp_precision(raw):
     return "unknown"
 
 
+def bounded_timestamp_precision(raw, declared):
+    """Never infer finer precision than both the raw field and trusted profile support."""
+    observed = timestamp_precision(raw)
+    if declared in {"s", "second", "seconds"}:
+        supported = "seconds"
+    elif declared in {"ms", "us", "ns", "subseconds", "millisecond", "milliseconds",
+                      "microsecond", "microseconds", "nanosecond", "nanoseconds"}:
+        supported = "subseconds"
+    else:
+        supported = "unknown"
+    if "unknown" in {observed, supported}:
+        return "unknown"
+    return "seconds" if "seconds" in {observed, supported} else "subseconds"
+
+
 def observe_fields(fields):
     value = fields.get("user_agent")
     state = "not_collected" if value is None else (

@@ -1,0 +1,99 @@
+{
+  "schema": "saw.native-p1.validation/1",
+  "recorded_at_utc": "2026-10-20T14:11:12.488086+00:00",
+  "versions": {
+    "postgresql": "16.15",
+    "opensearch": "2.19.6",
+    "analysis_nori": "2.19.6",
+    "host_os": "Windows 11 Pro 10.0.26200"
+  },
+  "ports": {
+    "postgresql": 56471,
+    "opensearch": 59471,
+    "transport": 60471
+  },
+  "test_counts": {
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "selected": 16,
+    "warnings": 1,
+    "exit_code": 0
+  },
+  "times_seconds": {
+    "test_wall": 134.203,
+    "pytest_reported": 133.5,
+    "overall": 219.172,
+    "postgresql_ready_from_start": 66.672,
+    "opensearch_ready_from_start": 76.125,
+    "opensearch_startup": 7.766,
+    "controlled_stop": 8.61
+  },
+  "disk": {
+    "minimum_free_bytes": 26843545600,
+    "free_bytes_at_preflight": 44683472896,
+    "free_bytes_before_tests": 43227447296,
+    "qa_only_watermarks": {
+      "low": "20gb",
+      "high": "12gb",
+      "flood_stage": "6gb",
+      "threshold_enabled": "true"
+    },
+    "production_defaults_modified": false
+  },
+  "shutdown": {
+    "controlled_stop_complete": true,
+    "owned_ports_closed": true,
+    "postgresql_stopped": true,
+    "opensearch_stopped": true
+  },
+  "attempt_history": [
+    {
+      "attempt": "r1",
+      "times_seconds": {
+        "overall": 96.046
+      },
+      "test_counts": {
+        "started": 0
+      },
+      "controlled_stop": true,
+      "limitation": "Runner-only pytest hook argument naming failed before tests; fixed in the test wrapper."
+    },
+    {
+      "attempt": "r2",
+      "times_seconds": {
+        "test_wall": 131.156,
+        "overall": 217.922
+      },
+      "test_counts": {
+        "passed": 2,
+        "setup_errors": 14
+      },
+      "controlled_stop": true,
+      "limitation": "Default percentage disk flood-stage produced HTTP429 cluster_block_exception on setup. Only fixed error categories/counts were inspected."
+    },
+    {
+      "attempt": "r3",
+      "times_seconds": {
+        "test_wall": 134.203,
+        "overall": 219.172
+      },
+      "test_counts": {
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0
+      },
+      "controlled_stop": true,
+      "limitation": "Fresh QA-only absolute free-space watermarks applied with disk protection enabled; no product change."
+    }
+  ],
+  "limitations": [
+    "Fresh synthetic PostgreSQL/OpenSearch backends with in-process API; no operational or existing installation data/credentials.",
+    "PostgreSQL migration, one real synthetic CSV upload/context/parser/FW/report flow, and fourteen scoped job API cases only.",
+    "Model weights, native HTTPS/browser, Windows SCM/admin services, reboot and installation/update/rollback were not exercised.",
+    "No clean LTSC2019, closed-network, 16GiB combined-load or operational acceptance claim.",
+    "One existing Starlette/httpx deprecation warning.",
+    "All three new fixtures preserved after verified controlled shutdown; no fixture data deleted.",
+    "A raw pytest-log tail command was rejected by automatic approval review. Diagnosis used only exception/status/fixed-category counts; no raw tail or credentials were disclosed."
+  ]
+}

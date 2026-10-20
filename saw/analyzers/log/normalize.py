@@ -162,7 +162,7 @@ def _int(v) -> int | None:
 
 
 def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: str = "Asia/Seoul",
-             observation: dict | None = None) -> dict:
+             observation: dict | None = None, context_snapshot: dict | None = None) -> dict:
     """Fill derived/enrichment fields on a CES event in place."""
     from saw.behavior.observation import observe_fields
 
@@ -247,5 +247,24 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
             info = en.lookup_ip(str(ev["dst_ip"]))
             ev["dst_asn"], ev["dst_as_org"] = info.get("asn"), info.get("as_org")
             ev["dst_geo_country"], ev["dst_cloud"] = info.get("country"), info.get("cloud", "none")
+    from saw.observation.connection import connection_observation
+    obs = connection_observation(ev, context_snapshot=context_snapshot)
+    ev["ext"]["observation"] = obs
+    profile = (context_snapshot or {}).get("profile") or {}
+    time_profile = profile.get("time") or {}
+    # The same verified occurrence time must drive indexing, scope filters, and analysis.
+    # Preserve the upload-default interpretation for provenance; never rewrite old rows.
+    if (obs["context"]["resolved"] and time_profile.get("verified") is True
+            and time_profile.get("role") in {"occurred", "start", "end"}
+            and (profile.get("source_fields") or {}).get("timestamp") and obs.get("timestamp")):
+        obs["ces_timestamp_raw"] = ev.get("timestamp_raw")
+        obs["ces_timestamp_precision"] = trusted.get("timestamp_precision", "unknown")
+        trusted["timestamp_precision"] = obs["timestamp_precision"]
+        obs["timestamp_basis"] = "verified_device_profile"
+        ev["timestamp"], ev["timestamp_quality"] = parse_time(
+            str(obs["timestamp_raw"]), time_profile.get("timezone") or "Asia/Seoul")
+        ev["timestamp_raw"] = obs["timestamp_raw"]
+    else:
+        obs["timestamp_basis"] = "parser_or_upload_default"
     ev["ces_version"] = CES_VERSION
     return {k: v for k, v in ev.items() if v is not None}

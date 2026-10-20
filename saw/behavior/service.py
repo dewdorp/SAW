@@ -87,6 +87,14 @@ def source_manifest(s, inv_id):
     for item in evidence:
         original = sources[item["evidence_id"]]
         item.update(title=original.title, kind=original.kind, tz_assumed=original.tz_assumed)
+        if original.context_snapshot_id:
+            from saw.source_context.models import EvidenceContextSnapshot
+            from saw.source_context.service import snapshot_payload
+            context = s.get(EvidenceContextSnapshot, original.context_snapshot_id)
+            if context is None:
+                raise ValueError("source_context_missing")
+            item["source_context"] = {"id": context.id, "sha256": context.sha256,
+                                      "snapshot": snapshot_payload(context)}
         for file in item["files"]:
             row = details[file["id"]]
             file.update(events_parsed=row.events_parsed, size_bytes=row.size, display_name=row.display_name)

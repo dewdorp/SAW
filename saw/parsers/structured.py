@@ -24,9 +24,8 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "uri": ["uri", "url", "request_uri", "requesturi", "clientrequesturi", "path", "request", "request_url"],
     "hostname": ["host", "hostname", "clientrequesthost", "server_name", "dhost"],
     "status_code": ["status", "status_code", "statuscode", "edgeresponsestatus", "response_code", "sc-status"],
-    "bytes_out": ["bytes_out", "bytes_sent", "body_bytes_sent", "edgeresponsebytes", "out", "response_size",
-                  "resp_bytes"],
-    "bytes_in": ["bytes_in", "bytes_received", "clientrequestbytes", "in", "request_size", "orig_bytes"],
+    "bytes_out": ["bytes_out", "bytes_sent", "body_bytes_sent", "edgeresponsebytes", "out", "response_size"],
+    "bytes_in": ["bytes_in", "bytes_received", "clientrequestbytes", "in", "request_size"],
     "user_agent": ["user_agent", "useragent", "http_user_agent", "clientrequestuseragent", "ua", "requestclientapplication"],
     "user": ["user", "username", "user_name", "suser", "account", "login"],
     "severity": ["severity", "level", "risk", "priority"],
@@ -239,11 +238,12 @@ def infer_source(header: list[str]) -> tuple[str, str]:
         waf = comp & ({compact_key(h) for h in WAF_HINTS} | {compact_key(h) for h in WAF_HINTS_KO})
         return ("waf", "waf_event") if waf else ("web", "http_access")
     if {"src_ip", "dst_ip"} <= ces and ({"dst_port", "bytes_out", "bytes_in"} & ces):
-        return "zeek_conn", "conn"
+        return "connection", "conn"
     return "custom", "log"
 
 
 class CsvParser(BaseParser):
+    version = "2.0.0"
     id = "csv"
     product = "csv"
     data_source = "custom"

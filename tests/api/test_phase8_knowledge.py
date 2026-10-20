@@ -5,8 +5,8 @@ from tests.api.test_phase5_bulk import upload
 from tests.conftest import Api, make_user
 
 
-def _inv_with_logs(api, title="API 열거", **kw):
-    inv = api.post("/investigations", json={"title": title}).json()
+def _inv_with_logs(api, title="API 열거", org_unit_id=None, **kw):
+    inv = api.post("/investigations", json={"title": title, "org_unit": "Synthetic A", **({"org_unit_id": org_unit_id} if org_unit_id else {})}).json()
     up = upload(api, inv["id"], "a.log.gz", gz_bytes(scenario_weblog(**kw)))
     api.post(f"/evidence/{up['evidence_id']}/process")
     return inv
@@ -66,14 +66,16 @@ def test_fp_rule_conflict_with_confirmed_attack(app, analyst, senior, manager):
 
 def test_asset_baseline_and_context(analyst, senior):
     assert analyst.post("/assets", json={"asset_id": "X", "service": "x"}).status_code == 403  # Senior+ only
+    org = senior.post("/source-context/org-units", json={"display_name": "Synthetic A"}).json()
     r = senior.post("/assets", json={"asset_id": "AST-API-0012", "service": "Customer Lookup API", "criticality": "high", "data": {
+        "org_unit_id": org["id"], "company": "Synthetic A",
         "expected_uri": ["/api/customer"], "expected_request_rate": {"per_min": {"min": 18, "max": 32}},
         "expected_access_time": {"weekday": "07:00-23:00"}, "expected_country": ["KR"], "owner": "홍길동",
         "batch_schedule": [{"name": "Customer Sync", "cron": "0 3 * * *", "src": "10.20.3.5", "uri": "/internal/sync"}]}})
     assert r.status_code == 201 and r.json()["owner_masked"] == "홍**"
     imp = senior.post("/assets/import", json={"csv": "asset_id,service,criticality,ip,expected_uri\nAST-2,Login,critical,10.10.1.21,/api/auth\nAST-3,Bad,critical,not-an-ip,/x"}).json()
     assert imp["imported"] == 1 and imp["errors"][0]["line"] == 3
-    inv = _inv_with_logs(analyst, normal=200, enum_count=400)
+    inv = _inv_with_logs(analyst, normal=200, enum_count=400, org_unit_id=org["id"])
     fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
     enum = next(f for f in fs if f["category"] == "web.api_enumeration")
     rate = next(m for m in enum["metrics"] if m["name"] == "request_rate_per_min")

@@ -167,6 +167,9 @@ def start_processing(s: Session, p: Principal, evidence_id: str, idempotency_key
         job = Job(investigation_id=e.investigation_id, evidence_id=e.id, kind="ingest", requested_by=p.user_id,
                   stages={"upload": {"pct": 100, "done": True}})
         s.add(job)
+    from saw.source_context.service import get_evidence_context, snapshot_payload
+    context = get_evidence_context(s, p, e.id)
+    job.stages = {**(job.stages or {}), "source_context": snapshot_payload(context) if context else None}
     job.state = "QUEUED"
     job.idempotency_key = idempotency_key
     s.flush()

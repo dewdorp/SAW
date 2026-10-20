@@ -1,6 +1,10 @@
 """Investigation analysis run: detectors -> findings, patterns, parameters, relations, story (docs/10 §3)."""
 from __future__ import annotations
 
+import time
+import uuid
+from saw.analysis_runs import service as run_history
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -34,10 +38,11 @@ def all_detectors():
 
     from saw.detectors.signatures import SignatureMatch
     from saw.detectors.ndr_policy import NdrPolicy
+    from saw.detectors.firewall_observation import FirewallObservation
     from saw.detectors.peer_behavior import PeerBehavior
     from saw.detectors.temporal_behavior import TemporalBehavior
 
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior(), FirewallObservation()]
 
 
 def _flow_roles(finding: Finding) -> dict[str, list[str]]:
@@ -104,7 +109,8 @@ def _finding_from_draft(s: Session, inv_id: str, d: FindingDraft) -> Finding:
     score, level, factors = d.risk()
     existing = s.execute(select(Finding).where(Finding.investigation_id == inv_id,
                                                Finding.dedup_key == d.dedup_key)).scalar_one_or_none()
-    f = existing or Finding(investigation_id=inv_id, dedup_key=d.dedup_key)
+    f = existing or Finding(id=str(uuid.uuid5(uuid.NAMESPACE_URL, "saw:finding:" + inv_id + ":" + d.dedup_key)),
+                            investigation_id=inv_id, dedup_key=d.dedup_key)
     if existing is None:
         f.display_id = next_finding_id(s)
         s.add(f)
@@ -139,14 +145,16 @@ def finding_dict(f: Finding) -> dict:
             "investigation_id": f.investigation_id})
 
 
-def run_detectors(s: Session, inv_id: str, progress=None) -> list[Finding]:
+def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) -> list[Finding]:
+    owns_run = analysis_run is None
+    analysis_run = analysis_run or run_history.start(s, inv_id)
     es = container.get().events
     sources = set(present_sources(inv_id))
     assets = None
     try:
         from saw.knowledge.asset import AssetPortImpl
 
-        assets = AssetPortImpl(s)
+        assets = AssetPortImpl(s, org_unit_id=s.get(Investigation, inv_id).org_unit_id)
     except ImportError:
         pass
     iocs = [(e.type, e.value) for e in s.execute(select(Entity).where(Entity.investigation_id == inv_id)).scalars()
@@ -156,28 +164,65 @@ def run_detectors(s: Session, inv_id: str, progress=None) -> list[Finding]:
     off = set(s.execute(select(SignatureSetting.sig_id).where(SignatureSetting.enabled.is_(False))).scalars())
     ctx = DetectorContext(inv_id, es, assets=assets, data_sources=sources,
                           params={"history": history_baseline(s, inv_id), "iocs": iocs, "sig_disabled": off})
+    from saw.workers.pipeline import Cancelled, StaleLease, _cancelled
+    ctx.params["cancelled"] = (lambda: _cancelled(analysis_run.job_id)) if analysis_run.job_id else (lambda: False)
     out = []
     every = all_detectors()
     dets = [d for d in every if d.data_sources & sources]
     settled = {d.id for d in every if not d.data_sources & sources}  # their data is gone: nothing can support them
+    for det in every:
+        if det.id in settled:
+            run_history.record(s, analysis_run, det.id, det.version, "not_applicable",
+                               detail={"reason": "required_source_missing"})
+    if analysis_run.job_id:
+        s.commit()
     for i, det in enumerate(dets):
+        if ctx.params["cancelled"]():
+            raise Cancelled()
+        started = time.monotonic()
+        input_count = es.count(inv_id, [Filter(field="data_source", op="in", value=sorted(det.data_sources))])
         try:
             drafts = det.run(ctx)
+        except (Cancelled, StaleLease):
+            raise
         except Exception as e:  # noqa: BLE001 - one detector must not abort the run
             import logging
 
-            logging.getLogger("saw.detectors").exception("detector %s failed: %s", det.id, e)
+            logging.getLogger("saw.detectors").warning("detector %s failed (%s)", det.id, type(e).__name__)
+            run_history.record(s, analysis_run, det.id, det.version, "failed", input_count=input_count,
+                elapsed_ms=round((time.monotonic() - started) * 1000), detail={"error_type": type(e).__name__})
             continue
-        settled.add(det.id)
+        report = ctx.params.get("execution_reports", {}).get(det.id) or {}
+        result_status = {"partial": "partial", "insufficient_data": "insufficient_data",
+                         "cancelled": "cancelled"}.get(report.get("status"), "complete")
+        run_history.record(s, analysis_run, det.id, det.version, result_status, input_count=input_count,
+            match_count=None if result_status in {"not_applicable", "insufficient_data", "cancelled"} else len(drafts),
+            elapsed_ms=round((time.monotonic() - started) * 1000), detail=report,
+            effective_config={"source_types": sorted(det.data_sources), "match_unit": "finding",
+                              **({"policy": report["policy"]} if "policy" in report else {})})
+        if result_status == "cancelled" or ctx.params["cancelled"]():
+            if analysis_run.job_id:
+                s.commit()
+            raise Cancelled()
+        if result_status == "complete":
+            settled.add(det.id)
         for d in drafts:
             out.append(_finding_from_draft(s, inv_id, d))
+        run_history.capture_findings(s, analysis_run, out)
+        if analysis_run.job_id:
+            s.commit()
         if progress:
             progress((i + 1) / max(1, len(dets)))
     s.flush()
     from saw.detectors import scenarios
     from saw.detection.auto import run_approved
 
+    sigma_started = time.monotonic()
     sigma_drafts, sigma_settled = run_approved(s, ctx)
+    run_history.record(s, analysis_run, "sigma.approved", "1", "complete",
+        input_count=es.count(inv_id, []), match_count=len(sigma_drafts),
+        elapsed_ms=round((time.monotonic() - sigma_started) * 1000),
+        detail={"settled_rule_ids": sorted(sigma_settled), "match_unit": "finding"})
     settled.update(sigma_settled)
     out.extend(_finding_from_draft(s, inv_id, draft) for draft in sigma_drafts)
     s.flush()
@@ -185,14 +230,22 @@ def run_detectors(s: Session, inv_id: str, progress=None) -> list[Finding]:
     # Retire unsupported untouched findings before they can become evidence for a fresh flow.
     _drop_unsupported(s, inv_id, settled, {f.id for f in out})
     try:
-        out += [_finding_from_draft(s, inv_id, d) for d in _flows(s, inv_id)]
+        flow_drafts = _flows(s, inv_id)
+        out += [_finding_from_draft(s, inv_id, d) for d in flow_drafts]
+        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, "1", "complete",
+                           match_count=len(flow_drafts), detail={"match_unit": "flow"})
         settled.add(scenarios.DETECTOR_ID)
         s.flush()
     except Exception as e:  # noqa: BLE001 - flows are a reading aid: their failure must not cost the findings
         import logging
 
-        logging.getLogger("saw.detectors").exception("attack flows failed: %s", e)
+        logging.getLogger("saw.detectors").warning("attack flows failed (%s)", type(e).__name__)
+        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, "1", "failed",
+                           detail={"error_type": type(e).__name__})
     _drop_unsupported(s, inv_id, settled, {f.id for f in out})
+    run_history.capture_findings(s, analysis_run, out)
+    if owns_run:
+        run_history.finish(s, analysis_run)
     return out
 
 
@@ -331,16 +384,37 @@ def refresh_investigation(s: Session, inv_id: str) -> None:
         inv.status = "in_progress"
 
 
-def run_all(s: Session, inv_id: str, progress=None) -> None:
+def run_all(s: Session, inv_id: str, progress=None, *, job_id=None):
     from saw.core.application.correlation import run_correlation
 
-    steps = [("findings", lambda: run_detectors(s, inv_id)), ("patterns", lambda: run_patterns(s, inv_id)),
+    run = run_history.start(s, inv_id, job_id=job_id)
+    if job_id:
+        s.commit()  # A later stage failure must leave a discoverable run to seal.
+    steps = [("findings", lambda: run_detectors(s, inv_id, analysis_run=run)), ("patterns", lambda: run_patterns(s, inv_id)),
              ("parameters", lambda: run_parameters(s, inv_id)), ("relations", lambda: run_relations(s, inv_id)),
              ("correlation", lambda: run_correlation(s, inv_id)), ("story", lambda: run_story(s, inv_id)),
              ("refresh", lambda: refresh_investigation(s, inv_id))]
+    from saw.workers.pipeline import Cancelled, StaleLease, _cancelled, _lease
     for i, (name, fn) in enumerate(steps):
+        if job_id and _cancelled(job_id):
+            raise Cancelled()
         fn()
         s.flush()
         if progress:
             progress(name, (i + 1) / len(steps))
+        if job_id:
+            s.commit()
+            if _cancelled(job_id):
+                raise Cancelled()
+    if job_id:
+        from saw.core.application.data_deletion import lock_investigation
+        from saw.storage.models import Job
+        lock_investigation(s, inv_id)
+        job = s.get(Job, job_id, populate_existing=True)
+        lease = _lease.get()
+        if job is None or (lease and lease[0] == job_id and (job.attempt or 0) != lease[1]):
+            raise StaleLease("analysis publication lease changed")
+        if job.cancel_requested:
+            raise Cancelled()
     _ = utcnow, GroupMetric
+    return run_history.finish(s, run)

@@ -20,7 +20,7 @@ from saw.storage.models import (AttackStory, Briefing, Case, CaseItem, Check, Co
 from saw.storage.objectstore import LocalFSObjectStore
 
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
-RETAINED = ["감사·증거 인계·처리 이력", "폐기 케이스의 스냅샷·리비전", "별도 보관된 백업·내보낸 파일"]
+RETAINED = ["감사·증거 인계·처리 이력·장비 해석 기준 등록 이력", "폐기 케이스의 스냅샷·리비전", "별도 보관된 백업·내보낸 파일"]
 BLOCKERS = {
     "legal_hold": "법적 보존 중인 증거가 있습니다. 보존 책임자가 정책에 따라 해제해야 합니다.",
     "active_jobs": "조사 작업이 대기·처리·입력 대기 중입니다. 작업 화면에서 취소하고 종료를 확인하세요.",
@@ -271,6 +271,13 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     from saw.llm.service import LlmInteraction
     from saw.behavior.models import BehaviorResult
     s.execute(delete(BehaviorResult).where(BehaviorResult.investigation_id == iid))
+    from saw.analysis_runs.models import AnalysisRun, DetectorExecution, FindingSnapshot
+    from saw.reports.models import ReportVersion
+    run_ids = select(AnalysisRun.id).where(AnalysisRun.investigation_id == iid)
+    s.execute(delete(FindingSnapshot).where(FindingSnapshot.run_id.in_(run_ids)))
+    s.execute(delete(DetectorExecution).where(DetectorExecution.run_id.in_(run_ids)))
+    s.execute(delete(ReportVersion).where(ReportVersion.investigation_id == iid))
+    s.execute(delete(AnalysisRun).where(AnalysisRun.investigation_id == iid))
     fids = select(Finding.id).where(Finding.investigation_id == iid)
     s.execute(delete(FindingFeedback).where(FindingFeedback.finding_id.in_(fids)))
     for model in (Finding, Pattern, ParameterProfile, Entity, Relation, AttackStory, Correlation, LlmInteraction):

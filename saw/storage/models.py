@@ -106,6 +106,7 @@ class Investigation(Base):
     verdict_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     close_detail: Mapped[dict] = mapped_column(JSON, default=dict)
     org_unit: Mapped[str] = mapped_column(String(64), default="")
+    org_unit_id: Mapped[str | None] = mapped_column(ForeignKey("sc_org_unit.id"), nullable=True, index=True)
     settings: Mapped[dict] = mapped_column(JSON, default=dict)  # clock skew etc.
     created_at: Mapped[datetime] = _ts()
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -130,6 +131,7 @@ class Evidence(Base):
     status: Mapped[str] = mapped_column(String(24), default="pending")
     total_size: Mapped[int] = mapped_column(BigInteger, default=0)  # > 2 GB evidence (PostgreSQL int4)
     file_count: Mapped[int] = mapped_column(Integer, default=0)
+    context_snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("sc_evidence_context.id"), nullable=True)
     uploaded_by: Mapped[str] = mapped_column(ForeignKey("iam_user.id"))
     uploaded_at: Mapped[datetime] = _ts()
 

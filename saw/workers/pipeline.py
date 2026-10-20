@@ -80,11 +80,21 @@ def _job_update(job_id: str, **kw) -> None:
         j.stages = stages
         for k, v in kw.items():
             setattr(j, k, v)
+        if kw.get("state") in {"FAILED", "CANCELLED"}:
+            from saw.analysis_runs.models import AnalysisRun
+            from saw.analysis_runs.service import finish
+            for run in s.scalars(select(AnalysisRun).where(AnalysisRun.job_id == job_id,
+                                                          AnalysisRun.status == "running")):
+                finish(s, run, status=kw["state"].lower(),
+                       detail={"error_type": (kw.get("error") or {}).get("type", kw["state"])})
 
 
 def _cancelled(job_id: str) -> bool:
     with session_scope() as s:
         j = s.get(Job, job_id)
+        lease = _lease.get()
+        if j is not None and lease and lease[0] == job_id and (j.attempt or 0) != lease[1]:
+            raise StaleLease("job lease superseded")
         return j is None or bool(j.cancel_requested)
 
 
@@ -208,7 +218,7 @@ def ingest_run(job_id: str) -> None:
         _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except Exception as e:  # noqa: BLE001
         log.error("ingest failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())
 
 
 def _register_iocs(s, inv_id: str, ev_id: str, path: Path, max_bytes: int = 5 * 1024 * 1024) -> int:
@@ -280,6 +290,9 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
     skip, expect = resume.get("emitted", 0), resume.get("last_event_id")
     emitted = 0
     slim = c.settings.raw_store == "auto"
+    with session_scope() as context_session:
+        pinned_job = context_session.get(Job, job.job_id)
+        context_snapshot = (pinned_job.stages or {}).get("source_context")
 
     def lines():
         with open(path, "rb") as fh:
@@ -314,7 +327,7 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
             # structured events keep fields + raw_ref; the line is read back from the evidence file on demand
             ev = to_ces(parser, rl, r, investigation_id=job.inv_id, evidence_id=job.ev_id, file_id=job.file_id,
                         source_file=job.name, object_key=f"{job.bucket}/{job.key}", assumed_tz=job.tz,
-                        slim_sources=SLIM_SOURCES if slim else frozenset())
+                        slim_sources=SLIM_SOURCES if slim else frozenset(), context_snapshot=context_snapshot)
             ts = ev.get("timestamp")
             if ts:
                 first_ts = ts if first_ts is None or ts < first_ts else first_ts
@@ -408,6 +421,7 @@ def parse_files(job_id: str, leaves: list[str], inv_id: str, ev_id: str, tz: str
             provenance.record_run(s, job=s.get(Job, job_id), f=f, investigation_id=inv_id, parser_id=parser.id,
                                   parser_version=parser.version, parser_fp=provenance.parser_digest(parser),
                                   settings={"encoding": res["encoding"], "assumed_tz": tz,
+                                            "source_context": (s.get(Job, job_id).stages or {}).get("source_context"),
                                             "raw_store": c.settings.raw_store},
                                   events=ok, failed=failed, coverage=res["coverage"], status=f.parse_status,
                                   started_at=started)
@@ -432,11 +446,15 @@ def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
             j.stages = {**(j.stages or {}), "analyze": {"pct": round(frac * 100)}}
             s.commit()
 
-        analysis.run_all(s, inv_id, prog)
+        run = analysis.run_all(s, inv_id, prog, job_id=job_id)
+        run_status, run_id, run_summary = run.status, run.id, run.summary
         if ev_id:
             s.get(Evidence, ev_id).status = "processed"
-    _job_update(job_id, state="COMPLETED", stage_analyze={"pct": 100, "done": True}, finished_at=utcnow(),
-                current_item="")
+        # Publish the run and terminal job under the same investigation lock/transaction.
+        j = s.get(Job, job_id)
+        j.state, j.finished_at, j.current_item = "COMPLETED", utcnow(), ""
+        j.stages = {**(j.stages or {}), "analyze": {"pct": 100, "done": True,
+            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}}
 
 
 @task("ingest.resume")
@@ -454,7 +472,7 @@ def ingest_resume(job_id: str) -> None:
         _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except Exception as e:  # noqa: BLE001
         log.error("resume failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())
 
 
 @task("analyze.run")
@@ -465,8 +483,10 @@ def analyze_run(job_id: str) -> None:
         inv_id, ev_id = j.investigation_id, j.evidence_id
     try:
         analyze_job(job_id, inv_id, ev_id)
+    except Cancelled:
+        _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except StaleLease as e:
         log.warning("%s", e)
     except Exception as e:  # noqa: BLE001
         log.error("analyze failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())

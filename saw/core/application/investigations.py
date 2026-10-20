@@ -38,22 +38,33 @@ def require(s: Session, p: Principal, permission: str, inv_id: str) -> Investiga
     return lock_investigation(s, inv_id)
 
 
-def create(s: Session, p: Principal, title: str, org_unit: str = "") -> Investigation:
+def create(s: Session, p: Principal, title: str, org_unit: str = "", org_unit_id: str | None = None) -> Investigation:
     if not can(p, "investigation.create"):
         raise Forbidden("investigation.create")
+    from saw.source_context.service import record_org_assignment, resolve_org
+
+    label, org_id = resolve_org(s, org_unit, org_unit_id)
     inv = Investigation(display_id=next_display_id(s, "INV"), title=title.strip()[:256] or "Untitled",
-                        owner_id=p.user_id, org_unit=org_unit)
+                        owner_id=p.user_id, org_unit=label, org_unit_id=org_id)
     s.add(inv)
     s.flush()
     s.add(InvestigationMember(investigation_id=inv.id, user_id=p.user_id, access="owner"))
+    record_org_assignment(s, p, inv, org_unit)
     audit.record(s, "investigation.create", actor_id=p.user_id, actor_name=p.username,
                  target_type="investigation", target_id=inv.id, investigation_id=inv.id,
                  detail={"title": inv.title})
     return inv
 
 
-def list_for(s: Session, p: Principal, limit: int = 50) -> list[Investigation]:
-    q = select(Investigation).order_by(Investigation.created_at.desc()).limit(limit)
+def list_for(s: Session, p: Principal, limit: int = 50, *, org_unit_id: str | None = None,
+             before: str | None = None) -> list[Investigation]:
+    q = select(Investigation).order_by(Investigation.created_at.desc(), Investigation.id.desc()).limit(max(limit, 1))
+    if org_unit_id is not None:
+        q = q.where(Investigation.org_unit_id == org_unit_id)
+    if before is not None:
+        cursor = require(s, p, "investigation.read", before)
+        q = q.where(or_(Investigation.created_at < cursor.created_at,
+                       (Investigation.created_at == cursor.created_at) & (Investigation.id < cursor.id)))
     if not can(p, "investigation.read"):
         return []
     from saw.core.domain.enums import Role

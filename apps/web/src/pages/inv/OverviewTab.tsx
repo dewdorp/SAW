@@ -16,6 +16,14 @@ export function OverviewTab({ inv }: { inv: string }) {
   if (q.error) return <ErrorBox error={q.error} />;
   const d = q.data;
   const s = d.summary;
+  const sourceKeys = (s.data_sources || []).map((source: any) => source.key);
+  const httpSources = new Set(["web", "waf", "zeek_http", "http"]);
+  const fwSources = new Set(["connection", "firewall", "fw"]);
+  const onlyFirewallSources = sourceKeys.length > 0 && sourceKeys.every((source: string) => fwSources.has(source));
+  const hasHttpFields = [d.charts.status, d.charts.top_uri, d.charts.top_ua].some(chart =>
+    (chart?.buckets || []).some((bucket: any) => bucket.key !== null && bucket.key !== undefined && bucket.key !== "null")) || s.unique_uri > 0;
+  const hasHttp = hasHttpFields || !onlyFirewallSources;
+  const onlyHttp = sourceKeys.length > 0 && sourceKeys.every((source: string) => httpSources.has(source));
   const pick = (field: string) => (key: any, exclude: boolean) => ctx.addFilter({ field, op: exclude ? "is_not" : "is", value: key });
   // volume stacked by status_class
   const vb = d.charts.volume.buckets as any[];
@@ -28,14 +36,14 @@ export function OverviewTab({ inv }: { inv: string }) {
     yAxis: { type: "value", ...axisStyle },
     dataZoom: [{ type: "slider", height: 14, bottom: 4 }],
     tooltip: { trigger: "axis", formatter: safeTooltip((p) => [[`${p.axisValue} ${p.seriesName}`, p.value]]) },
-    series: series.map((sname) => ({ name: sname === "null" ? "n/a" : sname, type: "bar", stack: "v", barCategoryGap: 0, itemStyle: { color: STATUS_COLORS[sname] || "#8a93a6" },
+    series: series.map((sname) => ({ name: sname === "null" ? (hasHttp ? "응답 상태 미기록" : "기록") : sname, type: "bar", stack: "v", barCategoryGap: 0, itemStyle: { color: STATUS_COLORS[sname] || "#8a93a6" },
       data: xs.map((x) => vb.find((b) => b.key === x && String(b.series) === sname)?.count || 0) })),
   };
   const sb = d.charts.size_trend.buckets as any[];
   const sizeOpt = {
     grid: { left: 50, right: 10, top: 10, bottom: 20 }, xAxis: { type: "category", data: sb.map((b) => fmtTime(b.key)), ...axisStyle },
     yAxis: { type: "value", ...axisStyle }, tooltip: { trigger: "axis", formatter: safeTooltip((p) => [[p.seriesName, Math.round(p.value)]]) },
-    series: [{ name: "avg bytes", type: "line", showSymbol: false, data: sb.map((b) => b.avg) }, { name: "max bytes", type: "line", showSymbol: false, data: sb.map((b) => b.max), lineStyle: { type: "dashed" } }],
+    series: [{ name: onlyHttp ? "평균 응답 바이트" : "평균 기록값", type: "line", showSymbol: false, data: sb.map((b) => b.avg) }, { name: onlyHttp ? "최대 응답 바이트" : "최대 기록값", type: "line", showSymbol: false, data: sb.map((b) => b.max), lineStyle: { type: "dashed" } }],
   };
   const ub = d.charts.unique_ip_trend.buckets as any[];
   const uipOpt = { grid: { left: 40, right: 10, top: 10, bottom: 20 }, xAxis: { type: "category", data: ub.map((b) => fmtTime(b.key)), ...axisStyle }, yAxis: { type: "value", ...axisStyle },
@@ -49,7 +57,7 @@ export function OverviewTab({ inv }: { inv: string }) {
         <b>분석 개요</b>
         <span>{fmtNum(s.files)} Files</span><span>{fmtNum(s.events)} Events</span>
         <span className="muted">{fmtTime(s.time_range[0])} ~ {fmtTime(s.time_range[1])}</span>
-        <span>Unique IP <b>{fmtNum(s.unique_ip, s.approximate)}</b></span><span>Unique URI <b>{fmtNum(s.unique_uri, s.approximate)}</b></span>
+        <span>Unique IP <b>{fmtNum(s.unique_ip, s.approximate)}</b></span>{hasHttp && <span>고유 URI <b>{fmtNum(s.unique_uri, s.approximate)}</b></span>}
         <span>Findings <b>{Object.values(s.findings).reduce((a: number, b: any) => a + b, 0) as number}</b></span>
         <span className="muted">Parse errors {pct(s.parse_error_rate)}</span>
         <span className="muted small">{s.data_sources.map((x: any) => `${x.key} ${fmtNum(x.count)}`).join(" · ")}</span>
@@ -69,17 +77,17 @@ export function OverviewTab({ inv }: { inv: string }) {
           ))}
         </div>
       )}
-      <Panel title="기록 수 시간 추이 (응답 상태별, 드래그로 기간 필터)">
+      <Panel title={hasHttp ? "기록 수 시간 추이 (HTTP 응답 상태 필드별, 드래그로 기간 필터)" : "기록 수 시간 추이 (드래그로 기간 필터)"}>
         <EChart ariaLabel="event volume" height={190} option={volOpt as any}
           onBrush={([a, b]) => { if (xs[a] !== undefined && xs[b] !== undefined) ctx.set({ time: { start: new Date(xs[a] * 1000).toISOString(), end: new Date((xs[b] + d.charts.volume.interval_sec) * 1000).toISOString() } }); }} />
       </Panel>
       <div className="grid3">
-        <Panel title="HTTP 응답 상태 분포"><TopBar title="status" buckets={st} onPick={pick("status_code")} /></Panel>
-        <Panel title="응답 크기 추이"><EChart ariaLabel="response size" option={sizeOpt as any} /></Panel>
+        {hasHttp && <Panel title="HTTP 응답 상태 분포"><TopBar title="status" buckets={st} onPick={pick("status_code")} /></Panel>}
+        <Panel title={onlyHttp ? "응답 크기 추이" : "기록 카운터 (의미는 장비 분석 참조)"}><EChart ariaLabel={onlyHttp ? "response size" : "record counters"} option={sizeOpt as any} />{!onlyHttp && <p className="small muted">기록에 저장된 카운터 값입니다. 방향·누적 의미·세션 전송량은 장비 분석의 검증 결과를 확인하세요.</p>}</Panel>
         <Panel title="고유 출발지 IP 추이"><EChart ariaLabel="unique ip trend" option={uipOpt as any} /></Panel>
         <Panel title="주요 출발지 (Alt+클릭 = 제외)"><TopBar title="top source" buckets={d.charts.top_src.buckets} onPick={pick("src_ip")} labelFmt={labelSel("ip")} /></Panel>
-        <Panel title="주요 URI 패턴"><TopBar title="top uri" buckets={d.charts.top_uri.buckets} onPick={pick("uri_template")} labelFmt={labelSel("uri")} /></Panel>
-        <Panel title="주요 User-Agent"><TopBar title="top ua" buckets={d.charts.top_ua.buckets} onPick={pick("user_agent")} /></Panel>
+        {hasHttp && <Panel title="주요 URI 패턴"><TopBar title="top uri" buckets={d.charts.top_uri.buckets} onPick={pick("uri_template")} labelFmt={labelSel("uri")} /></Panel>}
+        {hasHttp && <Panel title="주요 User-Agent"><TopBar title="top ua" buckets={d.charts.top_ua.buckets} onPick={pick("user_agent")} /></Panel>}
         <Panel title="주요 ASN"><TopBar title="top asn" buckets={d.charts.top_asn.buckets} onPick={pick("src_as_org")} /></Panel>
         <Panel title="주요 출발지 국가"><TopBar title="top country" buckets={d.charts.top_country.buckets} onPick={pick("src_geo_country")} /></Panel>
         <Panel title="클라우드 / VPS"><TopBar title="cloud" buckets={d.charts.top_cloud.buckets} onPick={pick("src_cloud")} /></Panel>

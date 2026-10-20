@@ -39,7 +39,14 @@ def test_korean_cp949_firewall_csv_auto_detected_as_network_flows(analyst):
     j = _process(analyst, inv["id"], "firewall_kr.csv", scenario_kr_firewall_csv())
     assert j["files"][0]["parser_id"] == "csv" and j["files"][0]["status"] == "done"
     ov = analyst.post(f"/investigations/{inv['id']}/overview", json={}).json()
-    assert ov["summary"]["data_sources"][0]["key"] == "zeek_conn"
+    assert ov["summary"]["data_sources"][0]["key"] == "connection"
     fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
     cats = {x["category"] for x in fs}
-    assert {"net.periodic", "net.large_outbound"} <= cats, cats  # 60 s beacon + 3.4 GB upload to 45.77.12.34
+    # Product names and Korean byte headings do not establish session/counter semantics.
+    assert not ({"net.periodic", "net.large_outbound"} & cats)
+    runs = analyst.get(f"/investigations/{inv['id']}/analysis-runs").json()["runs"]
+    result = analyst.get(f"/investigations/{inv['id']}/analysis-runs/{runs[0]['id']}").json()
+    fw = next(e for e in result["executions"] if e["detector_id"] == "fw.observation")
+    assert fw["status"] == "insufficient_data" and fw["match_count"] is None
+    assert fw["detail"]["counts"]["records"] == 449
+    assert fw["detail"]["counts"]["unresolved_records"] == 449

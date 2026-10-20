@@ -297,3 +297,67 @@ def test_partial_read_does_not_claim_derived_sources_absent(analyst):
     states = {x["source"]: x for x in d["unknowns"]}
     assert states["origin_service"]["state"] == states["process"]["state"] == "partial"
     assert states["origin_service"]["observed_count"] == states["process"]["observed_count"] == 1
+
+
+def test_case_c_counts_three_fw_records_as_one_session_without_claiming_repeated_connections(analyst, senior):
+    from saw.observation.firewall import analyze_firewall
+
+    org = senior.post("/source-context/org-units", json={"display_name": "합성 가이던스 조직"}).json()
+    inv = analyst.post("/investigations", json={"title": "합성 FW 단일 세션", "org_unit_id": org["id"]}).json()
+    device = analyst.post(f"/source-context/investigations/{inv['id']}/devices",
+                          json={"display_name": "synthetic-fw-guidance"}).json()
+    profile = analyst.post(f"/source-context/devices/{device['id']}/profiles", json={
+        "functions": ["FW"], "network": "guidance-lab",
+        "source_fields": {"record_kind": "record_type", "session_id": "session_id", "timestamp": "timestamp",
+                          "action": "action", "src_bytes": "sent", "dst_bytes": "received"},
+        "record_kind_map": {"start": "session_start", "interim": "session_interim", "end": "session_end"},
+        "action_map": {"allow": "allowed"}, "action_verified": True, "action_basis": "synthetic allow",
+        "measurement_profile": {"counter_semantics": "cumulative", "direction": "src_to_dst", "unit": "bytes",
+                                "verified": True, "basis": "synthetic cumulative bytes"},
+        "time": {"role": "occurred", "timezone": "UTC", "precision": "second",
+                 "verified": True, "basis": "synthetic UTC timestamps"}})
+    assert profile.status_code == 201, profile.text
+    lines = ["timestamp,src_ip,dst_ip,dst_port,session_id,record_type,sent,received,action"]
+    lines += [f"2026-10-01T00:0{i}:00Z,{IP},8.8.8.8,443,S7,{kind},{sent},{received},allow"
+              for i, kind, sent, received in [(0, "start", 0, 0), (1, "interim", 100, 900), (2, "end", 300, 1200)]]
+    up = upload(analyst, inv["id"], "synthetic-fw-session.csv", "\n".join(lines).encode())
+    attached = analyst.post(f"/source-context/evidence/{up['evidence_id']}/context", json={
+        "device_profile_version_id": profile.json()["id"],
+        "subject": {"org_unit_id": org["id"], "status": "verified", "basis": "synthetic fixture"},
+        "collection": {"scope": "full", "loss": "known"}})
+    assert attached.status_code == 201, attached.text
+    analyst.post(f"/evidence/{up['evidence_id']}/process").raise_for_status()
+    rows = list(container.get().events.iterate(inv["id"], []))
+    fw = analyze_firewall(iter(rows))
+    assert fw["counts"]["records"] == 3 and fw["counts"]["sessions"] == 1
+    d = preview(analyst, inv)
+    fact = next(fact for fact in d["facts"] if fact["id"] == "external_connections")
+    assert fact["value"] == 3 and fact["label"] == "외부 목적지 기록(세션 수 아님)"
+    question = next(question for question in d["questions"] if question["rule_id"] == "C")
+    assert all(term in question["title"] for term in ("실제 연결 수", "프로세스", "계정", "대상 서비스", "정상업무"))
+    assert "반복 외부 통신" not in question["title"]
+    assert any("같은 세션" in limit and "시작·중간·종료" in limit and "주기성" in limit for limit in d["limits"])
+
+
+def test_wording_revision_pins_new_methodology_hash_and_keeps_legacy_capture(analyst, monkeypatch):
+    import copy
+
+    from saw.core.application import guidance
+
+    inv = make_case(analyst)
+    legacy = copy.deepcopy(guidance.methodology())
+    legacy["version"] = "1.0"
+    next(rule for rule in legacy["rules"] if rule["id"] == "C")["question"] = (
+        "반복 외부 통신의 프로세스·계정·대상 서비스와 정상업무 여부를 확인하세요.")
+    with monkeypatch.context() as previous:
+        previous.setattr(guidance, "methodology", lambda: legacy)
+        before = preview(analyst, inv)
+        saved = analyst.post(f"/investigations/{inv['id']}/checks", json=answer_body(before))
+        assert saved.status_code == 201, saved.text
+    capture = copy.deepcopy(saved.json()["capture"])
+    current = preview(analyst, inv)
+    assert current["methodology"]["version"] == "1.0.1"
+    assert current["methodology"]["digest"] != capture["methodology"]["digest"]
+    assert current["scope"]["methodology_version"] == VERSION
+    with session_scope() as s:
+        assert s.get(Check, saved.json()["id"]).context["guidance"] == capture

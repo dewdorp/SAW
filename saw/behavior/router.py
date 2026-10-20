@@ -38,7 +38,7 @@ def report(inv_id: str, result_id: str, ctx: AuthContext = Depends(auth),
            s: Session = Depends(db, scope="function")):
     from saw.behavior.report import render_report
     row = service.get(s, ctx.principal, inv_id, result_id)
-    records = [checks.to_dict(c) for c in checks.list_checks(s, inv_id)
+    records = [checks.to_dict(c) for c in checks.list_checks(s, inv_id, principal=ctx.principal)
                if (c.scope or {}).get("behavior", {}).get("result_id") == row.id]
     audit.record(s, "behavior.report_export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="behavior_result", target_id=row.id, investigation_id=inv_id,

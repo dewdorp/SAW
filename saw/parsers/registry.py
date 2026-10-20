@@ -89,7 +89,8 @@ def detect(sample: list[str]) -> Detection:
 
 def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: str, evidence_id: str | None,
            file_id: str, source_file: str, object_key: str | None, assumed_tz: str,
-           slim_sources: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
+           slim_sources: set[str] | frozenset[str] = frozenset(),
+           context_snapshot: dict | None = None) -> dict[str, Any]:
     """slim_sources: data sources stored without raw_event (read back from the evidence file by raw_ref)."""
     f = dict(res.fields)
     tz_override = f.pop("_tz", None)  # analyst parser with a fixed source time zone
@@ -119,7 +120,7 @@ def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: st
         ev["ext"] = {parser.product: {k: v for k, v in list(res.ext.items())[:200]}}
     if ev.get("timestamp_raw") is None:
         ev["timestamp_quality"] = "ingest_time"
-    return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation)
+    return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation, context_snapshot=context_snapshot)
 
 
 def parse_text(text: str, *, investigation_id: str = "adhoc", parser_id: str | None = None,

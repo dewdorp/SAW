@@ -57,8 +57,8 @@ def _conflict(e: checks.Conflict):
 def list_(inv_id: str, target_key: str | None = None, history: bool = False, ctx: AuthContext = Depends(auth),
           s: Session = Depends(db, scope="function")):
     require(s, ctx.principal, "investigation.read", inv_id)
-    return {"checks": [checks.to_dict(c) for c in checks.list_checks(s, inv_id, target_key, history)],
-            "summary": checks.summary(s, inv_id), "me": ctx.principal.user_id}
+    return {"checks": [checks.to_dict(c) for c in checks.list_checks(s, inv_id, target_key, history, principal=ctx.principal)],
+            "summary": checks.summary(s, inv_id, principal=ctx.principal), "me": ctx.principal.user_id}
 
 
 @router.post("/investigations/{inv_id}/checks", status_code=201)
@@ -87,13 +87,13 @@ def cancel(inv_id: str, check_id: str, body: NoteIn, ctx: AuthContext = Depends(
 @router.get("/investigations/{inv_id}/checks/marks")
 def marks(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     require(s, ctx.principal, "investigation.read", inv_id)
-    return checks.marks(s, inv_id)
+    return checks.marks(s, inv_id, principal=ctx.principal)
 
 
 @router.post("/investigations/{inv_id}/checks/lookup")
 def lookup(inv_id: str, body: LookupIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     require(s, ctx.principal, "investigation.read", inv_id)
-    return checks.lookup(s, inv_id, body.event_ids, body.entity_keys)
+    return checks.lookup(s, inv_id, body.event_ids, body.entity_keys, principal=ctx.principal)
 
 
 @router.post("/investigations/{inv_id}/checks/team")

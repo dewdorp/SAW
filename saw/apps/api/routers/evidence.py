@@ -21,11 +21,15 @@ from saw.storage.models import Evidence, EvidenceFile, Job
 router = APIRouter(tags=["evidence"])
 
 
+from saw.source_context.schemas import ContextInput
+
+
 class EvidenceIn(BaseModel):
     kind: str = "auto"
     title: str = ""
     tz: str | None = None
     classification: str = "internal"
+    source_context: ContextInput | None = None
 
 
 class UploadIn(BaseModel):
@@ -60,7 +64,10 @@ def file_out(f: EvidenceFile) -> dict:
 @router.post("/investigations/{inv_id}/evidence", status_code=201)
 def create_evidence(inv_id: str, body: EvidenceIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     e = svc.create_evidence(s, ctx.principal, inv_id, body.kind, body.title, body.tz, body.classification)
-    return {"id": e.id, "kind": e.kind}
+    if body.source_context is not None:
+        from saw.source_context.service import attach_evidence_context
+        attach_evidence_context(s, ctx.principal, e.id, body.source_context)
+    return {"id": e.id, "kind": e.kind, "context_snapshot_id": e.context_snapshot_id}
 
 
 @router.post("/uploads", status_code=201)
@@ -196,6 +203,9 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
     j.cancel_requested = True
     if j.state in ("QUEUED", "WAITING_INPUT", "UPLOADING"):
         j.state = "CANCELLED"
+        if j.kind == "device_analysis":
+            from saw.analysis_runs.scoped import cancel_queued
+            cancel_queued(s, j)
     audit.record(s, "job.cancel", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="job", target_id=job_id, investigation_id=j.investigation_id)
     return job_out(j)
@@ -213,14 +223,18 @@ def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depend
     if j.kind == "behavior":
         from saw.behavior.service import ensure_source_idle
         ensure_source_idle(s, j.investigation_id)
+    elif j.kind == "device_analysis":
+        from saw.analysis_runs.scoped import _idle
+        _idle(s, j.investigation_id)
     for f in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == j.evidence_id,
                                                   EvidenceFile.parse_status == "failed")).scalars():
         f.parse_status = "pending"
-    j.state, j.cancel_requested, j.error = "PARSING", False, {}
+    j.state, j.cancel_requested, j.error = ("QUEUED" if j.kind == "device_analysis" else "PARSING"), False, {}
     j.stages = {**(j.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
                                                   "action": "retry"}}
     s.commit()
-    task_name = "behavior.run" if j.kind == "behavior" else "analyze.run" if j.kind == "reanalyze" else "ingest.resume"
+    task_name = {"behavior": "behavior.run", "reanalyze": "analyze.run",
+                 "device_analysis": "device_analysis.run"}.get(j.kind, "ingest.resume")
     container.get().runner.submit(task_name, job_id=j.id)
     return job_out(j)
 

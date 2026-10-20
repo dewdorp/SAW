@@ -242,7 +242,8 @@ def context(inv_id: str, body: ContextIn, ctx: AuthContext = Depends(auth), s: S
         "paths": [b["key"] for b in es.aggregate(inv_id, flt, AggRequest(type="terms", field="url_path", size=5))["buckets"]],
         "countries": [b["key"] for b in es.aggregate(inv_id, flt, AggRequest(type="terms", field="src_geo_country", size=3))["buckets"]],
     }
-    assets = asset_svc.context_for(s, finding, inv_ents)
+    from saw.storage.models import Investigation
+    assets = asset_svc.context_for(s, finding, inv_ents, org_unit_id=s.get(Investigation, inv_id).org_unit_id)
     feats, text = similar.features_for_investigation(s, inv_id, body.finding_id)
     sims = _visible_results(s, ctx, similar.search(s, feats, text, 6, exclude_ref=inv_id))
     exps = []

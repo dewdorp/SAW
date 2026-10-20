@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,7 +15,8 @@ router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 class InvIn(BaseModel):
     title: str = Field(min_length=1, max_length=256)
-    org_unit: str = ""
+    org_unit: str = Field("", max_length=64)
+    org_unit_id: str | None = Field(None, max_length=36)
 
 
 class MemberIn(BaseModel):
@@ -42,24 +43,26 @@ def inv_out(s: Session, i: Investigation) -> dict:
                         .group_by(Finding.risk_level)).all())
     return {
         "id": i.id, "display_id": i.display_id, "title": i.title, "status": i.status,
+        "org_unit": i.org_unit, "org_unit_id": i.org_unit_id,
         "risk_level": i.risk_override or i.risk_level, "risk_score": i.risk_score,
         "time_start": i.time_start, "time_end": i.time_end, "verdict": i.verdict,
         "created_at": i.created_at, "closed_at": i.closed_at, "settings": i.settings,
         "evidence": [{"id": e.id, "kind": e.kind, "title": e.title, "status": e.status, "size": e.total_size,
-                      "file_count": e.file_count} for e in ev],
+                      "file_count": e.file_count, "context_snapshot_id": e.context_snapshot_id} for e in ev],
         "finding_counts": fc,
     }
 
 
 @router.post("", status_code=201)
 def create(body: InvIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit)
+    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit, body.org_unit_id)
     return inv_out(s, i)
 
 
 @router.get("")
-def list_(ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    return [inv_out(s, i) for i in inv_svc.list_for(s, ctx.principal)]
+def list_(org_unit_id: str | None = None, before: str | None = None, limit: int = Query(50, ge=1, le=200),
+          ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return [inv_out(s, i) for i in inv_svc.list_for(s, ctx.principal, limit, org_unit_id=org_unit_id, before=before)]
 
 
 @router.get("/{inv_id}")
@@ -69,6 +72,8 @@ def get(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, 
 
 class SettingsIn(BaseModel):
     title: str | None = None
+    org_unit: str | None = Field(None, max_length=64)
+    org_unit_id: str | None = Field(None, max_length=36)
     clock_skew: dict[str, float] | None = None  # seconds per data_source (display/correlation only; raw unchanged)
 
 
@@ -77,6 +82,10 @@ def patch(inv_id: str, body: SettingsIn, ctx: AuthContext = Depends(auth), s: Se
     from saw.core.application import audit
 
     i = inv_svc.require(s, ctx.principal, "investigation.write", inv_id)
+    if {"org_unit", "org_unit_id"} & body.model_fields_set:
+        from saw.source_context.service import set_investigation_org
+
+        i = set_investigation_org(s, ctx.principal, inv_id, body.org_unit, body.org_unit_id)
     if body.title:
         i.title = body.title[:256]
     if body.clock_skew is not None:

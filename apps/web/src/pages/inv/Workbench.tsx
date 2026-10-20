@@ -7,6 +7,8 @@ import { Icon } from "../../components/ui";
 import { useInv, useInvTabs } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../../lib/format";
+import { AnalysisHistoryTab } from "./AnalysisHistoryTab";
+import { SourceContextTab } from "./SourceContextTab";
 import { AttackTab } from "./AttackTab";
 import { BehaviorTab } from "./BehaviorTab";
 import { ChecksTab } from "./ChecksTab";
@@ -28,7 +30,7 @@ import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
 const TABS: [string, string][] = [
-  ["overview", "개요"], ["statistics", "로그 통계"], ["behavior", "행위 분석"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
+  ["overview", "개요"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"], ["statistics", "로그 통계"], ["behavior", "행위 분석"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
   ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"],
   ["raw", "원본 로그"], ["checks", "확인·검토"], ["notes", "메모"],
 ];
@@ -100,6 +102,7 @@ export function Workbench() {
           {i.status !== "closed" && <button className="btn sm primary" onClick={() => setClosing(true)}>조사 종결</button>}
         </div>
         <div className="row wrap small" style={{ gap: 16, color: "var(--fg-1)" }}>
+          <span><span className="muted">관계사</span> {i.org_unit || "미분류"}</span>
           <span><span className="muted">관측 기간</span> {fmtTime(i.time_start)} ~ {fmtTime(i.time_end)}</span>
           <span><span className="muted">증거</span> {i.evidence.length}건</span>
           <span><span className="muted">탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
@@ -166,6 +169,8 @@ export function Workbench() {
           </div>
           <div className="tab-body">
             {ctx.tab === "overview" && <OverviewTab inv={id} />}
+            {ctx.tab === "source-context" && <SourceContextTab inv={id} />}
+            {ctx.tab === "analysis-history" && <AnalysisHistoryTab inv={id} />}
             {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
             {ctx.tab === "behavior" && <BehaviorTab inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}
