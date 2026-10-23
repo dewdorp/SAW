@@ -53,6 +53,7 @@ def load_models() -> None:
     from saw.followups import models as _fu  # noqa: F401
     from saw.hunting import service as _hunt  # noqa: F401
     from saw.knowledge import models as _km  # noqa: F401
+    from saw.knowledge import golden_governance_models as _gg  # noqa: F401
     from saw.knowledge import golden_models as _gm  # noqa: F401
     from saw.content_packages import models as _cp  # noqa: F401
     from saw.behavior import models as _bh  # noqa: F401

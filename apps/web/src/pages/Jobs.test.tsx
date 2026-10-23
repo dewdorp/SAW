@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockApi, renderUI } from "../test/helpers";
+import { ME, mockApi, renderUI } from "../test/helpers";
 import { fmtEta, JobDetail } from "./Jobs";
 
 class FakeEventSource {
@@ -22,7 +22,7 @@ describe("job progress", () => {
 
   it("shows byte progress, speed and ETA while parsing a large file", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
-    mockApi({
+    mockApi({"GET /auth/me":[200,ME],
       "GET /jobs/j1": [200, {
         id: "j1", investigation_id: "inv1", evidence_id: "ev1", state: "PARSING", events_done: 120000, events_total_est: 900000,
         current_item: "qsearch.csv", created_at: "2026-10-09T00:00:00Z",
@@ -40,7 +40,7 @@ describe("job progress", () => {
 
   it("shows where every line of the file went (coverage)", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
-    mockApi({
+    mockApi({"GET /auth/me":[200,ME],
       "GET /jobs/j2": [200, {
         id: "j2", investigation_id: "inv1", evidence_id: "ev1", state: "COMPLETED", events_done: 900,
         created_at: "2026-10-09T00:00:00Z", stages: { parse: { pct: 100, done: true } },

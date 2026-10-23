@@ -32,6 +32,7 @@ BLOCKERS = {
     "deletion_in_progress": "이 조사에 미완료 삭제 작업이 있습니다. 해당 영수증에서 재시도하세요.",
     "report_reference": "다른 조사의 저장 보고서가 원천 자료를 참조합니다. 해당 보고서의 보존 계약을 먼저 검토하세요.",
     "case_reference": "활성 케이스가 참조합니다. 케이스를 먼저 폐기한 뒤 다시 확인하세요.",
+    "golden_reference": "골든셋 반출 기록 또는 평가 이력이 이 자료를 참조합니다. 보존 계약을 먼저 검토하세요.",
     "knowledge_reference": "Experience 지식이 원본 조사를 참조합니다. 보존 계약 검토가 필요합니다.",
     "detection_reference": "탐지 룰 출처·과거 자료 시험이 참조합니다. 보존 계약 검토가 필요합니다.",
     "hunt_reference": "헌팅 기록이 이 자료를 참조합니다. 기록 보존 검토가 필요합니다.",
@@ -180,14 +181,15 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
             blockers.add("unsafe_object")
     if isinstance(store, LocalFSObjectStore):
         try:
-            own_exports = s.scalars(select(Job.id).where(
-                Job.investigation_id == inv_id, Job.kind == "report_export").limit(10001)).all()
+            own_exports = s.execute(select(Job.id, Job.kind).where(
+                Job.investigation_id == inv_id, Job.kind.in_(("report_export", "golden_export"))).limit(10001)).all()
             if len(own_exports) > 10000:
                 blockers.add("too_many_objects")
             else:
                 known_objects = {(x["bucket"], x["key"]) for x in objects}
-                for export_id in own_exports:
-                    for key in store.cleanup_keys("saw-exports", "reports/" + export_id):
+                for export_id, export_kind in own_exports:
+                    prefix = ("golden/" if export_kind == "golden_export" else "reports/") + export_id
+                    for key in store.cleanup_keys("saw-exports", prefix):
                         if ("saw-exports", key) not in known_objects:
                             path = store.safe_delete_path("saw-exports", key)
                             objects.append({"bucket": "saw-exports", "key": key, "size": path.stat().st_size})
@@ -216,6 +218,18 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
             JobSourceInvestigation.investigation_id == inv_id, Job.investigation_id != inv_id,
             Job.state.notin_(TERMINAL)).limit(1)):
         blockers.add("active_jobs")
+    from saw.knowledge.golden_governance_models import GoldenReleaseSource, GoldenHoldoutAttempt
+    if s.scalar(select(GoldenReleaseSource.release_version_id).where(
+            GoldenReleaseSource.investigation_id == inv_id).limit(1)):
+        blockers.add("golden_reference")
+    if s.scalar(select(Job.id).join(JobSourceInvestigation, JobSourceInvestigation.job_id == Job.id).where(
+            JobSourceInvestigation.investigation_id == inv_id, Job.investigation_id != inv_id,
+            Job.kind == "golden_export").limit(1)):
+        blockers.add("golden_reference")
+    attempt_sources = s.execute(select(GoldenHoldoutAttempt.family_investigation_ids,
+        GoldenHoldoutAttempt.source_investigation_ids)).yield_per(500)
+    if any(inv_id in set(family or []) | set(sources or []) for family, sources in attempt_sources):
+        blockers.add("golden_reference")
     from saw.knowledge.models import Experience
     from saw.detection.service import Detection, TestRun
     from saw.detection.truth_models import DetectionCase
@@ -332,7 +346,7 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     # Evidence cleanup invalidates all own report snapshots and their planned artifacts.
     jobs = Job.investigation_id == iid
     if op.target_type != "investigation":
-        jobs = jobs & (Job.evidence_id.in_(ids) | (Job.kind == "report_export"))
+        jobs = jobs & (Job.evidence_id.in_(ids) | (Job.kind.in_(("report_export", "golden_export"))))
     s.execute(delete(Job).where(jobs))
     inv = s.get(Investigation, iid)
     if op.target_type == "investigation":

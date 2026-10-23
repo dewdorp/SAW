@@ -60,6 +60,13 @@ def to_dict(e: Experience, include_working: bool = True) -> dict:
          "approved": e.approved_data}
     if include_working:
         d["data"] = e.data
+    if session is not None:
+        from saw.knowledge.golden_v2 import experience_is_holdout
+        if experience_is_holdout(session, e.id):
+            d.update(approved=None, review_comment="", answers_access={
+                "available": False, "requires_holdout_attempt": True})
+            if include_working:
+                d["data"] = {}
     return d
 
 
@@ -81,6 +88,9 @@ def create(s: Session, p: Principal, data: dict, source_inv: str | None = None) 
         from saw.behavior.service import closure_references
         source = s.get(Investigation, source_inv)
         d["behavior_results"] = (source.close_detail or {}).get("behavior_results", closure_references(s, source_inv))
+    if source_inv:
+        from saw.knowledge.golden_context import capture
+        d["golden_capture"] = capture(s, p, source_inv, d)
     if not d.get("title"):
         raise ValueError("title is required")
     e = Experience(display_id=next_display_id(s, "EXP", daily=False, width=4), data=d, analyst_id=p.user_id,
@@ -162,6 +172,9 @@ def update(s: Session, p: Principal, eid: str, data: dict) -> Experience:
     if e.analyst_id != p.user_id and not can(p, "knowledge.approve"):
         raise Forbidden("only the author or a reviewer can edit")
     e.data = {**e.data, **_clean(data)}
+    if e.source_investigation_id:
+        from saw.knowledge.golden_context import capture
+        e.data = {**e.data, "golden_capture": capture(s, p, e.source_investigation_id, e.data)}
     e.rev += 1
     e.status = "draft"  # approved copy (approved_data) stays live until re-approval
     e.updated_at = utcnow()
@@ -191,6 +204,7 @@ def _contributors(s: Session, e: Experience) -> set[str]:
     names = {actor for actor, note in rows if (note or "").startswith(("created", "edited", "auto-draft"))}
     from saw.storage.models import User
     ids = {r.get(key) for r in (e.data or {}).get("behavior_results", []) for key in ("created_by", "check_author_id")} - {None}
+    ids |= set((e.data or {}).get("golden_capture", {}).get("contributor_ids", []))
     return names | set(s.scalars(select(User.username).where(User.id.in_(ids))))
 
 
@@ -240,6 +254,9 @@ def deprecate(s: Session, p: Principal, eid: str, reason: str) -> Experience:
 
 
 def revisions(s: Session, eid: str) -> list[dict]:
+    from saw.knowledge.golden_v2 import experience_is_holdout
+    if experience_is_holdout(s, eid):
+        return []
     return [{"rev": r.rev, "status": r.status, "actor": r.actor, "note": r.note, "at": r.at, "data": r.data}
             for r in s.execute(select(KnowledgeRevision).where(KnowledgeRevision.kind == "experience",
                                                                KnowledgeRevision.ref_id == eid).order_by(KnowledgeRevision.at)).scalars()
@@ -278,7 +295,9 @@ def _index_knowledge(e: Experience, s: Session) -> None:
 
 def list_for(s: Session, p: Principal, status: str | None = None, q: str | None = None) -> list[Experience]:
     rows = s.execute(select(Experience).order_by(Experience.updated_at.desc())).scalars().all()
-    out = [e for e in rows if visible(e, p)]
+    from saw.knowledge.golden_v2 import holdout_references
+    hidden = holdout_references(s)["experience"]
+    out = [e for e in rows if e.id not in hidden and visible(e, p)]
     if status == "review_queue":
         out = [e for e in out if e.status == "review" and e.analyst_id != p.user_id]
     elif status:

@@ -1,14 +1,19 @@
+import { useMe } from "../App";
+import { principalKey } from "./golden/types";
+import { GoldenExportJob } from "./golden/GoldenExportJob";
 import {ReportExportJob} from "../components/reports/ReportExportJob";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/ui";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bar, ErrorBox, Loading, Panel } from "../components/common";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../lib/format";
 
 export function Jobs() {
-  const q = useQuery({ queryKey: ["jobs"], queryFn: () => api.get("/jobs"), refetchInterval: 5000 });
+  const me=useMe();
+  const q = useQuery({ queryKey: ["jobs",principalKey(me.data)], enabled:!!me.data, queryFn: () => api.get("/jobs"), refetchInterval: 5000 });
+  if(me.isLoading||q.isLoading)return <Loading/>;if(me.error||q.error)return <ErrorBox error={me.error||q.error}/>;
   return (
     <div className="page col">
       <PageHeader eyebrow="처리" title="작업 상태" desc="업로드한 증거의 압축 해제 → 파싱 → 색인 → 분석 진행 상황입니다." />
@@ -37,25 +42,33 @@ export function fmtEta(sec?: number | null): string {
 
 /** Job progress with SSE (docs/10 §6, wireframe 15). */
 export function JobDetail() {
+  const me=useMe();const {id=""}=useParams();
+  if(me.isLoading)return <Loading/>;if(me.error)return <ErrorBox error={me.error}/>;
+  const principal=principalKey(me.data);
+  return <JobDetailContent key={principal+":"+id} principal={principal}/>;
+}
+function JobDetailContent({principal}:{principal:string}) {
   const { id = "" } = useParams();
   const navigate=useNavigate();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["job", id], queryFn: () => api.get(`/jobs/${id}`), refetchInterval: (qq) => (["COMPLETED", "FAILED", "CANCELLED"].includes((qq.state.data as any)?.state) ? false : 2000) });
+  const q = useQuery({ queryKey: ["job", id,principal], queryFn: () => api.get(`/jobs/${id}`), refetchInterval: (qq) => (["COMPLETED", "FAILED", "CANCELLED"].includes((qq.state.data as any)?.state) ? false : 2000) });
+  useEffect(()=>{if(q.error instanceof ApiError&&[403,404].includes(q.error.status)){setLive(null);qc.removeQueries({queryKey:["job",id,principal],exact:true});}},[q.error,id,principal,qc]);
   const [live, setLive] = useState<any | null>(null);
-  const parsers = useQuery({ queryKey: ["parsers"], enabled: !!q.data && q.data.kind !== "report_export", queryFn: () => api.get("/parsers") });
+  const parsers = useQuery({ queryKey: ["parsers"], enabled: !!q.data && !["report_export", "golden_export"].includes(q.data.kind), queryFn: () => api.get("/parsers") });
   useEffect(() => {
     const es = new EventSource(`/api/v1/jobs/${id}/events`);
     es.addEventListener("progress", (e) => setLive(JSON.parse((e as MessageEvent).data)));
-    es.addEventListener("end", () => { es.close(); qc.invalidateQueries({ queryKey: ["job", id] }); });
+    es.addEventListener("end", () => { es.close(); qc.invalidateQueries({ queryKey: ["job", id,principal] }); });
     es.onerror = () => es.close();
     return () => es.close();
-  }, [id, qc]);
-  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${id}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
-  const retry = useMutation({ mutationFn: () => api.post(`/jobs/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
-  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
+  }, [id, principal, qc]);
+  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${id}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
+  const retry = useMutation({ mutationFn: () => api.post(`/jobs/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
+  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
   if (q.isLoading) return <Loading />;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
   if(q.data.kind === "report_export") return <div className="page col"><ReportExportJob id={id} initial={q.data} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
+  if(q.data.kind === "golden_export") return <div className="page col"><GoldenExportJob key={id} id={id} initial={q.data} initialPrincipal={principal} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
   const j = { ...q.data, ...(live || {}) };
   const files = q.data.files || [];
   const leaves = files.filter((f: any) => !files.some((c: any) => c.parent_file_id === f.id));

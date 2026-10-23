@@ -157,8 +157,10 @@ def search(s: Session, features: dict, text: str, k: int = 10, exclude_ref: str 
     q = select(KnowledgeDoc).where(KnowledgeDoc.ref_type.in_(types))
     if allowed_ref_ids is not None:
         q = q.where(KnowledgeDoc.ref_id.in_(allowed_ref_ids))
+    from saw.knowledge.golden_v2 import holdout_references
+    hidden = holdout_references(s)
     docs = [d for d in s.execute(q).scalars()
-            if d.ref_id != exclude_ref and visible_snapshot(s, s.info.get("principal"), d.extra or {})]
+            if d.ref_id not in hidden.get(d.ref_type, set()) and d.ref_id != exclude_ref and visible_snapshot(s, s.info.get("principal"), d.extra or {})]
     if not docs:
         return []
     qcard = card_text(text, features)

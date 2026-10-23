@@ -243,7 +243,7 @@ class Finding(Base):
     display_id: Mapped[str] = mapped_column(String(24))
     investigation_id: Mapped[str] = mapped_column(String(36), index=True)
     detector_id: Mapped[str] = mapped_column(String(64))
-    detector_version: Mapped[str] = mapped_column(String(16))
+    detector_version: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(256))
     category: Mapped[str] = mapped_column(String(64))
     stage: Mapped[str] = mapped_column(String(32), default="UNCLASSIFIED")

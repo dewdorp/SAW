@@ -43,6 +43,7 @@ def build(settings: Settings | None = None, synchronous_jobs: bool = False) -> C
         objects = LocalFSObjectStore(s.object_store_root)
     from saw.analysis_runs import scoped  # noqa: F401
     from saw.reports import export_jobs  # noqa: F401
+    from saw.knowledge import golden_jobs  # noqa: F401
 
     if s.job_runner == "celery":  # ENV-05
         from saw.workers.runner import CeleryRunner
@@ -72,11 +73,20 @@ def _recover_orphaned_jobs(runner: InProcessRunner) -> None:
 
     with session_scope() as s:
         orphans = s.execute(select(Job).where(Job.state.in_(["QUEUED", "PARSING", "INDEXING", "ANALYZING"]))).scalars().all()
-        todo = [(j.id, "report_export.run" if j.kind == "report_export" else
+        from saw.knowledge.golden_jobs import recover_input_pending, source_fence
+        ready = []
+        for j in orphans:
+            if j.kind == "golden_export":
+                with source_fence(s, j.stages.get("source_ids", []), allow_deleting=True):
+                    if recover_input_pending(s, j):
+                        continue
+            ready.append(j)
+        todo = [(j.id, "golden_export.run" if j.kind == "golden_export" else
+                 "report_export.run" if j.kind == "report_export" else
                  "device_analysis.run" if j.kind == "device_analysis" else
                  "behavior.run" if j.kind == "behavior" else
-                 "analyze.run" if j.kind == "reanalyze" or j.state == "ANALYZING" else "ingest.run") for j in orphans]
-        for j in orphans:
+                 "analyze.run" if j.kind == "reanalyze" or j.state == "ANALYZING" else "ingest.run") for j in ready]
+        for j in ready:
             j.current_item = "recovered after restart"
     for job_id, name in todo:
         runner.submit(name, job_id=job_id)

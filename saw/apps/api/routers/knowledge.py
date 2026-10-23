@@ -99,6 +99,8 @@ def get_exp(eid: str, ctx: AuthContext = Depends(require_perm("knowledge.read"))
         raise NotFound("experience not found")
     e.views += 1
     d = exp_svc.to_dict(e)
+    if d.get("answers_access", {}).get("requires_holdout_attempt"):
+        return d
     d["fp_conflicts"] = exp_svc.fp_conflicts(s, ctx.principal, e.data.get("false_positive_conditions") or [])
     return d
 
@@ -115,6 +117,13 @@ def submit_exp(eid: str, ctx: AuthContext = Depends(require_perm("knowledge.writ
 
 @router.post("/experiences/{eid}/approve")
 def approve_exp(eid: str, body: ReviewIn, ctx: AuthContext = Depends(require_perm("knowledge.approve")), s: Session = Depends(db, scope="function")):
+    if body.golden:
+        from saw.knowledge import golden
+        from saw.knowledge.golden_models import GoldenVersion
+        selected = s.get(GoldenVersion, body.golden.version_id)
+        if selected is None or selected.experience_id != eid:
+            raise ValueError("golden_experience_mismatch")
+        golden.lock_review_sources(s, ctx.principal, selected)
     e = exp_svc.approve(s, ctx.principal, eid, body.comment, body.ack_fp_conflicts)
     if body.golden:
         from saw.knowledge import golden

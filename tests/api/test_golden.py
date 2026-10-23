@@ -44,6 +44,15 @@ def candidate(api, title="합성 WAF", marker="EVALUATOR_ONLY_SECRET"):
     return inv, eid, prepared.json()
 
 
+def frozen_input(version_id):
+    from saw.knowledge import golden
+    from saw.knowledge.golden_models import GoldenVersion
+    with session_scope() as s:
+        row = s.get(GoldenVersion, version_id)
+        blobs = golden._verify(s, row)
+        return golden.agent_input(row, blobs), blobs
+
+
 def approve(api, eid, g, split="dev"):
     return api.post(f"/experiences/{eid}/approve", json={"golden": {
         "version_id": g["id"], "expected_content_sha256": g["content_sha256"],
@@ -62,16 +71,15 @@ def test_adoption_separates_input_answers_and_preserves_revisions(analyst, manag
     assert approve(manager, eid, g).status_code == 200
     out = manager.post("/knowledge/golden/export", json={
         "version_ids": [g["id"]], "split": "dev", "format": "bundle", "audience": "agent"})
-    assert out.status_code == 200, out.text
-    with zipfile.ZipFile(io.BytesIO(out.content)) as z:
-        assert "agent-input.jsonl" in z.namelist()
-        assert not any("answer" in n for n in z.namelist())
-        all_text = "\n".join(z.read(n).decode() for n in z.namelist())
-        assert "EVALUATOR_ONLY_SECRET" not in all_text
-        assert "not_collected" in all_text and "120" in all_text
+    assert out.status_code == 409 and "external_release_approval_required" in out.text
+    agent, blobs = frozen_input(g["id"])
+    all_text = json.dumps([agent, blobs])
+    assert "EVALUATOR_ONLY_SECRET" not in all_text
+    assert "not_collected" in all_text and "120" in all_text
     answers = manager.post("/knowledge/golden/export", json={
-        "version_ids": [g["id"]], "split": "dev", "format": "jsonl", "audience": "evaluator"})
+        "version_ids": [g["id"]], "split": "dev", "format": "jsonl", "audience": "evaluator", "schema_version": "saw.golden.export.v2", "purpose": "internal_evaluation"})
     assert "EVALUATOR_ONLY_SECRET" in answers.text
+    assert json.loads(answers.text)["schema"] == "saw.golden.evaluator-answer.v2"
     assert "golden" not in analyst.get(f"/experiences/{eid}").json()["data"]
     edited = analyst.patch(f"/knowledge/golden/{g['id']}", json={
         "expected_content_sha256": g["content_sha256"], "answers": {
@@ -88,7 +96,7 @@ def test_no_automatic_adoption_and_unapproved_export_fails(analyst, manager):
     assert manager.post(f"/experiences/{eid}/approve", json={}).status_code == 200
     exported = manager.post("/knowledge/golden/export", json={
         "version_ids": [g["id"]], "split": "dev", "format": "jsonl", "audience": "agent"})
-    assert exported.status_code == 400
+    assert exported.status_code == 409
     assert manager.post(f"/knowledge/golden/{g['id']}/review", json={
         "expected_content_sha256": g["content_sha256"], "decision": "adopt",
         "split": "dev", "confirmations": CONFIRM}).status_code == 200
@@ -128,17 +136,18 @@ def test_family_split_cannot_be_bypassed_by_new_case_link(analyst, manager):
     assert approve(manager, eid2, g2, "holdout").status_code == 200
     r = analyst.post("/cases", json={"title": "같은 사건", "investigation_ids": [inv1["id"], inv2["id"]]})
     assert r.status_code == 201, r.text
+    from tests.api.test_golden_governance import release_request
     for g, split in ((g1, "train"), (g2, "holdout")):
-        out = manager.post("/knowledge/golden/export", json={
-            "version_ids": [g["id"]], "split": split, "format": "jsonl", "audience": "agent"})
-        assert out.status_code == 400 and "family" in out.text
+        exact = next(x for x in manager.get(f"/knowledge/golden/experience/{g['experience_id']}").json()["versions"] if x["id"] == g["id"])
+        out = manager.post("/knowledge/golden/releases", json=release_request(manager, exact, split=split))
+        assert out.status_code in {400, 409} and "family" in out.text
 
 
 def test_csv_masks_and_escapes_formula_and_wrong_split(analyst, manager):
     _, eid, g = candidate(analyst, "=HYPERLINK(1)")
     analyst.post(f"/experiences/{eid}/submit")
-    assert approve(manager, eid, g, "holdout").status_code == 200
-    body = {"version_ids": [g["id"]], "split": "holdout", "format": "csv", "audience": "evaluator"}
+    assert approve(manager, eid, g, "dev").status_code == 200
+    body = {"version_ids": [g["id"]], "split": "dev", "format": "csv", "audience": "evaluator", "schema_version": "saw.golden.export.v2", "purpose": "internal_evaluation"}
     out = manager.post("/knowledge/golden/export", json=body)
     assert out.status_code == 200 and "'=HYPERLINK" in out.text
     body["split"] = "train"
@@ -163,16 +172,13 @@ def test_case_a_actual_guidance_to_golden_and_no_fabricated_reviews(analyst, man
     analyst.post(f"/experiences/{eid}/submit")
     response = approve(manager, eid, g)
     assert response.status_code == 200, response.text
-    out = manager.post("/knowledge/golden/export", json={
-        "version_ids": [g["id"]], "split": "dev", "format": "bundle", "audience": "agent"})
-    assert out.status_code == 200, out.text
-    with zipfile.ZipFile(io.BytesIO(out.content)) as z:
-        agent = json.loads(z.read("agent-input.jsonl"))
-        facts = {f["id"]: f["value"] for obs in agent["observations"] for f in obs["facts"]}
-        assert (facts["events"], facts["blocked"], facts["allowed"]) == (120, 118, 2)
-        assert agent["evidence"] and all(x["path"] in z.namelist() for x in agent["evidence"])
-        assert "forbidden_claims" not in z.read("agent-input.jsonl").decode()
-        assert "공격 시도; 실제 처리 결과 미확인" not in z.read("agent-input.jsonl").decode()
+    agent, blobs = frozen_input(g["id"])
+    facts = {f["id"]: f["value"] for obs in agent["observations"] for f in obs["facts"]}
+    assert (facts["events"], facts["blocked"], facts["allowed"]) == (120, 118, 2)
+    assert agent["evidence"] and all(x["sha256"] in blobs for x in agent["evidence"])
+    assert "forbidden_claims" not in json.dumps(agent)
+    assert "공격 시도; 실제 처리 결과 미확인" not in json.dumps(agent, ensure_ascii=False)
+
 
 def test_masked_input_allowlist_removes_derived_fields_and_preserves_relations(analyst, manager):
     _, eid, _ = candidate(analyst)
@@ -192,18 +198,15 @@ def test_masked_input_allowlist_removes_derived_fields_and_preserves_relations(a
     g = analyst.post(f"/knowledge/golden/experience/{eid}/prepare", json={"expected_experience_rev": 1}).json()
     analyst.post(f"/experiences/{eid}/submit")
     assert approve(manager, eid, g).status_code == 200
-    out = analyst.post("/knowledge/golden/export", json={
-        "version_ids": [g["id"]], "split": "dev", "format": "bundle", "audience": "agent"})
-    with zipfile.ZipFile(io.BytesIO(out.content)) as z:
-        text = "\n".join(z.read(n).decode() for n in z.namelist())
-        assert "EVALUATOR_DERIVED_MARKER" not in text
-        assert "secret-token-value" not in text and "session-secret" not in text
-        agent = json.loads(z.read("agent-input.jsonl"))
-        ev = json.loads(z.read(agent["evidence"][0]["path"]))["event"]
-        assert ev["src_ip"] == "198.51.100.8" and ev["dst_ip"] == "10.0.0.8"
-        assert ev["timestamp"] == "2026-10-01T01:02:03Z" and ev["enforcement_action"] == "allowed"
+    agent, blobs = frozen_input(g["id"])
+    text = json.dumps([agent, blobs])
+    assert "EVALUATOR_DERIVED_MARKER" not in text
+    assert "secret-token-value" not in text and "session-secret" not in text
+    ev = blobs[agent["evidence"][0]["sha256"]]["event"]
+    assert ev["src_ip"] == "198.51.100.8" and ev["dst_ip"] == "10.0.0.8"
+    assert ev["timestamp"] == "2026-10-01T01:02:03Z" and ev["enforcement_action"] == "allowed"
     assert analyst.post("/knowledge/golden/export", json={
-        "version_ids": [g["id"]], "split": "dev", "format": "jsonl", "audience": "evaluator"}).status_code == 403
+        "version_ids": [g["id"]], "split": "dev", "format": "jsonl", "audience": "evaluator", "schema_version": "saw.golden.export.v2", "purpose": "internal_evaluation"}).status_code == 403
 
 
 def test_capture_cutoff_missing_event_snapshot_and_size_limits(analyst):
@@ -294,9 +297,11 @@ def test_case_item_link_without_investigation_array_still_blocks_split(analyst, 
     added = analyst.post(f"/cases/{case['id']}/items", json={
         "item_type": "event_ref", "ref_id": "linked-event", "investigation_id": inv2["id"]})
     assert added.status_code == 201, added.text
-    out = manager.post("/knowledge/golden/export", json={
-        "version_ids": [g1["id"]], "split": "train", "format": "jsonl", "audience": "agent"})
-    assert out.status_code == 400 and "family" in out.text
+    from tests.api.test_golden_governance import release_request
+    exact = next(x for x in manager.get(f"/knowledge/golden/experience/{eid1}").json()["versions"] if x["id"] == g1["id"])
+    out = manager.post("/knowledge/golden/releases", json=release_request(manager, exact, split="train"))
+    assert out.status_code in {400, 409} and "family" in out.text
+
 
 def test_missing_approved_snapshot_is_shown_as_not_evaluable(analyst, manager):
     _, eid, g = candidate(analyst)

@@ -28,11 +28,20 @@ def test_experience_lifecycle_four_eyes(app, analyst, senior):
     assert analyst.post(f"/experiences/{eid}/submit").json()["status"] == "review"
     # author cannot approve own (and analysts lack permission anyway)
     assert analyst.post(f"/experiences/{eid}/approve", json={}).status_code == 403
+    from sqlalchemy import select
+    from saw.storage.db import session_scope
+    from saw.storage.models import User
+    with session_scope() as s:
+        senior_id = s.scalar(select(User.id).where(User.username == "senior1"))
+        other_id = s.scalar(select(User.id).where(User.username == "a2"))
+    assert analyst.post(f"/investigations/{inv['id']}/members", json={"user_id": senior_id, "access": "viewer"}).status_code == 200
     queue = senior.get("/experiences?status=review_queue").json()
     assert any(x["id"] == eid for x in queue)
     ap = senior.post(f"/experiences/{eid}/approve", json={"comment": "근거 충분"}).json()
     assert ap["status"] == "approved" and ap["approved"]["title"] and ap["expires_at"]
-    assert other.get(f"/experiences/{eid}").status_code == 200  # production knowledge now visible
+    assert other.get(f"/experiences/{eid}").status_code == 404
+    assert analyst.post(f"/investigations/{inv['id']}/members", json={"user_id": other_id, "access": "viewer"}).status_code == 200
+    assert other.get(f"/experiences/{eid}").status_code == 200  # approved knowledge still requires all source access
     # editing an approved experience keeps the approved copy live
     ed = analyst.patch(f"/experiences/{eid}", json={"data": {"reason": "수정된 근거"}}).json()
     assert ed["status"] == "draft" and ed["approved"]["reason"] == "동일 UA 클라우드 분산 순차 열거"

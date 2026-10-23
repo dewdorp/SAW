@@ -107,6 +107,8 @@ def _log(s, p, action, g=None, **detail):
 
 
 def _experience(s, p, eid, write=False):
+    from saw.knowledge.golden_profiles import actor
+    p = actor(s, p)
     e = s.get(Experience, eid)
     if e is None:
         raise NotFound("experience not found")
@@ -136,6 +138,9 @@ def _get(s, p, vid, write=False):
     if g is None:
         raise NotFound("golden version not found")
     e = _experience(s, p, g.experience_id, write)
+    from saw.knowledge.golden_v2 import sources
+    for iid in sorted(sources(g)):
+        require(s, p, "investigation.read", iid)
     return g, e
 
 
@@ -159,7 +164,7 @@ def _seal(g):
 
 
 def _blob(s, content, kind):
-    content = masked(content)
+    content = deepcopy(content) if content.get("schema") == "saw.golden.event.v2" else masked(content)
     raw = _bytes(content)
     if len(raw) > MAX_BLOB:
         raise ValueError("golden_snapshot_too_large")
@@ -225,7 +230,7 @@ def _capture(s, inv_id, c):
     return capture, safe, events
 
 
-def prepare(s: Session, p: Principal, eid: str, expected_experience_rev: int, check_ids=None):
+def _prepare_v1(s: Session, p: Principal, eid: str, expected_experience_rev: int, check_ids=None):
     _lock_experience(s, eid)
     e = _experience(s, p, eid, True)
     if e.rev != expected_experience_rev:
@@ -321,6 +326,15 @@ def prepare(s: Session, p: Principal, eid: str, expected_experience_rev: int, ch
     return g
 
 
+def prepare(s, p, eid, expected_experience_rev, check_ids=None, schema_version=None,
+            check_revision_ids=None, analysis_run_id=None, truth_case_version_ids=None):
+    if schema_version == "saw.golden.v2":
+        from saw.knowledge.golden_v2 import prepare as prepare_v2
+        return prepare_v2(s, p, eid, expected_experience_rev, check_ids, check_revision_ids,
+                          analysis_run_id, truth_case_version_ids)
+    return _prepare_v1(s, p, eid, expected_experience_rev, check_ids)
+
+
 def _verify(s, g):
     if digest(_payload(g)) != g.content_sha256:
         raise ValueError("golden_version_corrupt")
@@ -348,6 +362,9 @@ def _verify(s, g):
         if blobs[sha].get("schema") == "saw.golden.behavior-observation.v1":
             from saw.behavior.service import verify_golden_reference
             verify_golden_reference(s, g.source_investigation_id, blobs[sha])
+    from saw.knowledge.golden_v2 import is_v2, verify_references
+    if is_v2(g):
+        verify_references(s, g)
     return blobs
 
 
@@ -360,7 +377,10 @@ def edit(s, p, vid, expected_content_sha256, answers):
     _verify(s, old)
     if e.rev != old.experience_rev:
         raise ValueError("golden_experience_changed_prepare_required")
-    clean = _answers(answers)
+    from saw.knowledge.golden_v2 import is_v2, answers as v2_answers, experience_is_holdout
+    if experience_is_holdout(s, old.experience_id):
+        raise Forbidden("golden_holdout_attempt_required")
+    clean = v2_answers(answers, old.answers) if is_v2(old) else _answers(answers)
     # Every edit is a new draft; both an approved record and earlier drafts remain reviewable.
     number = (s.scalar(select(func.max(GoldenVersion.version)).where(GoldenVersion.experience_id == e.id)) or 0) + 1
     g = GoldenVersion(experience_id=e.id, experience_rev=e.rev, version=number,
@@ -418,7 +438,8 @@ def _component(s, inv_id):
         source = s.get(model, item.ref_id) if model else None
         if source is not None:
             group.add(source.investigation_id)
-    groups = list(by_case.values())
+    from saw.knowledge.golden_context import incident_groups
+    groups = list(by_case.values()) + incident_groups(s)
     members = list(s.scalars(select(GoldenFamilyMember)))
     for family_id in {m.family_id for m in members}:
         groups.append({m.investigation_id for m in members if m.family_id == family_id})
@@ -440,12 +461,18 @@ def _family(s, p, inv_id, split, assign=False):
         raise ValueError("golden_invalid_split")
     found, _ = _component(s, inv_id)
     if assign:
-        # Stable ordered source locks serialize two adoptions of the same connected case.
-        for iid in sorted(found):
-            s.execute(update(Investigation).where(Investigation.id == iid).values(status=Investigation.status)
-                      .execution_options(synchronize_session=False))
+        from saw.knowledge.golden_releases import authorize_sources
+        pinned = s.info.get("golden_review_sources")
+        if pinned is not None and not found <= pinned:
+            from fastapi import HTTPException
+            raise HTTPException(409, "golden_family_scope_changed")
+        authorize_sources(s, p, found, lock=True)
         s.expire_all()
-    found, families = _component(s, inv_id)
+    current, families = _component(s, inv_id)
+    if assign and not current <= found:
+        from fastapi import HTTPException
+        raise HTTPException(409, "golden_family_scope_changed")
+    found = current
     if any(f.split != split for f in families):
         raise ValueError("golden_family_split_conflict")
     if not assign:
@@ -464,8 +491,29 @@ def _family(s, p, inv_id, split, assign=False):
     return f
 
 
+def lock_review_sources(s, p, g):
+    from saw.knowledge.golden_releases import authorize_sources
+    from saw.knowledge.golden_v2 import sources
+    from saw.detection.derived_access import source_ids
+    e = s.get(Experience, g.experience_id)
+    family, _ = _component(s, g.source_investigation_id)
+    wanted = sources(g) | family | source_ids([e.data, e.approved_data])
+    pinned = s.info.get("golden_review_sources")
+    if pinned is not None and not wanted <= pinned:
+        from fastapi import HTTPException
+        raise HTTPException(409, "golden_source_scope_changed")
+    authorize_sources(s, p, wanted, lock=True)
+    s.info["golden_review_sources"] = wanted
+
+
 def review(s, p, vid, expected_content_sha256, decision, split, confirmations, review_answers=None):
+    from saw.knowledge.golden_v2 import is_v2, review_content
+    from saw.knowledge.golden_profiles import actor
+    p = actor(s, p, "knowledge.approve")
     g, e = _get(s, p, vid)
+    if is_v2(g) and review_answers is not None:
+        raise ValueError("golden_v2_edit_before_review_required")
+    lock_review_sources(s, p, g)
     _lock_experience(s, e.id)
     s.refresh(g)
     if not can(p, "knowledge.approve"):
@@ -490,16 +538,19 @@ def review(s, p, vid, expected_content_sha256, decision, split, confirmations, r
             if any(answer.get(key) != g.answers.get(key) for key in ("judgement", "analyst_records", "limits")):
                 raise ValueError("golden_judgement_edit_requires_new_draft_and_other_reviewer")
             g.answers = answer
-        answers = _answers(g.answers)
-        if not answers["required_facts_actions"] or not answers["forbidden_claims"] or not answers["judgement"].get("reason"):
-            raise ValueError("golden_review_content_required")
-        no_followups_reason = answers.get("no_followups_reason")
-        if not answers["followups"] and not (isinstance(no_followups_reason, str) and no_followups_reason.strip()):
-            raise ValueError("golden_followups_or_reviewed_reason_required")
-        for item in answers["required_facts_actions"] + [answers["judgement"]]:
-            if not isinstance(item, dict) or not set(item.get("evidence_refs", [])).issubset({m["sha256"] for m in g.manifest}):
-                raise ValueError("golden_answer_evidence_missing")
-        g.answers = answers
+        if is_v2(g):
+            g.answers = review_content(s, g)
+        else:
+            answers = _answers(g.answers)
+            if not answers["required_facts_actions"] or not answers["forbidden_claims"] or not answers["judgement"].get("reason"):
+                raise ValueError("golden_review_content_required")
+            no_followups_reason = answers.get("no_followups_reason")
+            if not answers["followups"] and not (isinstance(no_followups_reason, str) and no_followups_reason.strip()):
+                raise ValueError("golden_followups_or_reviewed_reason_required")
+            for item in answers["required_facts_actions"] + [answers["judgement"]]:
+                if not isinstance(item, dict) or not set(item.get("evidence_refs", [])).issubset({m["sha256"] for m in g.manifest}):
+                    raise ValueError("golden_answer_evidence_missing")
+            g.answers = answers
         f = _family(s, p, g.source_investigation_id, split, assign=True)
         g.family_id, g.status = f.id, "adopted"
         g.confirmations = dict(confirmations)
@@ -531,6 +582,29 @@ def to_dict(s, p, g, full=False):
             d["evaluation_blocker"] = str(exc)
     if full:
         d.update(input=g.input, answers=g.answers, manifest=g.manifest, confirmations=g.confirmations)
+    from saw.knowledge.golden_v2 import is_v2, sources, input_digest, experience_is_holdout
+    v2 = is_v2(g)
+    hidden = experience_is_holdout(s, g.experience_id)
+    d.update(schema_version="saw.golden.v2" if v2 else "saw.golden.v1",
+        applicability=g.input.get("applicability", {"mode": "interpretation_only", "reasons": ["legacy_context_not_captured"]}),
+        source_investigation_ids=sorted(sources(g)), validation={"state": "not_requested", "reasons": []},
+        export_eligibility={
+            "external_release": {"enabled": bool(d["evaluable"] and can(p, "golden.release.create")),
+                "reasons": [] if d["evaluable"] and can(p, "golden.release.create") else ["golden_release_ineligible"]},
+            "internal_evaluator": {"enabled": bool(d["evaluable"] and can(p, "golden.evaluate.read") and not hidden),
+                "reasons": ["golden_holdout_attempt_required"] if hidden else [] if can(p, "golden.evaluate.read") else ["golden_evaluator_permission_required"]}},
+        answers_access={"available": not hidden, "requires_holdout_attempt": hidden})
+    for iid in sources(g):
+        require(s, p, "investigation.read", iid)
+    if not hidden:
+        ref = (g.input.get("versions") or {}).get("analysis_run")
+        pinned = next((x for x in (g.metadata_json.get("golden_capture") or {}).get("analysis_runs", [])
+                       if ref and x.get("id") == ref.get("id") and x.get("sha256") == ref.get("sha256")), None)
+        d["analysis_run_ref"] = {k: pinned[k] for k in ("id", "sha256", "scope_sha256")} if pinned else None
+    if hidden:
+        for key in ("title", "category", "verdict", "answers", "content_sha256", "manifest", "confirmations"):
+            d.pop(key, None)
+        d.update(input_sha256=input_digest(g, _verify(s, g)), can_edit=False, can_review=False)
     return d
 
 
@@ -598,7 +672,18 @@ def agent_input(g, blobs):
             "evidence": [{"sha256": sha, "path": f"evidence/{sha}.json"} for sha in g.input["evidence"]]}
 
 
-def export(s, p, version_ids, split, format, audience):
+def export(s, p, version_ids, split, format, audience, schema_version=None, purpose=None):
+    from fastapi import HTTPException
+    from saw.knowledge.golden_profiles import actor
+    p = actor(s, p)
+    if audience == "agent":
+        raise HTTPException(409, "external_release_approval_required")
+    if schema_version != "saw.golden.export.v2" or purpose != "internal_evaluation":
+        raise ValueError("golden_explicit_export_schema_purpose_required")
+    if not can(p, "golden.evaluate.read"):
+        raise Forbidden("golden.evaluate.read")
+    if split == "holdout":
+        raise HTTPException(409, "golden_holdout_attempt_required")
     if not version_ids or len(version_ids) > 100 or len(set(version_ids)) != len(version_ids):
         raise ValueError("golden_export_limit")
     if split not in SPLITS or format not in {"csv", "jsonl", "bundle"} or audience not in {"agent", "evaluator"}:
@@ -622,24 +707,10 @@ def export(s, p, version_ids, split, format, audience):
             writer.writerow([csv_safe(row.get(k)) for k in fields])
         data, media, filename = stream.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8", "golden-list.csv"
     else:
-        items = [agent_input(g, all_blobs) if audience == "agent" else {
-            "schema": "saw.golden.evaluator-answer.v1", "example_id": g.id, "version": g.version,
-            "family_id": g.family_id, "split": split, "answers": g.answers,
-            "reviewer": g.reviewer_name, "reviewed_at": _aware(g.reviewed_at).isoformat(),
-            "content_sha256": g.content_sha256} for g in rows]
-        data = ("\n".join(json.dumps(x, ensure_ascii=False, sort_keys=True) for x in items) + "\n").encode("utf-8")
-        media, filename = "application/x-ndjson", "agent-input.jsonl" if audience == "agent" else "evaluator-answer.jsonl"
-        if format == "bundle":
-            out = io.BytesIO()
-            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-                z.writestr("agent-input.jsonl", data)
-                evidence = {sha for g in rows for sha in g.input["evidence"]}
-                for sha in sorted(evidence):
-                    z.writestr(f"evidence/{sha}.json", _bytes(all_blobs[sha]))
-                z.writestr("manifest.json", _bytes({"schema": "saw.golden.bundle.v1", "audience": "agent",
-                    "retrieval": "snapshot_only", "examples": [g.id for g in rows],
-                    "evidence": [{"sha256": sha, "size_bytes": len(_bytes(all_blobs[sha]))} for sha in sorted(evidence)]}))
-            data, media, filename = out.getvalue(), "application/zip", "golden-agent-evidence.zip"
+        from saw.knowledge.golden_conversion import evaluator_jsonl
+        data = evaluator_jsonl([{"version_id": g.id, "content_sha256": g.content_sha256,
+            "payload": _payload(g)} for g in rows])
+        media, filename = "application/x-ndjson", "evaluator-answer.jsonl"
     if len(data) > MAX_EXPORT:
         raise ValueError("golden_export_too_large")
     _log(s, p, "export", version_ids=version_ids, split=split, format=format, audience=audience,

@@ -1,0 +1,82 @@
+{
+  "schema": "saw.qa.final-gate.v1",
+  "date": "2026-10-24",
+  "base": "81f866a5690042ad9918ef6f28907ff7fef6d698",
+  "backend": {
+    "totals": {
+      "tests": 2187,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 8
+    },
+    "passed": 2179,
+    "junit_seconds": 2276.704,
+    "skips": [
+      {
+        "node": "tests.unit.test_detector_version_migration.test_fresh_schema_preserves_complete_detector_versions[postgresql]",
+        "reason": "SAW_TEST_DATABASE_URL not set; actual PostgreSQL not exercised"
+      },
+      {
+        "node": "tests.unit.test_detector_version_migration.test_0022_populated_0021_upgrade_twice_preserves_provenance_and_history[postgresql]",
+        "reason": "SAW_TEST_DATABASE_URL not set; actual PostgreSQL not exercised"
+      },
+      {
+        "node": "tests.unit.test_migrations.test_fresh_upgrade_matches_models[1]",
+        "reason": "SAW_TEST_DATABASE_URL not set"
+      },
+      {
+        "node": "tests.unit.test_model_pack_builder.test_builder_rejects_source_links",
+        "reason": "Windows symlink creation is unavailable"
+      },
+      {
+        "node": "tests.unit.test_postgresql_setup.test_native_initdb_ba_system_only_secret_and_exact_acl_restore",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "node": "tests.unit.test_postgresql_setup.test_native_initdb_success_already_has_selected_secure_configuration",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "node": "tests.unit.test_postgresql_setup.test_native_initdb_with_korean_runtime_share_and_data_paths",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "node": "tests.unit.test_private_update_state.test_untrusted_existing_state_is_still_rejected",
+        "reason": "POSIX access-bit rejection; native ACL cases use the handoff test"
+      }
+    ],
+    "log_summary": [
+      "2179 passed, 8 skipped, 2 warnings in 2276.73s (0:37:56)"
+    ]
+  },
+  "source_checkpoint": {
+    "files": 72,
+    "changed_since_checkpoint": []
+  },
+  "scope": {
+    "synthetic_isolated_api_unit": true,
+    "native_runs_separate": true,
+    "target_os_acceptance": false
+  },
+  "web": {
+    "passed": 348,
+    "files": 51,
+    "seconds": 78.46,
+    "typescript_exit": 0,
+    "vite_exit": 0,
+    "vite_seconds": 22.51,
+    "existing_warning": "chunk larger than 2000 kB"
+  },
+  "transient_document_change": "Guide and six screenshots were briefly promoted during backend execution, then exact guide bytes restored and new PNGs moved to QA staging before media checks. No backend product/test change; final guide promotion and explicit media inclusion will receive a separate media gate.",
+  "post_full_media_gate": {
+    "tests": [
+      "tests/unit/test_release_manifest.py",
+      "tests/unit/test_package_governance_bridge.py"
+    ],
+    "passed": 73,
+    "failed": 0,
+    "warnings": 1,
+    "seconds": 12.56,
+    "scope": "Final guide, six screenshots, public records and explicit public-path allowlist only"
+  }
+}

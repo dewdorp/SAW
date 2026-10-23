@@ -1,3 +1,6 @@
+import { V2GoldenReview } from "./golden/V2GoldenReview";
+import { exactSelection, hiddenHoldout, safeCaseLabel } from "./golden/types";
+import { Reasons } from "./golden/labels";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -16,11 +19,22 @@ export type GoldenChoice = { payload?: any; valid: boolean };
 const lines = (v: string) => v.split("\n").map(x => x.trim()).filter(Boolean);
 const followText = (v: any) => typeof v === "string" ? v : [v.target, ...(v.needed_data || []), ...(v.items || []), v.priority].filter(Boolean).join(" · ");
 
-export function GoldenReview({ experience: e, onChoice }: { experience: any; onChoice: (v: GoldenChoice) => void }) {
+export function GoldenReview({experience:e,onChoice}:{experience:any;onChoice:(v:GoldenChoice)=>void}) {
+ const me=useMe();const enabled=!!e.source_investigation_id&&(me.data?.id===e.analyst_id||me.data?.permissions.includes("knowledge.approve"));
+ const q=useQuery({queryKey:["golden",e.id,me.data?.id,me.data?.permissions],enabled,queryFn:()=>api.get(`/knowledge/golden/experience/${e.id}`)});
+ if(!enabled)return null;
+ if(q.isLoading)return <Loading/>;
+ if(q.error)return <Panel title="정답 사례 채택"><div className="small">원본 조사에 접근할 권한이 필요합니다. 조사 담당자에게 접근 범위를 확인하세요.</div><ErrorBox error={q.error}/></Panel>;
+ const versions=q.data?.versions||[];
+ if(versions[0]&&!hiddenHoldout(versions[0])&&versions[0].answers_access?.available!==false&&versions[0].schema_version!=="saw.golden.v2")return <LegacyGoldenReview key={JSON.stringify([e.id,e.rev,me.data?.id,me.data?.permissions])} experience={e} onChoice={onChoice}/>;
+ return <V2GoldenReview key={JSON.stringify([e.id,e.rev,me.data?.id,me.data?.permissions])} experience={e} onChoice={onChoice} versions={versions}/>;
+}
+
+function LegacyGoldenReview({ experience: e, onChoice }: { experience: any; onChoice: (v: GoldenChoice) => void }) {
   const qc = useQueryClient();
   const me = useMe();
   const enabled = !!e.source_investigation_id && (me.data?.id === e.analyst_id || me.data?.permissions.includes("knowledge.approve"));
-  const q = useQuery({ queryKey: ["golden", e.id], enabled,
+  const q = useQuery({ queryKey: ["golden", e.id, me.data?.id, me.data?.permissions], enabled,
     queryFn: () => api.get(`/knowledge/golden/experience/${e.id}`) });
   const g = q.data?.versions?.[0];
   const [decision, setDecision] = useState("none");
@@ -36,9 +50,9 @@ export function GoldenReview({ experience: e, onChoice }: { experience: any; onC
   const judgementChanged = !!changed && JSON.stringify(changed.judgement) !== JSON.stringify(g?.answers?.judgement);
   const valid = decision !== "adopt" || (!judgementChanged && Object.keys(LABELS).every(k => confirmed[k]));
   useEffect(() => { onChoice({ payload, valid }); }, [payload, valid, onChoice]);
-  const refresh = () => { qc.invalidateQueries({ queryKey: ["golden", e.id] }); qc.invalidateQueries({ queryKey: ["goldens"] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["golden", e.id, me.data?.id, me.data?.permissions] }); qc.invalidateQueries({ queryKey: ["goldens"] }); };
   const prepare = useMutation({ mutationFn: () => api.post(`/knowledge/golden/experience/${e.id}/prepare`,
-    { expected_experience_rev: e.rev }), onSuccess: refresh });
+    { expected_experience_rev: e.rev, schema_version: "saw.golden.v2", check_ids: e.data?.golden_capture?.check_revisions?.map((r:any)=>r.check_id) || [] }), onSuccess: refresh });
   const save = useMutation({ mutationFn: () => api.patch(`/knowledge/golden/${g.id}`,
     { expected_content_sha256: g.content_sha256, answers: answer }), onSuccess: refresh });
   const review = useMutation({ mutationFn: () => {
@@ -88,7 +102,7 @@ export function GoldenReview({ experience: e, onChoice }: { experience: any; onC
           onClick={() => review.mutate()}>정답 사례 결정 저장</button>}
       </>}
       {g.status === "draft" && !g.can_review && <span className="small muted">작성자·편집자와 다른 검토자가 채택해야 합니다.</span>}
-      {g.experience_rev !== e.rev && <button className="btn" disabled={prepare.isPending} onClick={() => prepare.mutate()}>현재 경험 버전으로 초안 다시 만들기</button>}
+      {e.data?.golden_capture && <button className="btn" disabled={prepare.isPending} onClick={() => prepare.mutate()}>현재 경험의 고정 참조로 v2 초안 만들기</button>}
       <details><summary className="small">버전과 근거 이력</summary>
         {(q.data?.versions || []).map((v: any) => <div key={v.id} className="small">버전 {v.version} · {STATES[v.status]} · 경험 r{v.experience_rev} · {v.reviewer || "검토 전"} · {fmtTime(v.reviewed_at)}</div>)}
         {(g.manifest || []).map((m: any) => <div key={m.sha256} className="mono small">{m.kind} · {m.sha256.slice(0, 16)} · {m.size_bytes} bytes</div>)}
@@ -113,37 +127,36 @@ async function downloadGolden(body: any) {
   setTimeout(() => URL.revokeObjectURL(href), 5000);
 }
 
-export function GoldenCases() {
-  const me = useMe();
-  const [filters, setFilters] = useState<Record<string, string>>({ split: "dev", status: "adopted" });
-  const [selected, setSelected] = useState<string[]>([]);
-  const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
-  const q = useQuery({ queryKey: ["goldens", qs], queryFn: () => api.get("/knowledge/golden?" + qs) });
-  const set = (k: string, v: string) => { setFilters({ ...filters, [k]: v }); setSelected([]); };
-  const exp = useMutation({ mutationFn: ({ format, audience }: { format: string; audience: string }) =>
-    downloadGolden({ version_ids: selected, split: filters.split, format, audience }) });
-  const canAnswers = me.data?.permissions.includes("knowledge.approve");
-  return <div className="col"><div className="row wrap">
-    <input className="input" aria-label="사례명 검색" placeholder="사례명 검색" value={filters.q || ""} onChange={e => set("q", e.target.value)} />
-    <select className="input" aria-label="정답 사례 용도" value={filters.split} onChange={e => set("split", e.target.value)}>
-      {Object.entries(SPLITS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-    <select className="input" aria-label="채택 상태" value={filters.status} onChange={e => set("status", e.target.value)}>
-      <option value="">전체 상태</option>{Object.entries(STATES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-    <select className="input" aria-label="사례 유형" value={filters.category || ""} onChange={e => set("category", e.target.value)}>
-      <option value="">전체 유형</option>{Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-    <select className="input" aria-label="사례 판정" value={filters.verdict || ""} onChange={e => set("verdict", e.target.value)}>
-      <option value="">전체 판정</option>{Object.entries(VERDICTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-    <input className="input" aria-label="검토자" placeholder="검토자" value={filters.reviewer || ""} onChange={e => set("reviewer", e.target.value)} />
-    <input className="input" aria-label="방법론 버전" placeholder="방법론 버전" value={filters.methodology_version || ""} onChange={e => set("methodology_version", e.target.value)} />
-  </div><div className="small muted">승인된 선택 버전만 내보냅니다. 에이전트 입력·근거와 평가자 정답은 별도 파일입니다.</div>
-    {q.isLoading ? <Loading /> : <table className="t"><thead><tr><th>선택</th><th>사례</th><th>유형·판정</th><th>상태</th><th>검토자</th><th>방법론</th><th>용도</th></tr></thead>
-      <tbody>{(q.data || []).map((g: any) => <tr key={g.id}><td><input type="checkbox" aria-label={`버전 ${g.version} ${g.title} 선택`}
-        disabled={g.status !== "adopted" || g.evaluable === false} checked={selected.includes(g.id)} onChange={e => setSelected(e.target.checked ? [...selected, g.id] : selected.filter(x => x !== g.id))} /></td>
-        <td><Link to={`/knowledge/exp/${g.experience_id}`}>{g.title}</Link> · v{g.version}</td><td>{CATEGORIES[g.category] || g.category} · {VERDICTS[g.verdict] || g.verdict}</td>
-        <td>{STATES[g.status]}{g.status === "adopted" && g.evaluable === false && <span className="tag warn">평가 불가 · 근거·승인 확인 필요</span>}</td><td>{g.reviewer || "검토 전"}</td><td>{g.methodology_version}</td><td>{SPLITS[g.split] || "미지정"}</td></tr>)}</tbody></table>}
-    <div className="row wrap">{[["bundle", "agent", "선택 근거 묶음"], ["jsonl", "agent", "에이전트 JSONL"],
-      ...(canAnswers ? [["jsonl", "evaluator", "평가자 정답 JSONL"], ["csv", "evaluator", "목록 CSV"]] : [])].map(([format, audience, label]) =>
-      <button className="btn" key={label} disabled={!selected.length || exp.isPending} onClick={() => exp.mutate({ format, audience })}>{label}</button>)}</div>
-    <ErrorBox error={q.error || exp.error} />
-  </div>;
+export function GoldenCases() { const me=useMe(); if(me.isLoading)return <Loading/>;if(me.error)return <ErrorBox error={me.error}/>;return <GoldenCasesContent key={JSON.stringify([me.data?.id,me.data?.permissions])}/>; }
+function GoldenCasesContent() {
+ const me=useMe();const qc=useQueryClient();
+ const [filters,setFilters]=useState<Record<string,string>>({split:"dev",status:"adopted"});
+ const [selected,setSelected]=useState<any[]>([]);
+ const holdout=filters.split==="holdout";
+ const allowedFilters=Object.entries(filters).filter(([k,v])=>v&&(!holdout||!["q","category","verdict"].includes(k)));
+ const qs=new URLSearchParams(allowedFilters).toString();
+ const q=useQuery({queryKey:["goldens",qs,me.data?.id,me.data?.permissions],queryFn:()=>api.get("/knowledge/golden?"+qs)});
+ const set=(k:string,v:string)=>{const next={...filters,[k]:v};if(k==="split"){delete next.q;delete next.category;delete next.verdict;qc.removeQueries({queryKey:["goldens"]});}setFilters(next);setSelected([]);};
+ const exp=useMutation({mutationFn:(format:string)=>downloadGolden({schema_version:"saw.golden.export.v2",purpose:"internal_evaluation",version_ids:selected.map(g=>g.id),split:filters.split,format,audience:"evaluator"})});
+ const canAnswers=!holdout&&me.data?.permissions.includes("golden.evaluate.read");
+ const canRelease=me.data?.permissions.includes("golden.release.create");
+ return <div className="col"><div className="row wrap">
+ {!holdout&&<input className="input" aria-label="사례명 검색" placeholder="사례명 검색" value={filters.q||""} onChange={e=>set("q",e.target.value)}/>}
+ <select className="input" aria-label="정답 사례 용도" value={filters.split} onChange={e=>set("split",e.target.value)}>{Object.entries(SPLITS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
+ <select className="input" aria-label="채택 상태" value={filters.status} onChange={e=>set("status",e.target.value)}><option value="">전체 상태</option>{Object.entries(STATES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
+ {!holdout&&<><select className="input" aria-label="사례 유형" value={filters.category||""} onChange={e=>set("category",e.target.value)}><option value="">전체 유형</option>{Object.entries(CATEGORIES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select>
+ <select className="input" aria-label="사례 판정" value={filters.verdict||""} onChange={e=>set("verdict",e.target.value)}><option value="">전체 판정</option>{Object.entries(VERDICTS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></>}
+ <input className="input" aria-label="방법론 버전" placeholder="방법론 버전" value={filters.methodology_version||""} onChange={e=>set("methodology_version",e.target.value)}/></div>
+ <div className="small muted">{holdout?"비공개 평가용 사례는 제목·판정·정답을 제공하지 않습니다. 입력과 평가 결과를 기록한 후 별도 권한으로 정답을 열람합니다.":"사례 채택과 외부 반출 승인은 별도입니다. 선택한 정확한 버전으로 반출 패키지를 작성하세요."}</div>
+ {q.isLoading?<Loading/>:<table className="t"><thead><tr><th>선택</th><th>사례</th>{!holdout&&<th>유형·판정</th>}<th>상태</th><th>자료 용도</th></tr></thead><tbody>
+ {(q.data||[]).map((g:any)=>{const hidden=hiddenHoldout(g);const label=hidden?safeCaseLabel(g):`버전 ${g.version} ${g.title}`;
+ const eligible=g.export_eligibility?.external_release?.enabled||(!hidden&&g.export_eligibility?.internal_evaluator?.enabled);
+ return <tr key={g.id}><td><input type="checkbox" aria-label={label+" 선택"} checked={selected.some(v=>v.id===g.id)} disabled={g.status!=="adopted"||!eligible||(!selected.some(v=>v.id===g.id)&&selected.length>=100)} onChange={e=>{const safe={id:g.id,version:g.version,status:g.status,split:g.split,export_eligibility:g.export_eligibility,...(hidden?{input_sha256:g.input_sha256}:{content_sha256:g.content_sha256,title:g.title,experience_id:g.experience_id,experience_rev:g.experience_rev})};setSelected(e.target.checked?[...selected,safe]:selected.filter(v=>v.id!==g.id));}}/></td>
+ <td>{hidden?safeCaseLabel(g):<><Link to={`/knowledge/exp/${g.experience_id}`}>{g.title}</Link> · v{g.version}</>}</td>
+ {!holdout&&<td>{hidden?"비공개":`${CATEGORIES[g.category]||g.category||""} · ${VERDICTS[g.verdict]||g.verdict||""}`}</td>}
+ <td>{STATES[g.status]||g.status}<Reasons value={g.export_eligibility?.external_release}/></td><td>{g.schema_version||"saw.golden.v1"} · 대표 근거 해석용</td></tr>;})}</tbody></table>}
+ <div className="row wrap"><span className="small">선택 {selected.length}/100</span>
+ {canRelease&&selected.length>0&&selected.every(g=>g.export_eligibility?.external_release?.enabled)&&<Link className="btn" to="/knowledge/releases/new" state={{principal:JSON.stringify([me.data?.id,me.data?.permissions]),selected:selected.map(exactSelection),split:filters.split}}>선택 버전으로 반출 패키지 작성</Link>}
+ {canAnswers&&[["jsonl","평가자 정답 JSONL"],["csv","목록 CSV"]].map(([format,label])=><button className="btn" key={format} disabled={!selected.length||!selected.every(g=>g.export_eligibility?.internal_evaluator?.enabled)||exp.isPending} onClick={()=>exp.mutate(format)}>{label}</button>)}
+ </div><ErrorBox error={q.error||exp.error}/></div>;
 }

@@ -152,13 +152,14 @@ def test_behavior_golden_exact_metrics_separates_answers(analyst, manager):
         assert "BEHAVIOR_EVALUATOR_ONLY" not in json.dumps(observation)
     analyst.post(f"/experiences/{eid}/submit")
     assert approve(manager, eid, golden).status_code == 200
-    body = {"version_ids": [golden["id"]], "split": "dev", "format": "jsonl", "audience": "agent"}
-    exported = manager.post("/knowledge/golden/export", json=body)
-    assert exported.status_code == 200
-    assert "BEHAVIOR_EVALUATOR_ONLY" not in exported.text
-    assert "BEHAVIOR_EVALUATOR_ONLY" in manager.post("/knowledge/golden/export",
-        json={**body, "audience": "evaluator"}).text
-    assert manager.post("/knowledge/golden/export", json={**body, "split": "holdout"}).status_code == 400
+    from tests.api.test_golden import frozen_input
+    agent, blobs = frozen_input(golden["id"])
+    assert "BEHAVIOR_EVALUATOR_ONLY" not in json.dumps([agent, blobs])
+    body = {"version_ids": [golden["id"]], "split": "dev", "format": "jsonl", "audience": "evaluator",
+        "schema_version": "saw.golden.export.v2", "purpose": "internal_evaluation"}
+    assert "BEHAVIOR_EVALUATOR_ONLY" in manager.post("/knowledge/golden/export", json=body).text
+    assert manager.post("/knowledge/golden/export", json={**body, "split": "holdout"}).status_code == 409
+
 
 def test_behavior_golden_snapshot_loss_and_stale_revision(analyst, manager):
     from tests.api.test_golden import approve

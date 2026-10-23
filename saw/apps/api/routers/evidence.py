@@ -46,8 +46,13 @@ class ParserIn(BaseModel):
     parser_id: str
 
 
-def job_out(j: Job) -> dict:
+def job_out(j: Job, *, p=None) -> dict:
     stages = j.stages
+    if j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import public_stage, can_manage
+        stages = {"golden_export": public_stage(j, can_manage=p is not None and can_manage(p, j),
+                  can_retry=p is not None and p.user_id == j.requested_by and can_manage(p, j)),
+                  "retry_of": (j.stages or {}).get("retry_of")}
     if j.kind == "report_export":
         stages = {"report_export": (j.stages or {}).get("report_export"),
                   "retry_of": (j.stages or {}).get("retry_of")}
@@ -186,7 +191,13 @@ def list_jobs(active: bool = False, ctx: AuthContext = Depends(auth), s: Session
                 require_job(s, ctx.principal, j)
             except (Forbidden, NotFound):
                 continue
-        visible.append(job_out(j))
+        if j.kind == "golden_export":
+            from saw.knowledge.golden_jobs import require_job
+            try:
+                require_job(s, ctx.principal, j)
+            except (Forbidden, NotFound):
+                continue
+        visible.append(job_out(j, p=ctx.principal))
     return visible
 
 
@@ -197,6 +208,9 @@ def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
     if j.kind == "report_export":
         from saw.reports.export_jobs import require_job
         require_job(s, ctx.principal, j)
+    elif j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import require_job
+        require_job(s, ctx.principal, j)
     else:
         require(s, ctx.principal, "investigation.read", j.investigation_id)
     s.refresh(j)
@@ -206,7 +220,7 @@ def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
-    out = job_out(j)
+    out = job_out(j, p=ctx.principal)
     if j.evidence_id:
         out["files"] = [file_out(f) for f in s.execute(select(EvidenceFile).where(
             EvidenceFile.evidence_id == j.evidence_id)).scalars()]
@@ -216,6 +230,9 @@ def get_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
+    if j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import cancel
+        return job_out(cancel(s, ctx.principal, j), p=ctx.principal)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
     from saw.core.application.data_deletion import lock_investigation
     lock_investigation(s, j.investigation_id)
@@ -237,6 +254,14 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
 @router.post("/jobs/{job_id}/retry")
 def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     raw = s.get(Job, job_id)
+    if raw is not None and raw.kind == "golden_export":
+        from saw.knowledge.golden_jobs import retry
+        newer = retry(s, ctx.principal, raw)
+        s.commit()
+        if newer.state == "QUEUED" and newer.stages.get("input_state") == "input_ready":
+            container.get().runner.submit("golden_export.run", job_id=newer.id)
+        s.refresh(newer)
+        return job_out(newer, p=ctx.principal)
     if raw is not None and raw.kind == "report_export":
         from saw.reports.export_jobs import retry
         newer = retry(s, ctx.principal, raw)
@@ -294,7 +319,15 @@ async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(a
                     except (Forbidden, NotFound):
                         yield "event: end\ndata: {}\n\n"
                         return
-                payload = json.dumps(job_out(j), default=str)
+                if j.kind == "golden_export":
+                    from saw.knowledge.golden_jobs import actor, require_job
+                    from saw.core.application.investigations import Forbidden
+                    try:
+                        require_job(s, actor(s, ctx.principal.user_id, session_id=ctx.session.id), j)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
+                payload = json.dumps(job_out(j, p=ctx.principal), default=str)
                 state = j.state
             if payload != last:
                 yield f"event: progress\ndata: {payload}\n\n"

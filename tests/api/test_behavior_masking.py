@@ -50,12 +50,12 @@ def test_json_header_values_cannot_reach_behavior_report_or_golden_export(analys
     analyst.post(f"/experiences/{eid}/submit")
     assert approve(manager, eid, prepared.json()).status_code == 200
     report = analyst.get(f"/investigations/{inv['id']}/behavior/{result['id']}/report")
-    exported = manager.post("/knowledge/golden/export", json={
-        "version_ids": [prepared.json()["id"]], "split": "dev", "format": "jsonl", "audience": "agent"})
-    assert exported.status_code == 200, exported.text
-    for content in (report.text, exported.text):
+    from tests.api.test_golden import frozen_input
+    agent, blobs = frozen_input(prepared.json()["id"])
+    for content in (report.text, json.dumps([agent, blobs])):
         assert "SYNTHETIC_COOKIE_VALUE" not in content
         assert "SYNTHETIC_AUTH_VALUE" not in content
+
 
 def test_truncated_unicode_escaped_sensitive_key_is_masked():
     value = '{"' + chr(92) + 'u0043ookie": "SYNTHETIC_COOKIE_VALUE truncated'
