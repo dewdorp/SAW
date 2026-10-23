@@ -42,6 +42,7 @@ def build(settings: Settings | None = None, synchronous_jobs: bool = False) -> C
     else:
         objects = LocalFSObjectStore(s.object_store_root)
     from saw.analysis_runs import scoped  # noqa: F401
+    from saw.reports import export_jobs  # noqa: F401
 
     if s.job_runner == "celery":  # ENV-05
         from saw.workers.runner import CeleryRunner
@@ -71,7 +72,8 @@ def _recover_orphaned_jobs(runner: InProcessRunner) -> None:
 
     with session_scope() as s:
         orphans = s.execute(select(Job).where(Job.state.in_(["QUEUED", "PARSING", "INDEXING", "ANALYZING"]))).scalars().all()
-        todo = [(j.id, "device_analysis.run" if j.kind == "device_analysis" else
+        todo = [(j.id, "report_export.run" if j.kind == "report_export" else
+                 "device_analysis.run" if j.kind == "device_analysis" else
                  "behavior.run" if j.kind == "behavior" else
                  "analyze.run" if j.kind == "reanalyze" or j.state == "ANALYZING" else "ingest.run") for j in orphans]
         for j in orphans:

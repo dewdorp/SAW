@@ -47,8 +47,12 @@ class ParserIn(BaseModel):
 
 
 def job_out(j: Job) -> dict:
+    stages = j.stages
+    if j.kind == "report_export":
+        stages = {"report_export": (j.stages or {}).get("report_export"),
+                  "retry_of": (j.stages or {}).get("retry_of")}
     return {"id": j.id, "investigation_id": j.investigation_id, "evidence_id": j.evidence_id, "kind": j.kind,
-            "state": j.state, "stages": j.stages, "events_total_est": j.events_total_est,
+            "state": j.state, "stages": stages, "events_total_est": j.events_total_est,
             "events_done": j.events_done, "current_item": j.current_item, "error": j.error,
             "created_at": j.created_at, "started_at": j.started_at, "finished_at": j.finished_at,
             "cancel_requested": j.cancel_requested}
@@ -173,14 +177,28 @@ def list_jobs(active: bool = False, ctx: AuthContext = Depends(auth), s: Session
     q = select(Job).where(Job.investigation_id.in_(inv_ids)).order_by(Job.created_at.desc()).limit(50)
     if active:
         q = q.where(Job.state.notin_(["COMPLETED", "FAILED", "CANCELLED"]))
-    return [job_out(j) for j in s.execute(q).scalars()]
+    from saw.core.application.investigations import Forbidden
+    visible = []
+    for j in s.execute(q).scalars():
+        if j.kind == "report_export":
+            from saw.reports.export_jobs import require_job
+            try:
+                require_job(s, ctx.principal, j)
+            except (Forbidden, NotFound):
+                continue
+        visible.append(job_out(j))
+    return visible
 
 
 def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
     j = s.get(Job, job_id)
     if j is None:
         raise NotFound("job not found")
-    require(s, ctx.principal, "investigation.read", j.investigation_id)
+    if j.kind == "report_export":
+        from saw.reports.export_jobs import require_job
+        require_job(s, ctx.principal, j)
+    else:
+        require(s, ctx.principal, "investigation.read", j.investigation_id)
     s.refresh(j)
     return j
 
@@ -205,6 +223,9 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
     j.cancel_requested = True
     if j.state in ("QUEUED", "WAITING_INPUT", "UPLOADING"):
         j.state = "CANCELLED"
+        if j.kind == "report_export":
+            from saw.storage.db import utcnow
+            j.finished_at = utcnow()
         if j.kind == "device_analysis":
             from saw.analysis_runs.scoped import cancel_queued
             cancel_queued(s, j)
@@ -215,6 +236,14 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
 
 @router.post("/jobs/{job_id}/retry")
 def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    raw = s.get(Job, job_id)
+    if raw is not None and raw.kind == "report_export":
+        from saw.reports.export_jobs import retry
+        newer = retry(s, ctx.principal, raw)
+        s.commit()
+        container.get().runner.submit("report_export.run", job_id=newer.id)
+        s.refresh(newer)
+        return job_out(newer)
     j = _job_for(s, ctx, job_id)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
     from saw.core.application.data_deletion import lock_investigation
@@ -257,6 +286,14 @@ async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(a
                 if j is None:
                     yield "event: end\ndata: {}\n\n"
                     return
+                if j.kind == "report_export":
+                    from saw.reports.export_jobs import _actor, require_job
+                    from saw.core.application.investigations import Forbidden
+                    try:
+                        require_job(s, _actor(s, ctx.principal.user_id), j)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
                 payload = json.dumps(job_out(j), default=str)
                 state = j.state
             if payload != last:

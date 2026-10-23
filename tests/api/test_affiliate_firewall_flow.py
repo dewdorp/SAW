@@ -54,4 +54,4 @@ def test_context_to_parser_to_saved_fw_run(analyst, senior):
     report = analyst.post(f"/investigations/{inv}/report-versions",
                           json={"analysis_run_id": runs[0]["id"]})
     assert report.status_code == 201, report.text
-    assert report.json()["content"]["analysis"]["input_manifest"]["org_unit_id"] == org["id"]
+    assert report.json()["content"]["items"][0]["analysis"]["input_manifest"]["org_unit_id"] == org["id"]

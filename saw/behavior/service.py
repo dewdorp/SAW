@@ -69,7 +69,7 @@ class BehaviorAttachment(BaseModel):
 
 def ensure_source_idle(s, inv_id):
     active = s.scalar(select(Job.id).where(Job.investigation_id == inv_id,
-        Job.kind != "behavior", Job.state.notin_(TERMINAL)).limit(1))
+        Job.kind.notin_(("behavior", "report_export")), Job.state.notin_(TERMINAL)).limit(1))
     if active:
         raise HTTPException(409, "behavior_source_processing_active")
 
@@ -103,7 +103,7 @@ def source_manifest(s, inv_id):
     source_jobs = [{"id": j.id, "attempt": j.attempt, "state": j.state,
                     "finished_at": str(j.finished_at) if j.finished_at else None}
                    for j in s.scalars(select(Job).where(Job.investigation_id == inv_id,
-                       Job.kind != "behavior").order_by(Job.id))]
+                       Job.kind.notin_(("behavior", "report_export"))).order_by(Job.id))]
     return masked({"data_epoch": int((inv.settings or {}).get("data_epoch", 0)),
                    "evidence": evidence, "source_jobs": source_jobs})
 

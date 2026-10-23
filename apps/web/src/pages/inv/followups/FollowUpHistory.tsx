@@ -1,0 +1,14 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../../lib/api";
+import { ErrorBox, Loading } from "../../../components/common";
+import { fmtTime } from "../../../lib/format";
+import { OUTCOME, STATUS, type FollowUpVersion } from "./types";
+export function FollowUpSnapshot({ version: v }: {
+    version: FollowUpVersion;
+}) { const p = v.payload; return <section className="panel pb col"><h4>{p.question}</h4><span>{STATUS[p.status] || p.status} · 버전 {v.revision}</span><p>{p.reason}</p><div>책임 관계사 {p.owner.org_unit_id || "미지정"} · 부서 {p.owner.department || "미지정"} · 담당자 {p.owner.user_id || "미지정"} · {p.due_at ? `기한 ${fmtTime(p.due_at)}` : "기한 없음"}</div><div>필요 자료: {p.needed_data.join(" · ") || "미기록"}</div><div>확인 항목: {p.items.join(" · ") || "미기록"}</div><div>회신: {p.reply?.note || "회신 미수신"}</div><div>검증: {p.verification ? `${OUTCOME[p.verification.outcome] || p.verification.outcome} · ${p.verification.basis}` : "아직 검증하지 않음"}</div>{p.disposition && <div>처리 사유: {p.disposition.reason}</div>}<details><summary>고정된 확인 기록·버전·근거 상세</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(v, null, 2)}</pre></details></section>; }
+export function FollowUpHistory({ inv, id, onSelect }: {
+    inv: string;
+    id: string;
+    onSelect: (v: FollowUpVersion) => void;
+}) { const [before, setBefore] = useState<number | null>(null); const [older, setOlder] = useState<any[]>([]); const [selected, setSelected] = useState(""); const path = `/investigations/${inv}/follow-ups/${id}`; const q = useQuery({ queryKey: ["follow-up-versions", inv, id, before], queryFn: () => api.get(`${path}/versions?limit=50${before ? `&before_revision=${before}` : ""}`) }); const exact = useQuery({ queryKey: ["follow-up-version", inv, id, selected], enabled: !!selected, queryFn: () => api.get(`${path}/versions/${selected}`) }); const versions = [...older, ...q.data?.versions || []].filter((v, i, a) => a.findIndex(x => x.id === v.id) === i); return <section className="col"><h4>저장 버전 이력</h4><ErrorBox error={q.error || exact.error}/>{q.isLoading && <Loading />}{versions.map(v => <button key={v.id} className="btn sm" onClick={() => setSelected(v.id)}>버전{v.revision} 보기 · {fmtTime(v.created_at)}</button>)}{q.data?.next_before_revision && <button className="btn sm" onClick={() => { setOlder(versions); setBefore(q.data.next_before_revision); }}>이전 버전 더 보기</button>}{exact.data && <><b>과거 저장 버전 · 읽기 전용</b><FollowUpSnapshot version={exact.data.version}/><button className="btn" onClick={() => onSelect(exact.data.version)}>이 저장 버전을 내보내기 선택에 추가</button></>}</section>; }

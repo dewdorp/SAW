@@ -68,6 +68,11 @@ def to_dict(c: Check, full: bool = True) -> dict[str, Any]:
     session = object_session(c)
     if session is not None:
         require_snapshot(session, session.info.get("principal"), [c.scope, c.context])
+    return _snapshot_payload(c, full)
+
+
+def _snapshot_payload(c: Check, full: bool = True) -> dict[str, Any]:
+    """Pure projection for an authorized serializer or private transition snapshot."""
     scope = c.scope or {}
     d = {
         "id": c.id, "investigation_id": c.investigation_id, "target_type": c.target_type, "target_key": c.target_key,
@@ -242,6 +247,8 @@ def create(s: Session, p: Principal, inv_id: str, data: dict) -> Check:
     attach_behavior(s, p, inv_id, c, data)
     s.add(c)
     s.flush()
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="create", new=True)
     audit.record(s, "check.create", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"target": c.target_type, "questions": c.questions,
                                                   "judgement": c.judgement, "coverage": c.scope["coverage"], "shared": c.shared})
@@ -255,11 +262,14 @@ def _get(s: Session, inv_id: str, check_id: str) -> Check:
     return c
 
 
-def _flag_citations(s: Session, source: Check, state: str) -> int:
+def _flag_citations(s: Session, source: Check, state: str, p: Principal) -> int:
     """Investigations that relied on a shared result learn that it changed or was withdrawn."""
     rows = s.execute(select(Check).where(Check.source_check_id == source.id, Check.state == "active")).scalars().all()
+    from saw.followups.check_revisions import _capture_transition
     for r in rows:
+        _capture_transition(s, p, r, reason="before_source_change")
         r.source_state, r.updated_at = state, utcnow()
+        _capture_transition(s, p, r, reason="source_change")
     return len(rows)
 
 
@@ -287,15 +297,21 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
     _share_fields(new, merged, inv_id)
     attach_capture(s, p, inv_id, new, data, previous=old)
     attach_behavior(s, p, inv_id, new, merged if data.get("behavior") else data, previous=old)
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, old, reason="before_change")
     old.state, old.state_by, old.updated_at = "superseded", p.username, utcnow()
     s.add(new)
     s.flush()
+    _capture_transition(s, p, old, reason="superseded")
+    _capture_transition(s, p, new, reason="change", new=True)
     affected = 0
     if old.shared:  # investigations that relied on the old record are told, and follow the new one if it is still shared
         for r in s.execute(select(Check).where(Check.source_check_id == old.id, Check.state == "active")).scalars():
+            _capture_transition(s, p, r, reason="before_source_change")
             r.source_state, r.updated_at = ("changed" if new.shared else "retracted"), utcnow()
             if new.shared:
                 r.source_check_id = new.id
+            _capture_transition(s, p, r, reason="source_change")
             affected += 1
     audit.record(s, "check.change", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=new.id,
                  investigation_id=inv_id, detail={"supersedes": old.id, "judgement": new.judgement, "citations": affected})
@@ -310,11 +326,14 @@ def cancel(s: Session, p: Principal, inv_id: str, check_id: str, reason: str = "
         raise ValueError("확인 기록은 작성자(또는 관제 매니저)만 취소할 수 있습니다")
     if c.state != "active":
         raise Conflict("이 기록은 이미 변경되었거나 취소되었습니다")
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="before_cancel")
     c.state, c.state_by, c.state_note, c.updated_at = "cancelled", p.username, reason.strip()[:512], utcnow()
     affected = 0
     if c.shared:
         c.share_status = "retracted"
-        affected = _flag_citations(s, c, "retracted")
+        affected = _flag_citations(s, c, "retracted", p)
+    _capture_transition(s, p, c, reason="cancel")
     audit.record(s, "check.cancel", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"author": c.author_name, "citations": affected})
     return c
@@ -496,7 +515,10 @@ def request_recheck(s: Session, p: Principal, check_id: str, note: str) -> Check
     c = _shared(s, p, check_id)
     if not note.strip():
         raise ValueError("왜 다시 확인이 필요한지 한 줄 적어 주세요")
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="before_recheck")
     c.share_status, c.state_note, c.state_by, c.updated_at = "recheck", note.strip()[:512], p.username, utcnow()
+    _capture_transition(s, p, c, reason="recheck")
     audit.record(s, "check.recheck_request", actor_id=p.user_id, actor_name=p.username, target_type="check",
                  target_id=c.id, investigation_id=c.investigation_id, detail={"note": note.strip()[:200]})
     return c
@@ -521,6 +543,8 @@ def cite(s: Session, p: Principal, inv_id: str, source_id: str, note: str = "") 
               source_check_id=src.id)
     s.add(c)
     s.flush()
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="cite", new=True)
     audit.record(s, "check.cite", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"source": src.id, "source_investigation": src.investigation_id})
     return c

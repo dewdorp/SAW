@@ -23,6 +23,7 @@ dependencies = [
   "pysigma-backend-opensearch",
   "pyyaml",
   "alembic>=1.17,<2",
+  "XlsxWriter==3.2.9",
 ]
 
 [project.optional-dependencies]

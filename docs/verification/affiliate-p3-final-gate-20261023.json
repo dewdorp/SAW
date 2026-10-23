@@ -1,0 +1,56 @@
+{
+  "phase": "P3",
+  "date": "2026-10-23",
+  "backend": {
+    "passed": 2060,
+    "failed": 0,
+    "skipped": 6,
+    "warnings": 2,
+    "pytest_seconds": 2248.45,
+    "xml_seconds": 2248.2,
+    "command": ".venv/Scripts/python.exe -B .qa/run-assistant-tests.py tests -o addopts='' -q -p no:cacheprovider",
+    "skips": [
+      {
+        "test": "test_fresh_upgrade_matches_models[1]",
+        "reason": "SAW_TEST_DATABASE_URL not set"
+      },
+      {
+        "test": "test_builder_rejects_source_links",
+        "reason": "Windows symlink creation is unavailable"
+      },
+      {
+        "test": "test_native_initdb_ba_system_only_secret_and_exact_acl_restore",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "test_native_initdb_success_already_has_selected_secure_configuration",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "test_native_initdb_with_korean_runtime_share_and_data_paths",
+        "reason": "explicit isolated PostgreSQL binary directory required"
+      },
+      {
+        "test": "test_untrusted_existing_state_is_still_rejected",
+        "reason": "POSIX access-bit rejection; native ACL cases use the handoff test"
+      }
+    ]
+  },
+  "web": {
+    "passed": 292,
+    "files": 48,
+    "seconds": 24.71,
+    "typescript_exit_code": 0,
+    "vite_exit_code": 0,
+    "vite_seconds": 21.92
+  },
+  "native_receipt": "affiliate-p3-native-20261023.json",
+  "embedded_dependency_receipt": "affiliate-p3-embedded-python-20261023.json",
+  "product_freeze": "All final P3 code and tests were frozen before backend r4 started.",
+  "limits": [
+    "Windows 11 development host; not LTSC 2019 acceptance",
+    "No operational data or account usage",
+    "Office rendering and actual 16GB workload not verified",
+    "No new complete package or release at this checkpoint"
+  ]
+}

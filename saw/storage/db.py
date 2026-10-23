@@ -50,6 +50,7 @@ def load_models() -> None:
     from saw.detection import service as _det  # noqa: F401
     from saw.detection import policy_models as _dp  # noqa: F401
     from saw.detection import truth_models as _dt  # noqa: F401
+    from saw.followups import models as _fu  # noqa: F401
     from saw.hunting import service as _hunt  # noqa: F401
     from saw.knowledge import models as _km  # noqa: F401
     from saw.knowledge import golden_models as _gm  # noqa: F401

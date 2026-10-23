@@ -1,0 +1,260 @@
+{
+  "recorded_on": "2026-10-23",
+  "synthetic_only": true,
+  "runtime_reused_read_only_and_checked_against_pinned_archives": true,
+  "fresh_database_search_data_config": true,
+  "windows_services_installed": false,
+  "operational_data_or_accounts_used": false,
+  "runs": [
+    {
+      "scope": "lineage_migration_report_and_long_path",
+      "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+      "target_os_acceptance": false,
+      "postgresql_version": "16.15",
+      "opensearch_version": "2.19.6",
+      "opensearch_plugins": [
+        "analysis-nori",
+        "opensearch-index-management",
+        "opensearch-job-scheduler"
+      ],
+      "runtime_verification": {
+        "postgresql": {
+          "files": 20150,
+          "verified_bytes": 875067514
+        },
+        "opensearch": {
+          "files": 3040,
+          "verified_bytes": 455295346
+        },
+        "nori": {
+          "files": 5,
+          "verified_bytes": 7819817
+        }
+      },
+      "test_results": [
+        {
+          "node": "tests/unit/test_migrations.py::test_fresh_upgrade_matches_models[1]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 9.22
+        },
+        {
+          "node": ".qa/affiliate-p1-20261020/test_p3_native_schema.py::test_populated_native_followup_and_report_upgrade",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 10.075
+        },
+        {
+          "node": "tests/api/test_affiliate_firewall_flow.py::test_context_to_parser_to_saved_fw_run",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.14
+        },
+        {
+          "node": "tests/api/test_followup_lineage.py::test_real_event_verification_edit_and_old_snapshot_remain_separate",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.589
+        },
+        {
+          "node": "tests/api/test_followup_lineage.py::test_exact_followup_read_and_snapshot_recheck_private_check_source",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.089
+        },
+        {
+          "node": "tests/api/test_followup_evidence_stability.py::test_verification_rejects_stale_retained_reply_evidence",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.757
+        },
+        {
+          "node": "tests/api/test_followup_evidence_stability.py::test_fresh_reply_replaces_stale_refs_and_preserves_old_version",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.683
+        },
+        {
+          "node": "tests/api/test_followup_cleanup.py::test_approved_investigation_cleanup_removes_own_followup_and_check_history",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.366
+        },
+        {
+          "node": "tests/api/test_followup_cleanup.py::test_followup_evidence_from_other_investigation_prevents_source_deletion",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.542
+        },
+        {
+          "node": "tests/api/test_report_exports.py::test_multi_report_job_exact_selection_and_idempotency",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.207
+        },
+        {
+          "node": "tests/api/test_report_exports.py::test_multi_report_revoked_source_hides_job_and_download",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.408
+        },
+        {
+          "node": "tests/api/test_report_export_boundaries.py::test_actual_xlsx_has_eight_sheets_and_no_private_object_key",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.201
+        },
+        {
+          "node": "tests/api/test_report_export_boundaries.py::test_source_cleanup_blocks_external_report_but_own_report_can_be_removed",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.31
+        }
+      ],
+      "test_counts": {
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0
+      },
+      "test_seconds": 143.532,
+      "pytest_exit_code": 0,
+      "opensearch_flush_failed_shards": 0,
+      "opensearch_stopped": true,
+      "postgresql_stopped": true,
+      "ports_closed": true,
+      "elapsed_seconds": 411.593,
+      "stop_complete": true
+    },
+    {
+      "scope": "final_download_reauthorization_and_partial_cleanup",
+      "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+      "target_os_acceptance": false,
+      "postgresql_version": "16.15",
+      "opensearch_version": "2.19.6",
+      "opensearch_plugins": [
+        "analysis-nori",
+        "opensearch-index-management",
+        "opensearch-job-scheduler"
+      ],
+      "runtime_verification": {
+        "postgresql": {
+          "files": 20150,
+          "verified_bytes": 875067514
+        },
+        "opensearch": {
+          "files": 3040,
+          "verified_bytes": 455295346
+        },
+        "nori": {
+          "files": 5,
+          "verified_bytes": 7819817
+        }
+      },
+      "test_results": [
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[history-disabled]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.27
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[history-role]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.215
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[history-membership]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.146
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[history-session]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.156
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[stored-disabled]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.309
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[stored-role]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.16
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[stored-membership]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.188
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[stored-session]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.159
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[html-disabled]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.121
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[html-role]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.094
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[html-membership]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.103
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_download_rechecks_current_authority_and_closes_private_spool[html-session]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.104
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_stored_download_rechecks_cancellation_after_verifying_bytes",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.179
+        },
+        {
+          "node": "tests/api/test_report_download_reauthorization.py::test_history_html_enforces_shared_render_deadline",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.091
+        },
+        {
+          "node": "tests/api/test_report_cleanup.py::test_evidence_cleanup_removes_own_report_jobs_and_retains_other_exports",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.465
+        }
+      ],
+      "test_counts": {
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0
+      },
+      "test_seconds": 159.766,
+      "pytest_exit_code": 0,
+      "opensearch_flush_failed_shards": 0,
+      "opensearch_stopped": true,
+      "postgresql_stopped": true,
+      "ports_closed": true,
+      "elapsed_seconds": 371.671,
+      "stop_complete": true
+    }
+  ]
+}

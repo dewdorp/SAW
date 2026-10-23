@@ -1,7 +1,8 @@
+import {ReportExportJob} from "../components/reports/ReportExportJob";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/ui";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bar, ErrorBox, Loading, Panel } from "../components/common";
 import { api } from "../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../lib/format";
@@ -37,10 +38,11 @@ export function fmtEta(sec?: number | null): string {
 /** Job progress with SSE (docs/10 §6, wireframe 15). */
 export function JobDetail() {
   const { id = "" } = useParams();
+  const navigate=useNavigate();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["job", id], queryFn: () => api.get(`/jobs/${id}`), refetchInterval: (qq) => (["COMPLETED", "FAILED", "CANCELLED"].includes((qq.state.data as any)?.state) ? false : 2000) });
   const [live, setLive] = useState<any | null>(null);
-  const parsers = useQuery({ queryKey: ["parsers"], queryFn: () => api.get("/parsers") });
+  const parsers = useQuery({ queryKey: ["parsers"], enabled: !!q.data && q.data.kind !== "report_export", queryFn: () => api.get("/parsers") });
   useEffect(() => {
     const es = new EventSource(`/api/v1/jobs/${id}/events`);
     es.addEventListener("progress", (e) => setLive(JSON.parse((e as MessageEvent).data)));
@@ -53,6 +55,7 @@ export function JobDetail() {
   const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
   if (q.isLoading) return <Loading />;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
+  if(q.data.kind === "report_export") return <div className="page col"><ReportExportJob id={id} initial={q.data} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
   const j = { ...q.data, ...(live || {}) };
   const files = q.data.files || [];
   const leaves = files.filter((f: any) => !files.some((c: any) => c.parent_file_id === f.id));

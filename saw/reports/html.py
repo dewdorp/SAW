@@ -1,5 +1,6 @@
 """Escaped self-contained report: observations, evidence, then raw references."""
 from html import escape
+
 from saw.core.application.provenance import canonical
 
 STATUS = {"complete": "완료", "partial": "일부만 완료", "failed": "실패",
@@ -52,6 +53,9 @@ def _firewall(detail):
 
 def render(row):
     data = row.content
+    if data.get("schema_version") == "saw.report.v2":
+        from saw.reports.projection_html import render as render_v2
+        return render_v2(data)
     analysis = data["analysis"]
     items = "".join("<tr><td>" + _h(e["detector_id"]) + "</td><td>" + _h(e["detector_version"]) +
         "</td><td>" + _h(STATUS.get(e["status"], e["status"])) + "</td><td>" +
@@ -95,4 +99,6 @@ def csp():
     import base64
     import hashlib
     style_hash = base64.b64encode(hashlib.sha256(CSS.encode()).digest()).decode()
-    return "default-src 'none'; style-src 'sha256-" + style_hash + "'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    from saw.reports.projection_html import CSS as v2_css
+    v2_hash = base64.b64encode(hashlib.sha256(v2_css.encode()).digest()).decode()
+    return "default-src 'none'; style-src 'sha256-" + style_hash + "' 'sha256-" + v2_hash + "'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"

@@ -1,3 +1,6 @@
+import {ReportExportDialog} from "../../components/reports/ReportExportDialog";
+import {ReportVersionsPanel} from "../../components/reports/ReportVersionsPanel";
+import {eligibleRun} from "../../components/reports/types";
 import { DeviceObservationResults } from "./DeviceObservationResults";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -35,13 +38,13 @@ export function AnalysisHistoryTab({ inv }: { inv: string }) {
   const [older, setOlder] = useState<any[]>([]);
   const [pageError, setPageError] = useState<unknown>(null);
   const [paging, setPaging] = useState(false);
+  const [exporting,setExporting]=useState(false);
   const [saved, setSaved] = useState<any>(null);
   const [showNotApplicable, setShowNotApplicable] = useState(false);
   const list = useQuery({ queryKey: ["analysis-runs", inv], queryFn: () => api.get(`/investigations/${inv}/analysis-runs`), refetchInterval: 10000 });
   const runs = [...(list.data?.runs || []), ...older].filter((r, index, all) => all.findIndex(x => x.id === r.id) === index);
   const runId = selected || runs[0]?.id;
   const detail = useQuery({ queryKey: ["analysis-run", inv, runId], queryFn: () => api.get(`/investigations/${inv}/analysis-runs/${runId}`), enabled: !!runId, refetchInterval: q => q.state.data?.status === "running" ? 2000 : false });
-  const reports = useQuery({ queryKey: ["report-versions", inv], queryFn: () => api.get(`/investigations/${inv}/report-versions`) });
   const report = useMutation({ mutationFn: () => api.post(`/investigations/${inv}/report-versions`, { analysis_run_id: runId }), onSuccess: r => { setSaved(r); qc.invalidateQueries({ queryKey: ["report-versions", inv] }); } });
   const next = before === null ? list.data?.next_before_version : before;
   const more = async () => {
@@ -54,9 +57,8 @@ export function AnalysisHistoryTab({ inv }: { inv: string }) {
   const executions = run?.executions || [];
   const notApplicable = executions.filter((item: any) => item.status === "not_applicable").length;
   const visibleExecutions = executions.filter((item: any) => showNotApplicable || item.status !== "not_applicable");
-  const versions = [...(Array.isArray(reports.data) ? reports.data : reports.data?.reports || []), ...(saved ? [saved] : [])].filter((r, index, all) => all.findIndex(x => x.id === r.id) === index);
   return <div className="col" style={{ gap: 16 }}><div><h3>분석 실행 이력</h3><p className="muted">저장된 실행 범위와 근거를 봅니다. 현재 화면 필터는 과거 실행을 다시 계산하지 않습니다. 관측 후보와 분석가 판단·확인 기록은 별도로 유지합니다.</p></div>
-    <ErrorBox error={list.error || detail.error || reports.error || report.error || pageError || orgs.error || devices.error || launch.error || job.error} />
+    <ErrorBox error={list.error || detail.error || report.error || pageError || orgs.error || devices.error || launch.error || job.error} />
     <section className="panel pb col"><h4>새 장비 분석 실행</h4><p className="small muted">서버에서 새 실행을 만듭니다. 서비스명·의심 IP 없이 관계사와 장비를 선택할 수 있습니다. 미확인 귀속 기록은 자동으로 선택 관계사에 합치지 않습니다.</p>
       <div className="row wrap"><label>분석 관계사 <select className="input" value={analysisOrg} onChange={e => setAnalysisOrg(e.target.value)}><option value="">조사 전체</option>{(orgs.data || []).map((o: any) => <option key={o.id} value={o.id}>{o.display_name}</option>)}</select></label><label>분석 장비 <select className="input" value={analysisDevice} onChange={e => setAnalysisDevice(e.target.value)}><option value="">장비 전체</option>{(devices.data || []).map((d: any) => <option key={d.id} value={d.id}>{d.display_name}</option>)}</select></label></div>
       <label><input type="checkbox" checked={useFilters} onChange={e => setUseFilters(e.target.checked)} />현재 화면 필터·기간을 서버 실행 범위에 적용</label><div className="small muted">적용할 화면 필터 {useFilters ? ctx.filters.length : 0}개 · 기간 {useFilters && ctx.time ? `${fmtTime(ctx.time.start)} ~ ${fmtTime(ctx.time.end)}` : "전체"}</div>
@@ -87,9 +89,10 @@ export function AnalysisHistoryTab({ inv }: { inv: string }) {
         {!!notApplicable && <button className="btn sm" aria-expanded={showNotApplicable} onClick={() => setShowNotApplicable(!showNotApplicable)}>{showNotApplicable ? `적용 불가 탐지기 ${notApplicable}개 숨기기` : `적용 불가 탐지기 ${notApplicable}개 보기`}</button>}
         <table className="t"><caption>탐지기 실행 상태 — 미실행·실패·자료 부족은 0건으로 해석하지 않습니다</caption><thead><tr><th>탐지기</th><th>버전</th><th>상태</th><th>입력</th><th>후보</th></tr></thead><tbody>{visibleExecutions.map((execution: any) => <tr key={execution.detector_id}><td>{execution.detector_id}</td><td>{execution.detector_version || "미기록"}</td><td>{STATUS[execution.status] || execution.status}</td><td>{hasCounts(execution.status) ? count(execution.input_count) : "미확인"}</td><td>{hasCounts(execution.status) ? count(execution.match_count) : "미확인"}</td></tr>)}</tbody></table>
         {visibleExecutions.filter((item: any) => !["fw.observation","waf.observation","ips.observation","ddos.observation","ndr.observation"].includes(item.detector_id)).map((execution: any) => <details key={execution.detector_id} className="panel pb"><summary>{execution.detector_id} · {STATUS[execution.status] || execution.status} · 실행 근거</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify({ detail: execution.detail, effective_config: execution.effective_config }, null, 2)}</pre></details>)}        {!!run.findings?.length && <details><summary>이 실행에 고정된 탐지 스냅샷 {run.findings.length}건</summary>{run.findings.map((f: any) => <pre key={f.id} style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(f, null, 2)}</pre>)}</details>}
-        <div className="row wrap"><button className="btn primary" disabled={report.isPending} onClick={() => report.mutate()}>선택 실행 HTML 보고서 저장</button><button className="btn" onClick={() => ctx.set({ tab: "checks" })}>분석가 확인·판단 기록</button></div>
+        <div className="row wrap"><button className="btn primary" disabled={report.isPending || !eligibleRun(run)} onClick={() => report.mutate()}>선택 실행 HTML 보고서 저장</button><button className="btn" disabled={!eligibleRun(run)} onClick={()=>setExporting(true)}>선택 실행 HTML·Excel 내보내기</button><button className="btn" onClick={() => ctx.set({ tab: "checks" })}>분석가 확인·판단 기록</button></div>
       </>}
     </>}
-    {!!versions.length && <section><h4>저장된 불변 보고서</h4>{versions.map((r: any) => <div key={r.id}><a className="btn sm" target="_blank" rel="noreferrer" href={`/api/v1/investigations/${inv}/report-versions/${r.id}/html`}>저장 보고서 v{r.version}</a> <span className="small mono">{r.content_sha256}</span></div>)}</section>}
+    <ReportVersionsPanel inv={inv} extra={saved}/>
+    {exporting&&<ReportExportDialog scope={{kind:"investigation",selections:[{investigation_id:inv,analysis_run_id:runId,followup_version_ids:null}]}} onClose={()=>setExporting(false)}/>}
   </div>;
 }

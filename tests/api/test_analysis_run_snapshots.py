@@ -97,7 +97,7 @@ def test_saved_report_is_immutable_and_requires_source_acl(app, analyst, monkeyp
     analyst.patch(f"/investigations/{inv}", json={"title": "later title"})
     read = analyst.get(f"/investigations/{inv}/report-versions/{report['id']}")
     assert read.json()["content_sha256"] == report["content_sha256"]
-    assert read.json()["content"]["investigation"]["title"] == "synthetic run"
+    assert read.json()["content"]["items"][0]["investigation"]["title"] == "synthetic run"
     html = analyst.get(f"/investigations/{inv}/report-versions/{report['id']}/html")
     assert html.status_code == 200 and "synthetic run" in html.text
     make_user("unrelated-run-reader", ["analyst"])

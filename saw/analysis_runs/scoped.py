@@ -68,7 +68,7 @@ class ScopedRequest(BaseModel):
 def _idle(s, inv_id):
     # Only read-only analysis jobs are excluded. Ingest/reprocess/reanalyze still block.
     active = s.scalar(select(Job.id).where(Job.investigation_id == inv_id,
-        Job.kind.notin_(("behavior", KIND)), Job.state.notin_(TERMINAL)).limit(1))
+        Job.kind.notin_(("behavior", KIND, "report_export")), Job.state.notin_(TERMINAL)).limit(1))
     if active:
         raise HTTPException(409, "device_analysis_source_processing_active")
 

@@ -170,7 +170,7 @@ export function Workbench() {
           <div className="tab-body">
             {ctx.tab === "overview" && <OverviewTab inv={id} />}
             {ctx.tab === "source-context" && <SourceContextTab inv={id} />}
-            {ctx.tab === "analysis-history" && <AnalysisHistoryTab inv={id} />}
+            {ctx.tab === "analysis-history" && <AnalysisHistoryTab key={id} inv={id} />}
             {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
             {ctx.tab === "behavior" && <BehaviorTab inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}

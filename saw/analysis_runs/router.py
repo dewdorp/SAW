@@ -65,12 +65,14 @@ def report_listing(inv_id: str, before_version: int | None = Query(None, ge=1),
 class ReportIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     analysis_run_id: str
+    followup_version_ids: list[str] | None = None
 
 
 @router.post("/investigations/{inv_id}/report-versions", status_code=201)
 def create_report(inv_id: str, body: ReportIn, ctx: AuthContext = Depends(auth),
                   s: Session = Depends(db, scope="function")):
-    return reports.to_dict(reports.create(s, ctx.principal, inv_id, analysis_run_id=body.analysis_run_id))
+    return reports.to_dict(reports.create(s, ctx.principal, inv_id, analysis_run_id=body.analysis_run_id,
+                                         followup_version_ids=body.followup_version_ids))
 
 
 @router.get("/investigations/{inv_id}/report-versions/{report_id}")
@@ -82,9 +84,8 @@ def get_report(inv_id: str, report_id: str, ctx: AuthContext = Depends(auth),
 @router.get("/investigations/{inv_id}/report-versions/{report_id}/html", response_class=HTMLResponse)
 def report_html(inv_id: str, report_id: str, ctx: AuthContext = Depends(auth),
                 s: Session = Depends(db, scope="function")):
-    from saw.reports.html import csp, render
-    return HTMLResponse(render(reports.get(s, ctx.principal, inv_id, report_id)),
-        headers={"Content-Security-Policy": csp()})
+    from saw.reports.http import view_html
+    return view_html(inv_id, report_id, ctx, s)
 
 
 from saw.analysis_runs.scoped import ScopedRequest
@@ -102,3 +103,11 @@ def submit_scoped(inv_id: str, body: ScopedRequest, ctx: AuthContext = Depends(a
         container.get().runner.submit("device_analysis.run", job_id=job.id)
     s.refresh(job)
     return job_out(job)
+
+
+from saw.reports.http import download_export, download_xlsx, submit_export
+
+router.add_api_route("/report-export-jobs", submit_export, methods=["POST"], status_code=202)
+router.add_api_route("/report-export-jobs/{job_id}/download", download_export, methods=["GET"])
+router.add_api_route("/investigations/{inv_id}/report-versions/{report_id}/xlsx",
+                     download_xlsx, methods=["GET"])

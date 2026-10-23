@@ -30,10 +30,12 @@ BLOCKERS = {
     "unsafe_object": "저장 경로 또는 파일의 안전성을 확인할 수 없습니다. 관리자 점검이 필요합니다.",
     "unsupported_store": "현재 삭제는 로컬 파일 저장소와 SQLite/OpenSearch 이벤트 저장소만 지원합니다.",
     "deletion_in_progress": "이 조사에 미완료 삭제 작업이 있습니다. 해당 영수증에서 재시도하세요.",
+    "report_reference": "다른 조사의 저장 보고서가 원천 자료를 참조합니다. 해당 보고서의 보존 계약을 먼저 검토하세요.",
     "case_reference": "활성 케이스가 참조합니다. 케이스를 먼저 폐기한 뒤 다시 확인하세요.",
     "knowledge_reference": "Experience 지식이 원본 조사를 참조합니다. 보존 계약 검토가 필요합니다.",
     "detection_reference": "탐지 룰 출처·과거 자료 시험이 참조합니다. 보존 계약 검토가 필요합니다.",
     "hunt_reference": "헌팅 기록이 이 자료를 참조합니다. 기록 보존 검토가 필요합니다.",
+    "followup_reference": "다른 조사의 후속확인 또는 고정된 확인 기록이 이 자료를 참조합니다. 보존 검토가 필요합니다.",
     "shared_check": "다른 조사에서 공유 확인 기록을 인용합니다. 인용 관계를 먼저 검토하세요.",
     "analyst_records": "증거 일부 삭제가 분석가 판단·노트에 영향을 줍니다. 조사 전체 정리 또는 보존 검토가 필요합니다.",
     "too_many_objects": "한 번에 10000개 파일까지 안전 점검할 수 있습니다. 관리자 별도 정리가 필요합니다.",
@@ -176,6 +178,24 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
                             raise ValueError("too many cleanup objects")
         except (ValueError, OSError):
             blockers.add("unsafe_object")
+    if isinstance(store, LocalFSObjectStore):
+        try:
+            own_exports = s.scalars(select(Job.id).where(
+                Job.investigation_id == inv_id, Job.kind == "report_export").limit(10001)).all()
+            if len(own_exports) > 10000:
+                blockers.add("too_many_objects")
+            else:
+                known_objects = {(x["bucket"], x["key"]) for x in objects}
+                for export_id in own_exports:
+                    for key in store.cleanup_keys("saw-exports", "reports/" + export_id):
+                        if ("saw-exports", key) not in known_objects:
+                            path = store.safe_delete_path("saw-exports", key)
+                            objects.append({"bucket": "saw-exports", "key": key, "size": path.stat().st_size})
+                            known_objects.add(("saw-exports", key))
+                        if len(objects) > 10000:
+                            raise ValueError("too many cleanup objects")
+        except (ValueError, OSError):
+            blockers.add("unsafe_object")
     objects.sort(key=lambda o: (o["bucket"], o["key"]))
     findings = list(s.scalars(select(Finding).where(Finding.investigation_id == inv_id)))
     finding_ids = [f.id for f in findings]
@@ -186,6 +206,16 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
         for item in s.scalars(select(CaseItem).where(CaseItem.case_id == c.id)):
             if item.ref_id in related_ids or _has_ref(item.snapshot, related_ids):
                 blockers.add("case_reference")
+    from saw.reports.models import ReportSourceInvestigation, ReportVersion, JobSourceInvestigation
+    if s.scalar(select(ReportVersion.id).join(
+            ReportSourceInvestigation, ReportSourceInvestigation.report_id == ReportVersion.id).where(
+            ReportSourceInvestigation.investigation_id == inv_id,
+            ReportVersion.investigation_id != inv_id).limit(1)):
+        blockers.add("report_reference")
+    if s.scalar(select(Job.id).join(JobSourceInvestigation, JobSourceInvestigation.job_id == Job.id).where(
+            JobSourceInvestigation.investigation_id == inv_id, Job.investigation_id != inv_id,
+            Job.state.notin_(TERMINAL)).limit(1)):
+        blockers.add("active_jobs")
     from saw.knowledge.models import Experience
     from saw.detection.service import Detection, TestRun
     from saw.detection.truth_models import DetectionCase
@@ -201,6 +231,16 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
     if (_count(s, HuntSession, HuntSession.investigation_id == inv_id)
             or any(_has_ref(t.result_summary, related_ids) for t in s.scalars(select(HuntStep)))):
         blockers.add("hunt_reference")
+    from saw.followups.models import CheckRevision, FollowUp, FollowUpVersion
+    frozen_check_sources = s.execute(select(CheckRevision.source_investigation_ids).where(
+        CheckRevision.investigation_id != inv_id)).yield_per(500)
+    if any(inv_id in (sources or []) for (sources,) in frozen_check_sources):
+        blockers.add("followup_reference")
+    frozen_followup_sources = s.execute(select(FollowUpVersion.source_investigation_ids).join(
+        FollowUp, FollowUp.id == FollowUpVersion.followup_id).where(
+        FollowUp.investigation_id != inv_id)).yield_per(500)
+    if any(inv_id in (sources or []) for (sources,) in frozen_followup_sources):
+        blockers.add("followup_reference")
     check_ids = list(s.scalars(select(Check.id).where(Check.investigation_id == inv_id)))
     if (_count(s, Check, Check.investigation_id != inv_id, Check.source_check_id.in_(check_ids))
             or _count(s, Check, Check.investigation_id == inv_id, Check.shared.is_(True))):
@@ -289,9 +329,19 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     for model in (UploadSession, EvidenceFile):
         s.execute(delete(model).where(model.evidence_id.in_(ids)))
     s.execute(delete(Evidence).where(Evidence.id.in_(ids)))
-    s.execute(delete(Job).where(Job.investigation_id == iid if op.target_type == "investigation" else Job.evidence_id.in_(ids)))
+    # Evidence cleanup invalidates all own report snapshots and their planned artifacts.
+    jobs = Job.investigation_id == iid
+    if op.target_type != "investigation":
+        jobs = jobs & (Job.evidence_id.in_(ids) | (Job.kind == "report_export"))
+    s.execute(delete(Job).where(jobs))
     inv = s.get(Investigation, iid)
     if op.target_type == "investigation":
+        from saw.followups.models import CheckRevision, FollowUp, FollowUpVersion
+        followup_ids = select(FollowUp.id).where(FollowUp.investigation_id == iid)
+        # Only the explicit approved cleanup workflow removes immutable history.
+        s.execute(delete(FollowUpVersion).where(FollowUpVersion.followup_id.in_(followup_ids)))
+        s.execute(delete(FollowUp).where(FollowUp.investigation_id == iid))
+        s.execute(delete(CheckRevision).where(CheckRevision.investigation_id == iid))
         for model in (Note, SavedView, Briefing, Check, Review, Support, InvestigationMember):
             s.execute(delete(model).where(model.investigation_id == iid))
         s.delete(inv)
