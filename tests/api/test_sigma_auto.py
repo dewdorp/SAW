@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.core.application import identity, investigations
 from saw.core.application.analysis import _drop_unsupported, _finding_from_draft
 from saw.detection import service
@@ -29,6 +30,7 @@ def setup_rule(s, *, data=None, expected_hits=("0", "2"), event_ext=None):
                "timestamp": f"2026-01-01T00:00:0{i}Z", "src_ip": "192.0.2.1", "uri": uri,
                "status_code": 200, **({"ext": event_ext} if event_ext else {})}
               for i, uri in enumerate(("/selected/a", "/ordinary", "/selected/b"))]
+    s.commit()  # The source must exist before entering the separately fenced event writer.
     container.get().events.index(events)
     case = testing.create_case(s, principal, {"title": "Synthetic selected fixture", "investigation_id": inv.id,
         "units": [{"unit_id": e["event_id"], "unit_kind": "event", "event_ids": [e["event_id"]],
@@ -44,11 +46,12 @@ def setup_rule(s, *, data=None, expected_hits=("0", "2"), event_ext=None):
         "expected_draft_version_id": version.id, "reason": "Synthetic independent approval"})
     governance.activate_rule(s, manager, det.id, {"version_id": version.id, "approval_id": det.approved_approval_id,
         "expected_active_version_id": None, "expected_activation_revision": 0, "reason": "Synthetic explicit activation"})
+    s.commit()  # Publish the independent fixture approval before read/write boundary tests.
     return inv, det, version, DetectorContext(inv.id, container.get().events, data_sources={"web"})
 
 
 def test_historical_truncation_cannot_approve_a_partial_pass(analyst, manager):
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, det, _version, _ctx = setup_rule(s)
         creator = s.execute(select(User).where(User.username == "analyst1")).scalar_one()
         result = service.run_test(s, identity.principal_of(creator), det.id, [inv.id], max_events=1)
@@ -58,7 +61,7 @@ def test_historical_truncation_cannot_approve_a_partial_pass(analyst, manager):
 def test_only_approved_exact_version_yields_matched_evidence_and_reanalyzes_idempotently(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, det, version, ctx = setup_rule(s)
         drafts, settled = run_approved(s, ctx)
         assert len(drafts) == 1 and drafts[0].total_events == 2
@@ -80,7 +83,7 @@ def test_only_approved_exact_version_yields_matched_evidence_and_reanalyzes_idem
 def test_deprecated_rule_cleans_untouched_results_but_preserves_reviewed_result(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, det, _version, ctx = setup_rule(s)
         drafts, _ = run_approved(s, ctx)
         finding = _finding_from_draft(s, inv.id, drafts[0])
@@ -97,7 +100,7 @@ def test_deprecated_rule_cleans_untouched_results_but_preserves_reviewed_result(
 def test_creator_without_target_membership_cannot_share_rule_into_other_investigation(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, _det, _version, ctx = setup_rule(s)
         creator = s.execute(select(User).where(User.username == "analyst1")).scalar_one()
         s.delete(s.get(InvestigationMember, (inv.id, creator.id)))
@@ -110,7 +113,7 @@ def test_current_version_author_must_also_have_investigation_access(analyst, man
     from saw.detection.auto import run_approved
 
     make_user("outside-author", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, _det, version, ctx = setup_rule(s)
         with pytest.raises(ValueError, match="immutable"):
             version.created_by = "outside-author"
@@ -121,7 +124,7 @@ def test_current_version_author_must_also_have_investigation_access(analyst, man
 def test_exceptions_and_threshold_apply_before_finding(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, _det, version, ctx = setup_rule(s, data={
             "threshold": {"group_by": ["src_ip"], "count_gte": 2, "timespan_sec": 5},
             "exceptions": [{"field": "event_id", "op": "is", "value": "0"}]}, expected_hits=())
@@ -132,7 +135,7 @@ def test_exceptions_and_threshold_apply_before_finding(analyst, manager):
 def test_budget_limit_is_visible_and_does_not_settle_prior_findings(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, det, _version, ctx = setup_rule(s)
         ctx.params["sigma_max_events"] = 1
         drafts, settled = run_approved(s, ctx)
@@ -144,7 +147,7 @@ def test_budget_limit_is_visible_and_does_not_settle_prior_findings(analyst, man
 def test_candidate_limit_also_bounds_compilation(analyst, manager, monkeypatch):
     from saw.detection import auto
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, _det, _version, ctx = setup_rule(s)
         setup_rule(s)
         count = []
@@ -164,7 +167,7 @@ def test_disabled_creator_and_inaccessible_source_are_not_applied(analyst, manag
     from saw.detection.auto import run_approved
 
     outside_id = make_user("source-owner", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, det, _version, ctx = setup_rule(s)
         creator = s.get(User, det.created_by)
         creator.status = "disabled"
@@ -178,7 +181,7 @@ def test_disabled_creator_and_inaccessible_source_are_not_applied(analyst, manag
 def test_regex_timeout_is_reported_without_settling_old_results(analyst, manager):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, det, version, ctx = setup_rule(s, data={"logic": "title: Synthetic\nlogsource: {category: webserver}\ndetection:\n  s:\n    cs-uri|re: '(a|aa)+$'\n  condition: s\n"}, expected_hits=("0",))
         ctx.events.index([{"event_id": "regex", "investigation_id": inv.id, "data_source": "web",
                            "timestamp": "2026-01-01T00:00:04Z", "uri": "a" * 2000 + "!"}])
@@ -191,7 +194,7 @@ def test_regex_timeout_is_reported_without_settling_old_results(analyst, manager
 def test_legacy_partial_pass_cannot_authorize_approval_or_automatic_execution(analyst, manager, result):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, det, _version, ctx = setup_rule(s)
         test = s.execute(select(service.TestRun).where(service.TestRun.detection_id == det.id)).scalar_one()
         test.result = result
@@ -207,7 +210,7 @@ def test_legacy_partial_pass_cannot_authorize_approval_or_automatic_execution(an
 def test_missing_threshold_inputs_are_incomplete_and_cannot_settle_or_pass(analyst, manager, missing):
     from saw.detection.auto import run_approved
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, det, version, ctx = setup_rule(s, data={"threshold": {"group_by": ["src_ip"], "count_gte": 2}})
         events = list(ctx.events.iterate(inv.id, []))
         for event in events:
@@ -224,7 +227,7 @@ def test_missing_threshold_inputs_are_incomplete_and_cannot_settle_or_pass(analy
 def test_nested_threshold_projection_keeps_only_required_leaves(analyst, manager, monkeypatch):
     from saw.detection import auto
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, _det, version, ctx = setup_rule(s, data={"threshold": {"group_by": ["ext.ndr.service"], "count_gte": 2}},
                                             event_ext={"ndr": {"service": "web"}})
         events = list(ctx.events.iterate(inv.id, []))
@@ -247,9 +250,55 @@ def test_nested_threshold_projection_keeps_only_required_leaves(analyst, manager
 def test_matching_metadata_budget_preserves_prior_result(analyst, manager, monkeypatch):
     from saw.detection import auto
 
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _inv, det, _version, ctx = setup_rule(s)
         monkeypatch.setattr(auto, "MAX_METADATA_BYTES", 1, raising=False)
         drafts, settled = auto.run_approved(s, ctx)
         assert any(r["status"] == "partial" for r in ctx.params["execution_reports"])
         assert "sigma.approved:" + det.id not in settled
+
+
+@pytest.mark.parametrize("entrypoint", ["capture", "compatibility"])
+@pytest.mark.parametrize("inventory", ["foreign_private", "applicable_over_limit"])
+def test_rule_limit_counts_only_authorized_applicable_candidates(analyst, manager, entrypoint, inventory):
+    from saw.detection import auto, governance
+    uid = analyst.get("/auth/me").json()["id"]
+    with actor_scope(uid), session_scope() as s:
+        inv, target, _, ctx = setup_rule(s)
+        # Use exact approved versions for the over-limit case; private definitions need no valid approval.
+        if inventory == "applicable_over_limit":
+            for _ in range(50):
+                setup_rule(s)
+        else:
+            outside_id = make_user("private-rule-owner", ["analyst"])
+            outside = investigations.create(s, identity.principal_of(s.get(User, outside_id)), "Private synthetic source")
+            for index in range(150):
+                # Synthetic active inventory never authorizes execution: source ACL must exclude it first.
+                det = service.Detection(id="000-private-" + str(index).zfill(3),
+                    display_id="PRIVATE-" + str(index), created_by=uid, active_version_id="private-version",
+                    source=({"investigation_id": outside.id} if index < 50 else
+                            {"investigation_id": inv.id, "source_investigation_ids": [outside.id]}))
+                s.add(det)
+            s.flush()
+        if entrypoint == "capture":
+            runtime = governance.pin_runtime(s, identity.principal_of(s.get(User, uid)), inv.id)
+            ids = {pin["rule"]["id"] for pin in runtime["rules"]}
+            limits = [r for r in runtime["execution_reports"] if r.get("reason") == "runtime_rule_limit"]
+            if inventory == "foreign_private":
+                assert ids == {target.id}
+                assert outside.id not in str(runtime) and "000-private-" not in str(runtime)
+                assert not limits
+            else:
+                assert len(ids) == 50 and len(limits) == 1
+        else:
+            drafts, settled = auto.run_approved(s, ctx)
+            limits = [r for r in ctx.params["execution_reports"] if r.get("status") == "partial"]
+            if inventory == "foreign_private":
+                assert auto.PREFIX + target.id in settled
+                assert [d.detector_id for d in drafts] == [auto.PREFIX + target.id]
+                assert outside.id not in str(ctx.params["execution_reports"])
+                assert "000-private-" not in str(ctx.params["execution_reports"])
+                assert not limits
+            else:
+                assert len([ident for ident in settled if ident.startswith(auto.PREFIX)]) == 50
+                assert limits

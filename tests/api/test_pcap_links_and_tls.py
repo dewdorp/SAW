@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
-from saw import container
 from saw.core.schemas.query import Filter
 from saw.devtools import pcap_writer as pw
 from saw.devtools.sample_data import NDR_HEADER, make_cert, scenario_pcap_forensics, scenario_tls_certs
 from saw.integrations.pcapkit import tls
+from tests.api.test_generation_reprocessing import read_events
 from tests.api.test_phase5_bulk import upload
 
 KST = timezone(timedelta(hours=9))
@@ -23,7 +23,7 @@ def _process(api, inv_id: str, name: str, data: bytes, kind: str) -> dict:
 
 # ---------------------------------------------------------------------- TLS unit level
 def test_certificate_chain_ja3s_and_name_matching():
-    t0 = datetime(2026, 10, 3, tzinfo=timezone.utc)
+    t0 = datetime(2026, 10, 3, tzinfo=UTC)
     leaf, _ = make_cert("www.example.com", san=["www.example.com", "*.api.example.com"], not_before=t0)
     flight = pw.server_flight_tls12([leaf, leaf])
     chain = tls.parse_certificates(flight)
@@ -42,7 +42,7 @@ def test_tls_certificate_findings_and_fingerprint_iocs(analyst):
     pcap = scenario_tls_certs()
     inv = analyst.post("/investigations", json={"title": "TLS"}).json()
     _process(analyst, inv["id"], "tls.pcap", pcap, "pcap")
-    es = container.get().events
+    es = read_events()
     bad = es.search(inv["id"], [Filter(field="dst_ip", value="45.77.12.34"), Filter(field="data_source", value="zeek_ssl")], limit=1)["events"][0]
     assert bad["cert_subject_cn"] == "localhost" and bad["ja3s"] and bad["ext"]["zeek"]["cert_name_match"] is False
     fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
@@ -81,7 +81,7 @@ def _ndr_row(ev: dict, path: str) -> str:
 def test_ndr_and_web_log_events_link_to_the_captured_session(analyst):
     inv = analyst.post("/investigations", json={"title": "links"}).json()
     _process(analyst, inv["id"], "incident.pcap", scenario_pcap_forensics(), "pcap")
-    es = container.get().events
+    es = read_events()
     http = next(e for e in es.search(inv["id"], [Filter(field="data_source", value="zeek_http")], limit=50)["events"]
                 if e.get("method") == "GET" and e.get("url_path"))
     _process(analyst, inv["id"], "ndr.csv", _ndr_row(http, http["uri"]).encode(), "auto")
@@ -111,7 +111,7 @@ def test_event_without_capture_explains_how_to_get_packets(analyst):
     ev = {"timestamp": "2026-10-03T08:38:47Z", "src_ip": "198.51.100.7", "src_port": 50000, "dst_ip": "203.0.113.10",
           "dst_port": 8080}
     _process(analyst, inv["id"], "ndr.csv", _ndr_row(ev, "/a").encode(), "auto")
-    e = container.get().events.search(inv["id"], [Filter(field="parser", value="ndr_meta_csv")], limit=1)["events"][0]
+    e = read_events().search(inv["id"], [Filter(field="parser", value="ndr_meta_csv")], limit=1)["events"][0]
     r = analyst.get(f"/investigations/{inv['id']}/forensics/sessions/{e['event_id']}/stream")
     assert r.status_code == 409 and "PCAP" in r.json()["detail"]
     assert analyst.get(f"/investigations/{inv['id']}/network/linked/{e['event_id']}").json() == {"pcap_session": False, "groups": []}

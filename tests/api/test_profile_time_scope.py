@@ -1,5 +1,6 @@
 """Verified source time must drive scoped queries and observed calculations together."""
 from saw import container
+from saw.event_generations.reads import actor_scope
 from tests.api.test_affiliate_firewall_flow import CSV
 from tests.api.test_phase5_bulk import upload
 from tests.api.test_source_context import org, investigation, device
@@ -32,6 +33,7 @@ def test_verified_profile_timezone_matches_actual_scoped_query(senior):
     assert job["state"] == "COMPLETED"
     assert fw(result)["input_count"] == 3
     assert fw(result)["detail"]["sessions"][0]["src_to_dst_bytes"] == 300
-    rows = list(container.get().events.iterate(inv, []))
+    with actor_scope(senior.get("/auth/me").json()["id"]):
+        rows = list(container.get().events.iterate(inv, []))
     assert all(r["timestamp"] == r["ext"]["observation"]["timestamp"] for r in rows)
     assert rows[0]["ext"]["observation"]["ces_timestamp"] == "2026-10-20T00:00:00.000Z"

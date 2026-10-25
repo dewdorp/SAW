@@ -80,7 +80,7 @@ def _manifest(s, inv_id):
     inv = s.get(Investigation, inv_id)
     result.update(org_unit_id=inv.org_unit_id, org_unit=inv.org_unit,
                   normalization_version="saw.observation/1")
-    return result
+    return container.get().events.pin_manifest(s, inv_id, result)
 
 
 def _new_run(s, job, request):
@@ -177,6 +177,7 @@ def device_analysis_run(job_id: str):
             if run is None or run.status != "running":
                 run = _new_run(s, job, request)
             run_id = run.id
+            container.get().events.bind_live_run(s, run)
             before = deepcopy(run.input_manifest)
             input_sha256 = run.input_sha256
             inv_id = job.investigation_id

@@ -1,6 +1,7 @@
 """Independent synthetic probes for the final derived-source ACL integration."""
 from sqlalchemy import select
 
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope, utcnow
 from saw.storage.models import Check, InvestigationMember, User
 from tests.api.test_derived_finding_access import generated
@@ -9,7 +10,7 @@ from tests.conftest import Api, make_user
 
 def test_story_edit_retains_original_private_source_closure(analyst, manager, app):
     uid = make_user("story-projection-reader", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _ = generated(s)
         for iid in (source.id, target.id):
             s.add(InvestigationMember(investigation_id=iid, user_id=uid, access="read"))
@@ -28,7 +29,7 @@ def test_story_edit_retains_original_private_source_closure(analyst, manager, ap
 
 
 def test_golden_list_hides_private_derived_metadata_after_source_revocation(analyst, manager, senior):
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _ = generated(s)
         reviewer = s.scalar(select(User).where(User.username == "senior1"))
         uid, source_id, target_id = reviewer.id, source.id, target.id

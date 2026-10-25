@@ -298,6 +298,7 @@ def test_p2_matching_semantics_are_frozen_and_evaluator_does_not_invent_them(ana
     from saw import container
     from saw.core.application.provenance import digest
     from saw.detection import testing
+    from saw.event_generations.reads import actor_scope
     inv, eid, _ = candidate(analyst)
     container.get().events.index([{"event_id": "semantics-event", "investigation_id": inv["id"],
         "timestamp": "2026-10-01T01:00:00Z", "src_ip": "198.51.100.8", "data_source": "synthetic"}])
@@ -325,10 +326,11 @@ def test_p2_matching_semantics_are_frozen_and_evaluator_does_not_invent_them(ana
     from saw.detection.truth_models import DetectionCaseVersion
     with session_scope() as s:
         exact_payload = deepcopy(s.get(DetectionCaseVersion, truth["id"]).payload)
-    evaluated = testing._policy_case({"policy": {"exclusions": [], "values": {"enabled": False}},
-        "spec": {"id": "fw.observation"}}, exact_payload,
-        [{**unit, "unit_id": "window", "unit_kind": "window", "event_ids": []},
-         {**unit, "unit_id": "entity", "unit_kind": "entity", "event_ids": []}], monotonic() + 10)
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        evaluated = testing._policy_case({"policy": {"exclusions": [], "values": {"enabled": False}},
+            "spec": {"id": "fw.observation"}}, exact_payload,
+            [{**unit, "unit_id": "window", "unit_kind": "window", "event_ids": []},
+             {**unit, "unit_id": "entity", "unit_kind": "entity", "event_ids": []}], monotonic() + 10)
     assert evaluated["window"]["status"] == "complete" and evaluated["window"]["prediction"] is False
     assert evaluated["window"]["input_count"] == 1
     assert evaluated["entity"]["status"] == "unsupported_unit" and evaluated["entity"]["prediction"] is None

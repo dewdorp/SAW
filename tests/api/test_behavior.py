@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from sqlalchemy import select
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope
 from saw.storage.models import Job, EvidenceFile
 from tests.api.test_guidance import make_case, IP
+from tests.api.test_phase5_bulk import upload
 from tests.conftest import Api, make_user
 
 def run(api, inv, **kw):
@@ -204,12 +206,18 @@ def test_behavior_later_check_cannot_enter_pinned_experience(analyst):
     assert prepared.status_code == 400 and "revision" in prepared.text
 
 def test_behavior_either_scope_keeps_missing_source_and_deduplicates_overlap(analyst):
-    inv = make_case(analyst, 3)
-    es = container.get().events
-    events = es.search(inv["id"], [], limit=10)["events"]
-    events[0]["src_ip"], events[0]["dst_ip"] = None, IP
-    events[1]["src_ip"], events[1]["dst_ip"] = IP, IP
-    es.index(events)
+    inv = analyst.post("/investigations", json={"title": "Synthetic behavior either scope"}).json()
+    rows = ["timestamp,src_ip,dst_ip,dst_port,method,uri,status,action",
+            f"2026-10-01T00:00:00Z,,{IP},443,GET,/health,200,allow",
+            f"2026-10-01T00:00:01Z,{IP},{IP},443,GET,/health,200,allow",
+            f"2026-10-01T00:00:02Z,{IP},10.0.0.8,443,GET,/health,200,allow"]
+    source = upload(analyst, inv["id"], "synthetic-either.csv", "\n".join(rows).encode())
+    analyst.post(f"/evidence/{source['evidence_id']}/process").raise_for_status()
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        events = container.get().events.search(inv["id"], [], limit=10)["events"]
+    assert len(events) == 3
+    assert any(not event.get("src_ip") and event.get("dst_ip") == IP for event in events)
+    assert any(event.get("src_ip") == event.get("dst_ip") == IP for event in events)
     result = run(analyst, inv, role="either")
     assert result["result"]["observations"]["summary"]["count"] == 3
 
@@ -237,12 +245,15 @@ def test_behavior_snapshot_masking_keeps_hash_links_and_still_masks_text():
 
 def test_behavior_masked_snapshot_hashes_stay_valid_and_dynamic_keys_are_safe(analyst):
     from saw.core.application.provenance import digest
-    inv = make_case(analyst, 1)
-    es = container.get().events
-    event = es.search(inv["id"], [], limit=1)["events"][0]
-    event.update(uri="/check?token=SECRET_VALUE_123", user_agent="Bearer SECRET_VALUE_123",
-                 raw_event="Cookie: session=SECRET_VALUE_123", raw_ref=None)
-    es.index([event])
+    inv = analyst.post("/investigations", json={"title": "Synthetic behavior secret masking"}).json()
+    raw = {"timestamp": "2026-10-01T00:00:00Z", "src_ip": IP, "dst_ip": "10.0.0.8",
+           "method": "GET", "uri": "/check?token=SECRET_VALUE_123", "status": 200,
+           "user_agent": "Bearer SECRET_VALUE_123", "Cookie": "session=SECRET_VALUE_123"}
+    source = upload(analyst, inv["id"], "synthetic-secret.jsonl", (json.dumps(raw) + "\n").encode())
+    analyst.post(f"/evidence/{source['evidence_id']}/process").raise_for_status()
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        event = container.get().events.search(inv["id"], [], limit=1)["events"][0]
+    assert "SECRET_VALUE_123" in event["raw_event"]
     result = run(analyst, inv)
     assert "SECRET_VALUE_123" not in json.dumps(result)
     for item in result["result"]["selected_evidence"]:

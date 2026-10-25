@@ -222,7 +222,11 @@ def golden_capture(s, inv_id, check):
     if row is None or row.investigation_id != inv_id or verify(row).result_sha256 != attachment.get("result_sha256"):
         raise ValueError("golden_behavior_result_missing")
     ensure_source_idle(s, inv_id)
-    if source_manifest(s, inv_id) != row.result["source_manifest"]:
+    current_source = source_manifest(s, inv_id)
+    if "event_generation" in row.result["source_manifest"]:
+        from saw import container
+        current_source = container.get().events.pin_manifest(s, inv_id, current_source)
+    if current_source != row.result["source_manifest"]:
         raise ValueError("golden_source_evidence_changed")
     data = row.result
     safe = {"schema": "saw.golden.behavior-observation.v1", "result_id": row.id,

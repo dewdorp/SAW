@@ -4,6 +4,7 @@ from copy import deepcopy
 import pytest
 
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.observation.connection import connection_observation
 from saw.observation.device import device_observation
 from saw.storage.db import session_scope
@@ -57,7 +58,7 @@ def test_normal_analysis_uses_pinned_devices_and_signature_runtime(senior):
         {"kind": "request", "request_id": f"R{i}", "uri": "/page/" + str(i),
          "user_agent": "Mozilla/5.0", "action": "allow", "edge_status": 200, "origin_status": 200}
         for i in range(6)])
-    with session_scope() as s:
+    with actor_scope(senior.get("/auth/me").json()["id"]), session_scope() as s:
         run_detectors(s, inv["id"])
     run = senior.get(f"/investigations/{inv['id']}/analysis-runs").json()["runs"][0]
     detail = senior.get(f"/investigations/{inv['id']}/analysis-runs/{run['id']}").json()

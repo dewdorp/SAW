@@ -1015,6 +1015,44 @@ def plan(install_root, bundle_dir, baseline_dir=None):
             "required_free_bytes": needed, "free_bytes": shutil.disk_usage(root.parent).free,
             "target_manifest_sha256": _manifest.digest(bundle / "release-manifest.json")}
 
+def _write_cold_snapshot(root, recovery, cfg, before, *, target_manifest_sha256=""):
+    snapshot = recovery / "installation"
+    _copy_tree(root, snapshot)
+    _stopped(root, cfg)
+    if _inventory(root) != before or _inventory(snapshot) != before:
+        raise UpdateError("Installation changed during the recovery copy")
+    receipt = {"schema": "saw.cold-recovery/1", "created_at": datetime.now(UTC).isoformat(),
+               "install_root": str(root), "files": before,
+               "target_manifest_sha256": target_manifest_sha256}
+    _json(recovery / "recovery-point.json", receipt)
+
+
+@_exclusive
+def backup(install_root, recovery_point):
+    """Capture every stopped store, generation, runtime and private setting for whole restore."""
+    root, recovery = _path(install_root), _path(recovery_point, existing=False)
+    _separate(root, recovery)
+    if recovery.exists() or not recovery.parent.is_dir() or root.drive.lower() != recovery.drive.lower():
+        raise UpdateError("RecoveryPoint must be a fresh directory on the installation volume")
+    _access_gate(root, check_copy_semantics=True)
+    _, cfg = _config(root)
+    _stopped(root, cfg)
+    before = _inventory(root)
+    size = sum(row.get("bytes", 0) for row in before)
+    needed = size + 64 * 1024 * 1024
+    if shutil.disk_usage(recovery.parent).free < needed:
+        raise UpdateError("Insufficient free space for a complete recovery point")
+    _preflight_rows(recovery / "installation", before)
+    for prefix in (".saw-r-", ".saw-k-"):
+        _preflight_rows(root.with_name(prefix + "0" * 12), before)
+    _preflight_json(recovery / "recovery-point.json")
+    _private_directory(recovery)
+    _write_cold_snapshot(root, recovery, cfg, before)
+    return {"status": "backup_complete_stopped", "install_root": str(root),
+            "recovery_point": str(recovery), "snapshot_bytes": size,
+            "next_step": "Start the installation separately. Restore this entire point if recovery is required."}
+
+
 @_exclusive
 def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
     root, bundle, recovery = _path(install_root), _path(bundle_dir), _path(recovery_point, existing=False)
@@ -1040,14 +1078,8 @@ def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
     for name in ("saw-ctl.ps1", "installed-release-manifest.json", ".saw-u-" + "0" * 12):
         _windows_path_limit(root / name, directory=False)
     _private_directory(recovery)
-    _copy_tree(root, snapshot)
-    _stopped(root, cfg)
-    if _inventory(root) != before or _inventory(snapshot) != before:
-        raise UpdateError("Installation changed during the recovery copy")
-    receipt = {"schema": "saw.cold-recovery/1", "created_at": datetime.now(UTC).isoformat(),
-               "install_root": str(root), "files": before,
-               "target_manifest_sha256": result["target_manifest_sha256"]}
-    _json(recovery / "recovery-point.json", receipt)
+    _write_cold_snapshot(root, recovery, cfg, before,
+                         target_manifest_sha256=result["target_manifest_sha256"])
     _stage_public_app(bundle / "app", stage, root / "app")
     _copy_file(root / "app/.env", stage / ".env")
     if (root / "app/var").exists():
@@ -1254,7 +1286,7 @@ def restore(install_root, recovery_point, *, confirm=False, progress=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("plan", "apply", "restore"))
+    parser.add_argument("action", choices=("plan", "apply", "restore", "backup"))
     parser.add_argument("--install-root", required=True, type=Path)
     parser.add_argument("--bundle-dir", type=Path)
     parser.add_argument("--baseline-bundle-dir", type=Path)
@@ -1262,7 +1294,11 @@ def main(argv=None):
     parser.add_argument("--confirm-point-in-time-recovery", action="store_true")
     args = parser.parse_args(argv)
     try:
-        if args.action == "restore":
+        if args.action == "backup":
+            if not args.recovery_point:
+                raise UpdateError("A fresh RecoveryPoint is required")
+            result = backup(args.install_root, args.recovery_point)
+        elif args.action == "restore":
             if not args.recovery_point:
                 raise UpdateError("RecoveryPoint is required")
             result = restore(args.install_root, args.recovery_point, confirm=args.confirm_point_in_time_recovery)

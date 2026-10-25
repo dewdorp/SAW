@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from saw import container
 from saw.core.application.identity import principal_of
 from saw.core.application.investigations import Forbidden, NotFound
+from saw.event_generations.reads import actor_scope
 from saw.detection import service
 from saw.storage.db import session_scope
 from saw.storage.models import InvestigationMember, User
@@ -50,7 +51,7 @@ def test_historical_result_is_not_published_after_scope_changes(analyst, admin, 
     # Native PostgreSQL uses independent per-user session rows and permits this interleaving too.
     expected_error = NotFound if change == "investigation" else ValueError if change == "rule_version" else Forbidden
     with pytest.raises(expected_error):
-        with session_scope() as s:
+        with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
             service.run_test(s, principal, det["id"], [inv["id"]])
     assert changed
     with session_scope() as s:

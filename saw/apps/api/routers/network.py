@@ -23,6 +23,7 @@ from saw.detection.derived_access import (
 from saw.integrations.pcap import ARTIFACTS, tools_available
 from saw.integrations.pcapkit.extract import extract_session
 from saw.integrations.pcapkit.reader import PcapError
+from saw.storage.generations import GenerationUnavailable
 from saw.storage.models import Evidence, EvidenceFile, Finding
 
 router = APIRouter(prefix="/investigations/{inv_id}/network", tags=["network"])
@@ -89,26 +90,41 @@ def overview(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends
 
 @router.get("/sessions/{event_id}/pcap")
 def session_pcap(inv_id: str, event_id: str, request: Request, ctx: AuthContext = Depends(auth),
-                 s: Session = Depends(db, scope="function")):
+                 s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Download the packets of one session (the event's IP/port pair) from the original PCAP (built-in extractor)."""
     require(s, ctx.principal, "investigation.read", inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     ev, f, src, t0, t1 = resolve_session(s, inv_id, event_id)
-    tmp = tempfile.NamedTemporaryFile(prefix="saw-sess-", suffix=".pcap", delete=False,
-                                      dir=str(container.get().settings.data_dir))
+    es = container.get().events
+    tmp = None
+    complete = False
     try:
-        with open(src, "rb") as fh, tmp:
+        tmp = tempfile.NamedTemporaryFile(prefix="saw-sess-", suffix=".pcap", delete=False,
+                                          dir=str(container.get().settings.data_dir))
+        with tmp, es.open_local_raw(inv_id, src) as fh:
             left_out: dict = {}
             n = extract_session(fh, tmp, (ev["src_ip"], int(ev["src_port"])), (ev["dst_ip"], int(ev["dst_port"])), t0, t1,
                                 proto=PROTO_NUMBER.get(str(ev.get("protocol") or "").lower()), info=left_out)
+        audit.record(s, "network.session_pcap", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
+                     actor_ip=client_ip(request), target_type="event", target_id=event_id, investigation_id=inv_id,
+                     detail={"evidence_file": f.id, "packets": n, **{k: v for k, v in left_out.items() if v}})
+        name = f"session_{ev['src_ip']}_{ev['src_port']}-{ev['dst_ip']}_{ev['dst_port']}.pcap".replace(":", "-")
+        with es.open_view(inv_id) as view:
+            es.check_read(view.ref)
+        response = FileResponse(tmp.name, media_type="application/vnd.tcpdump.pcap", filename=name,
+                                headers={"X-SAW-Packets": str(n)},
+                                background=BackgroundTask(Path(tmp.name).unlink, missing_ok=True))
+        complete = True
+        return response
     except PcapError as x:
-        Path(tmp.name).unlink(missing_ok=True)
         raise HTTPException(422, f"PCAP 읽기 실패: {x}") from None
-    audit.record(s, "network.session_pcap", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
-                 actor_ip=client_ip(request), target_type="event", target_id=event_id, investigation_id=inv_id,
-                 detail={"evidence_file": f.id, "packets": n, **{k: v for k, v in left_out.items() if v}})
-    name = f"session_{ev['src_ip']}_{ev['src_port']}-{ev['dst_ip']}_{ev['dst_port']}.pcap".replace(":", "-")
-    return FileResponse(tmp.name, media_type="application/vnd.tcpdump.pcap", filename=name,
-                        headers={"X-SAW-Packets": str(n)}, background=BackgroundTask(Path(tmp.name).unlink, missing_ok=True))
+    except OSError:
+        raise GenerationUnavailable('generation_raw_unavailable') from None
+    finally:
+        if tmp is not None and not complete:
+            tmp.close()
+            Path(tmp.name).unlink(missing_ok=True)
 
 
 PROTO_NUMBER = {"tcp": 6, "udp": 17, "icmp": 1, "sctp": 132}
@@ -118,6 +134,18 @@ TUPLE = ("src_ip", "src_port", "dst_ip", "dst_port")
 
 
 def _pcap_file(s: Session, inv_id: str, ev: dict) -> EvidenceFile | None:
+    facade = container.get().events
+    with facade.open_view(inv_id) as view:
+        if not view.ref.legacy:
+            bucket, key = facade.raw_descriptor(ev)
+            matches = [f for f in facade.file_state(s, inv_id)
+                       if f.get('evidence_id') == ev.get('evidence_id')
+                       and any(r['bucket'] == bucket and r['key'] == key for r in f.get('raw_objects', []))
+                       and (f.get('parser_id') or '').startswith('pcap')]
+            if len(matches) != 1:
+                return None
+            from types import SimpleNamespace
+            return SimpleNamespace(**matches[0])
     parts = ((ev.get("raw_ref") or {}).get("object_key") or "").split("/")
     fid = parts[3] if len(parts) > 4 and parts[0] == ARTIFACTS else None
     f = s.get(EvidenceFile, fid) if fid else None
@@ -191,7 +219,14 @@ def resolve_session(s: Session, inv_id: str, event_id: str):
         if isinstance(dur, (int, float)):
             t0, t1 = start - 1, start + dur + 1
     bucket = "saw-evidence-original" if f.parent_file_id is None else "saw-evidence-extracted"
-    return ev, f, container.get().objects.local_path(bucket, f.object_key), t0, t1
+    try:
+        path = container.get().objects.local_path(bucket, f.object_key)
+        if not path.is_file():
+            raise OSError()
+    except OSError:
+        from saw.storage.generations import GenerationUnavailable
+        raise GenerationUnavailable('generation_raw_unavailable') from None
+    return ev, f, path, t0, t1
 
 
 SUMMARY = ("event_id", "timestamp", "data_source", "event_type", "src_ip", "src_port", "dst_ip", "dst_port", "method",
@@ -206,10 +241,12 @@ def _summary(e: dict) -> dict:
 
 
 @router.get("/linked/{event_id}")
-def linked_records(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def linked_records(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Records of the same session / request seen by other sensors (NDR meta, web log, WAF, PCAP), plus whether the
     captured packets of the session are available for stream view and session PCAP."""
     require(s, ctx.principal, "investigation.read", inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     es = container.get().events
     ev = es.get(inv_id, event_id)
     if ev is None:

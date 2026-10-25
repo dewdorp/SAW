@@ -80,6 +80,7 @@ def test_closed_verdicts_do_not_authorize_shared_baselines(analyst):
 
 def test_sequence_source_positions_survive_adapter_projection_and_changed_ids(analyst):
     from saw import container
+    from saw.event_generations.reads import actor_scope
     from saw.detectors.anomaly import SequenceAnomaly
     from saw.detectors.base import DetectorContext
 
@@ -104,7 +105,8 @@ def test_sequence_source_positions_survive_adapter_projection_and_changed_ids(an
             events.append(event)
         store = container.get().events
         assert store.index(events) == len(events)
-        finding, = SequenceAnomaly().run(DetectorContext(inv["id"], store, params={"min_sessions": 3}))
+        with actor_scope(analyst.get("/auth/me").json()["id"]):
+            finding, = SequenceAnomaly().run(DetectorContext(inv["id"], store, params={"min_sessions": 3}))
         assert finding.category == "anomaly.sequence"
         assert next(m["observed_path"] for m in finding.metrics if m["name"] == "sequence") == expected
         results.append((finding.dedup_key, finding.metrics, finding.checks))

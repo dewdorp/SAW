@@ -64,7 +64,7 @@ function JobDetailContent({principal}:{principal:string}) {
   }, [id, principal, qc]);
   const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${id}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
   const retry = useMutation({ mutationFn: () => api.post(`/jobs/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
-  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
+  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: (result) => { qc.invalidateQueries({ queryKey: ["job", id,principal] }); qc.invalidateQueries({ queryKey: ["jobs"] }); if (result.job_id) navigate("/jobs/" + encodeURIComponent(result.job_id)); } });
   if (q.isLoading) return <Loading />;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
   if(q.data.kind === "report_export") return <div className="page col"><ReportExportJob id={id} initial={q.data} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
@@ -88,7 +88,8 @@ function JobDetailContent({principal}:{principal:string}) {
         <span className="muted">현재: {j.current_item || "–"}</span></div>
       {j.state === "ANALYZING" && <div className="notice small">색인이 끝나 조사 화면에서 검색·원본 보기를 바로 할 수 있습니다. 탐지 분석은 뒤에서 계속 진행됩니다.</div>}
       <Panel title="단계">
-        {STAGES.map((s) => {
+        {j.kind === "reprocess" && <p className="muted small">보관된 원본으로 다시 처리합니다. 업로드와 압축 해제는 반복하지 않습니다.</p>}
+        {(j.kind === "reprocess" ? STAGES.slice(2) : STAGES).map((s) => {
           const st = j.stages?.[s] || {};
           const p = st.done ? 100 : st.pct ?? 0;
           return <div key={s} className="row small"><span style={{ width: 70 }}>{STAGE_LABEL[s]}</span><div className="grow"><Bar value={p} max={100} /></div><span style={{ width: 70 }}>{st.done ? "✓" : st.pct !== undefined && st.pct !== null ? `${p}%` : "대기"}</span></div>;
@@ -112,7 +113,7 @@ function JobDetailContent({principal}:{principal:string}) {
       )}
       {j.state === "COMPLETED" && leaves.some((f: any) => f.type === "text" && f.parser_id && f.parser_id !== "ioc_list") && (
         <Panel title="다른 파서로 다시 처리">
-          <div className="muted small">형식이 제대로 해석되지 않았다면 다른 파서를 고르거나 새로 만들어 이 증거를 다시 처리하세요. 기존 이벤트는 지우고 다시 만듭니다.</div>
+          <div className="muted small">형식이 제대로 해석되지 않았다면 다른 파서를 고르거나 새로 만들어 이 증거를 다시 처리하세요. 기존 결과와 분석 이력은 보존합니다. 새 결과 저장을 확인하면 최신 결과로 전환합니다. 전환 전 실패하거나 취소되면 기존 결과를 유지합니다. 전환 후 탐지 분석만 실패하거나 취소될 수 있으며, 이때 저장된 새 결과는 유지됩니다.</div>
           {leaves.filter((f: any) => f.type === "text" && f.parser_id && f.parser_id !== "ioc_list").map((f: any) => (
             <div key={f.id} className="row wrap small"><span className="mono">{f.name}</span><span className="muted">현재: {f.parser_id}</span>
               <ParserSelect parsers={parsers.data} label="다시 처리할 파서…" onPick={(pid) => setParser.mutate({ fid: f.id, pid })} />

@@ -8,15 +8,19 @@ from saw.analysis_runs.models import AnalysisRun, DetectorExecution, FindingSnap
 from saw.core.application.investigations import NotFound, require
 from saw.core.application.provenance import canonical, digest
 from saw.core.application.data_deletion import lock_investigation
+from saw.event_generations.reads import analysis_scoped
 from saw.storage.db import utcnow
 from saw.storage.models import Investigation, Job
 
 
+@analysis_scoped
 def start(s, inv_id, *, job_id=None, scope=None):
     from saw.behavior.service import source_manifest
     lock_investigation(s, inv_id)
     inv = s.get(Investigation, inv_id)
-    manifest = source_manifest(s, inv_id)
+    from saw.event_generations.reads import current_actor_id
+    actor_id = current_actor_id()
+    manifest = container.get().events.pin_manifest(s, inv_id, source_manifest(s, inv_id))
     manifest["org_unit_id"] = getattr(inv, "org_unit_id", None)
     manifest["org_unit"] = inv.org_unit
     manifest["normalization_version"] = "saw.observation/1"
@@ -24,7 +28,7 @@ def start(s, inv_id, *, job_id=None, scope=None):
     number = (s.scalar(select(func.max(AnalysisRun.version)).where(
         AnalysisRun.investigation_id == inv_id)) or 0) + 1
     row = AnalysisRun(investigation_id=inv_id, version=number, job_id=job_id,
-        created_by=(job.requested_by or "") if job else "", input_manifest=manifest,
+        created_by=(job.requested_by or actor_id) if job else actor_id, input_manifest=manifest,
         input_sha256=digest(manifest), scope=scope or {"filters": [], "time": None})
     s.add(row)
     s.flush()

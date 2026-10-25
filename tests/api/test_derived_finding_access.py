@@ -2,6 +2,7 @@
 import pytest
 
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.analysis_runs import service as history
 from saw.analysis_runs.models import AnalysisRun
 from saw.core.application import identity, investigations
@@ -20,6 +21,7 @@ def generated(s):
     source,det,_,_=setup_rule(s,data={"title":"Synthetic private-proof marker"})
     p=identity.principal_of(s.get(User,det.created_by))
     target=investigations.create(s,p,"Synthetic publication target")
+    s.commit()  # The separately checked event facade must see the new target.
     original=list(container.get().events.iterate(source.id,[]))
     for event in original:
         event["event_id"]="target-"+event["event_id"]
@@ -45,7 +47,7 @@ def generated(s):
 @pytest.mark.parametrize("mode",["never","revoked"])
 def test_current_finding_and_story_do_not_expose_unreadable_proof_source(analyst,manager,app,mode):
     uid=make_user("target-reader",["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source,target,finding,run=generated(s)
         s.add(InvestigationMember(investigation_id=target.id,user_id=uid,access="read"))
         if mode=="revoked":
@@ -54,7 +56,7 @@ def test_current_finding_and_story_do_not_expose_unreadable_proof_source(analyst
     reader=Api(app,"target-reader")
     if mode=="revoked":
         assert reader.get(f"/investigations/{target_id}/analysis-runs/{rid}").status_code==200
-        with session_scope() as s:
+        with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
             s.delete(s.get(InvestigationMember,(source_id,uid)))
     history_response=reader.get(f"/investigations/{target_id}/analysis-runs/{rid}")
     assert history_response.status_code in {403,404}
@@ -67,7 +69,7 @@ def test_current_finding_and_story_do_not_expose_unreadable_proof_source(analyst
 
 
 def test_global_capture_rule_limit_cannot_settle_or_delete_omitted_prior_finding(analyst,manager):
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _source,target,finding,_run=generated(s)
         pin={"schema":"det-runtime-set/1","rules":[],
              "execution_reports":[{"detector_id":"sigma.approved","status":"partial","reason":"runtime_rule_limit"}]}
@@ -82,7 +84,7 @@ def test_global_capture_rule_limit_cannot_settle_or_delete_omitted_prior_finding
 def test_derived_public_projections_hide_lineage_but_raw_target_events_stay_readable(analyst,manager,app):
     from saw.knowledge import experience,similar
     uid=make_user("derived-view-reader",["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _source,target,finding,_run=generated(s)
         owner=identity.principal_of(s.get(User,target.owner_id))
         s.add(InvestigationMember(investigation_id=target.id,user_id=uid,access="read"))
@@ -118,7 +120,7 @@ def test_derived_public_projections_hide_lineage_but_raw_target_events_stay_read
 def test_story_editor_cannot_drop_frozen_source_ledger(analyst,manager,app):
     from copy import deepcopy
     uid=make_user("story-view-reader",["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _source,target,_finding,_run=generated(s)
         s.add(InvestigationMember(investigation_id=target.id,user_id=uid,access="read"))
         target_id=target.id

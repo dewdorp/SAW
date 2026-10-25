@@ -113,7 +113,7 @@ def behavior_run(job_id: str):
             epoch = job.attempt = (job.attempt or 0) + 1
             job.state, job.started_at = "ANALYZING", job.started_at or utcnow()
             request = deepcopy(job.stages["behavior_request"])
-            before = source_manifest(s, inv_id)
+            before = container.get().events.pin_manifest(s, inv_id, source_manifest(s, inv_id))
             author = job.requested_by
             actor_name = (job.stages.get("requested") or {}).get("name", "")
         last_poll = 0.0
@@ -155,7 +155,7 @@ def behavior_run(job_id: str):
             if job.state not in ("ANALYZING", "PARSING"):
                 raise StaleLease("behavior_job_not_running")
             ensure_source_idle(s, inv_id)
-            if source_manifest(s, inv_id) != before:
+            if container.get().events.pin_manifest(s, inv_id, source_manifest(s, inv_id)) != before:
                 raise ValueError("behavior_source_changed")
             number = (s.scalar(select(func.max(BehaviorResult.version)).where(
                 BehaviorResult.investigation_id == inv_id)) or 0) + 1

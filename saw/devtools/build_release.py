@@ -13,6 +13,17 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
  'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
 PUBLIC_DOCS = (
+ 'docs/verification/affiliate-p5-validation-20261024.md',
+ 'docs/SAFE-REPROCESSING-GUIDE-20261024.md',
+ 'docs/opensearch-vendor-extensions.md',
+ 'docs/images/affiliate-p5-20261024/before-history.jpg',
+ 'docs/images/affiliate-p5-20261024/reprocess-choose.jpg',
+ 'docs/images/affiliate-p5-20261024/reprocess-complete.jpg',
+ 'docs/images/affiliate-p5-20261024/retained-v1-history.jpg',
+ 'docs/images/affiliate-p5-20261024/source-statistics.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-overview.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-capture-scope.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-session-evidence.jpg',
  'docs/AFFILIATE-GOLDEN-GUIDE-20261023.md',
  'docs/images/affiliate-p4-20261024/p4-holdout-answers-20261024.png',
  'docs/images/affiliate-p4-20261024/p4-holdout-result-20261024.png',

@@ -2,9 +2,11 @@
 import json
 import pytest
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.core.security.masking import mask_text
 from tests.api.test_behavior import attachment, run
-from tests.api.test_guidance import make_case
+from tests.api.test_guidance import IP
+from tests.api.test_phase5_bulk import upload
 from tests.api.test_golden import approve
 
 
@@ -22,13 +24,16 @@ def test_serialized_sensitive_headers_are_fully_masked(value):
 
 
 def test_json_header_values_cannot_reach_behavior_report_or_golden_export(analyst, manager):
-    inv = make_case(analyst, 1)
-    es = container.get().events
-    event = es.search(inv["id"], [], limit=1)["events"][0]
-    event.update(raw_ref=None, raw_event=json.dumps({
-        "Cookie": "session=SYNTHETIC_COOKIE_VALUE",
-        "Authorization": "SYNTHETIC_AUTH_VALUE", "path": "/safe"}))
-    es.index([event])
+    inv = analyst.post("/investigations", json={"title": "Synthetic header masking"}).json()
+    raw = {"timestamp": "2026-10-01T00:00:00Z", "src_ip": IP, "dst_ip": "10.0.0.8",
+           "method": "GET", "uri": "/safe", "status": 200,
+           "Cookie": "session=SYNTHETIC_COOKIE_VALUE", "Authorization": "SYNTHETIC_AUTH_VALUE"}
+    source = upload(analyst, inv["id"], "synthetic-headers.jsonl", (json.dumps(raw) + "\n").encode())
+    analyst.post(f"/evidence/{source['evidence_id']}/process").raise_for_status()
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        event = container.get().events.search(inv["id"], [], limit=1)["events"][0]
+    assert "SYNTHETIC_COOKIE_VALUE" in event["raw_event"]
+    assert "SYNTHETIC_AUTH_VALUE" in event["raw_event"]
     result = run(analyst, inv)
     assert "SYNTHETIC_COOKIE_VALUE" not in json.dumps(result)
     assert "SYNTHETIC_AUTH_VALUE" not in json.dumps(result)

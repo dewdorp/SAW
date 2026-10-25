@@ -288,5 +288,12 @@ def inbox(s: Session, p: Principal) -> dict[str, Any]:
         i = invs.get(r.investigation_id)
         return d | {"investigation": {"id": r.investigation_id, "display_id": i.display_id if i else "", "title": i.title if i else ""}}
 
-    usable = lambda r: r.investigation_id in invs and not (invs[r.investigation_id].settings or {}).get("data_deletion")
+    def usable(r):
+        if r.investigation_id not in invs or (invs[r.investigation_id].settings or {}).get("data_deletion"):
+            return False
+        try:
+            require(s, p, "investigation.read", r.investigation_id)
+        except (Forbidden, NotFound):
+            return False
+        return True
     return {"to_review": [out(r) for r in mine if usable(r) and _derived_visible(s, p, r)], "returned": [out(r) for r in back if usable(r) and _derived_visible(s, p, r)]}

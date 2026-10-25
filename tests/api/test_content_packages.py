@@ -254,7 +254,8 @@ def test_applied_fixture_rule_runs_in_another_analyst_investigation_and_tamper_b
          "data_source": "web", "url_path": "/health", "src_ip": "192.0.2.10"},
     ]
     container.get().events.index(events)
-    with session_scope() as s:
+    from saw.event_generations.reads import actor_scope
+    with actor_scope(senior.get("/auth/me").json()["id"]), session_scope() as s:
         ctx = DetectorContext(inv["id"], container.get().events, data_sources={"web"})
         drafts, _ = run_approved(s, ctx)
         assert len(drafts) == 1 and drafts[0].sample_event_ids == ["synthetic-positive"]

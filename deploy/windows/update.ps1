@@ -2,7 +2,7 @@
 # Run from verified new media, never from inside the installation being restored.
 [CmdletBinding()]
 param(
-    [ValidateSet('plan','apply','restore')][string]$Action = 'plan',
+    [ValidateSet('plan','apply','restore','backup')][string]$Action = 'plan',
     [Parameter(Mandatory=$true)][string]$InstallRoot,
     [string]$BundleDir = '',
     [string]$BaselineBundleDir = '',
@@ -30,7 +30,7 @@ $BundleDir = Assert-LocalPath $BundleDir
 $InstallRoot = Assert-LocalPath $InstallRoot
 if ($BaselineBundleDir) { $BaselineBundleDir = Assert-LocalPath $BaselineBundleDir }
 if ($RecoveryPoint) { $RecoveryPoint = Assert-LocalPath $RecoveryPoint }
-if ($Action -in @('apply','restore') -and -not $RecoveryPoint) { throw 'RecoveryPoint is required' }
+if ($Action -in @('apply','restore','backup') -and -not $RecoveryPoint) { throw 'RecoveryPoint is required' }
 if ($Action -eq 'restore' -and -not $ConfirmPointInTimeRecovery) { throw 'ConfirmPointInTimeRecovery is required: newer records are retained separately, not merged' }
 # No package code or runtime is executed until the entire media is checked.
 & (Join-Path $BundleDir 'verify-bundle.ps1') -BundleDir $BundleDir

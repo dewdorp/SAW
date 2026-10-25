@@ -708,6 +708,30 @@ def package_restore(s, p, d, prior, reason, package_id):
                             snapshot={"package_record_id": package_id})
 
 
+def runtime_candidates(s, p, investigation_id):
+    """Keyset pages bound materialization; private inventory cannot consume the execution cap."""
+    detection = _service().Detection
+    source_inv = detection.source["investigation_id"].as_string()
+    query = select(detection).where(
+        detection.active_version_id.is_not(None),
+        (source_inv.is_(None) | (source_inv == "") | (source_inv == investigation_id)))
+    cursor = None
+    while True:
+        page = list(s.scalars((query.where(detection.id > cursor) if cursor is not None else query)
+                             .order_by(detection.id).limit(51)))
+        if not page:
+            return
+        cursor = page[-1].id
+        for definition in page:
+            try:
+                _read_sources(s, p, _source_ids(s, "rule", definition))
+            except (Forbidden, NotFound):
+                continue
+            yield definition
+        if len(page) < 51:
+            return
+
+
 def pin_runtime(s, p, investigation_id, context_scopes=None):
     _actor(s, p, "analyze.run")
     require(s, p, "investigation.read", investigation_id)
@@ -716,21 +740,17 @@ def pin_runtime(s, p, investigation_id, context_scopes=None):
         raise Conflict("runtime_context_limit: 최대 100개 맥락으로 분석 범위를 좁히세요.")
     scopes = list({digest(scope): scope for scope in scopes}.values())
     rules, reports = [], []
-    detections = list(s.scalars(select(_service().Detection).where(_service().Detection.active_version_id.is_not(None))
-                               .order_by(_service().Detection.id).limit(51)))
-    if len(detections) > 50:
-        reports.append({"detector_id": "sigma.approved", "status": "partial", "reason": "runtime_rule_limit"})
-    for d in detections[:50]:
-        # Source-derived definitions stay inside their original investigation until an
-        # explicit shared-content approval contract exists.
-        source_inv = (d.source or {}).get("investigation_id")
-        if source_inv and source_inv != investigation_id:
-            continue
+    admitted = 0
+    for d in runtime_candidates(s, p, investigation_id):
         try:
             _read_sources(s, p, _source_ids(s, "rule", d))
             v = _version(s, "rule", d, d.active_version_id)
             approval = validate_approval(s, p, "rule", d, v, d.active_approval_id)
             scoped = [pin_rule(s, p, d.id, v.id, scope) for scope in scopes]
+            if admitted == 50:
+                reports.append({"detector_id": "sigma.approved", "status": "partial", "reason": "runtime_rule_limit"})
+                break
+            admitted += 1
             for pin in scoped:
                 pin["source_investigation_ids"] = sorted(set(pin["source_investigation_ids"] + approval.source_investigation_ids))
                 pin["contributors"] = _merge_contributors(pin["contributors"], {"ids": approval.contributor_ids})
@@ -742,6 +762,10 @@ def pin_runtime(s, p, investigation_id, context_scopes=None):
         except (Forbidden, NotFound):
             continue
         except (Conflict, ValueError):
+            if admitted == 50:
+                reports.append({"detector_id": "sigma.approved", "status": "partial", "reason": "runtime_rule_limit"})
+                break
+            admitted += 1
             reports.append({"detector_id": "sigma.approved:" + d.id, "status": "unsupported",
                             "reason": "active_approval_unavailable"})
     devices = []

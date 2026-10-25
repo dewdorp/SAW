@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from saw import container
 from saw.core.application.identity import principal_of
 from saw.core.application.investigations import Forbidden
+from saw.event_generations.reads import actor_scope
 from saw.followups import service
 from saw.followups.check_revisions import (
     Conflict, capture_check, collect_check_sources, get_check_revision, snapshot_checks,
@@ -87,7 +88,7 @@ def test_real_event_verification_edit_and_old_snapshot_remain_separate(analyst):
     assert edited.status_code == 200
     assert edited.json()["current"]["payload"]["verification"] is None
     assert analyst.get(endpoint + "/versions/" + version["id"]).json()["version"]["payload"] == version["payload"]
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         p = principal_of(s.scalar(select(User).where(User.username == "analyst1")))
         exact = service.snapshot_followups(s, p, inv["id"], version_ids=[version["id"]])
         assert exact["followups"][0]["payload"]["status"] == "verified"
@@ -116,7 +117,7 @@ def test_legacy_capture_does_not_invent_old_revisions_and_orm_changes_block(anal
 
 def test_derived_finding_check_keeps_transitive_sources(analyst, manager):
     from tests.api.test_derived_finding_access import generated
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _ = generated(s)
         p = principal_of(s.scalar(select(User).where(User.username == "manager1")))
         row = Check(investigation_id=target.id, target_type="finding", target_key=finding.id,
@@ -183,7 +184,7 @@ def test_report_snapshot_rejects_changed_followup_evidence(analyst):
         "reason": "Reply source", "note": "Check original evidence",
         "evidence": [{"investigation_id": inv["id"], "event_id": event["event_id"]}]}).json()
     container.get().events.index([{**event, "raw_event": "Reprocessed content"}])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         p = principal_of(s.scalar(select(User).where(User.username == "analyst1")))
         with pytest.raises(Conflict, match="evidence_changed"):
             service.snapshot_followups(s, p, inv["id"], version_ids=[reply["current"]["id"]])

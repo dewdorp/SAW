@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope, utcnow
 from saw.storage.models import Check
 from tests.api.test_phase5_bulk import upload
@@ -12,11 +13,13 @@ IP = "203.0.113.44"
 VERSION = "soc-guidance/1.0"
 
 
-def make_case(api, count=120):
+def make_case(api, count=120, *, overlap=False, lead_health=0, benign=False, attack_uri="/../../etc/passwd"):
     inv = api.post("/investigations", json={"title": "합성 WAF 조사"}).json()
     lines = ["timestamp,src_ip,dst_ip,dst_port,method,uri,status,action"]
     for i in range(count):
-        lines.append(f"2026-10-01T00:{i // 60:02d}:{i % 60:02d}Z,{IP},10.0.0.8,443,GET,/../../etc/passwd,200,{'block' if i < count-2 else 'allow'}")
+        destination = IP if overlap and i == 0 else "10.0.0.8"
+        uri = "/union-members" if benign else "/health" if i < lead_health else attack_uri
+        lines.append(f"2026-10-01T00:{i // 60:02d}:{i % 60:02d}Z,{IP},{destination},443,GET,{uri},200,{'block' if i < count-2 else 'allow'}")
     up = upload(api, inv["id"], "synthetic-waf.csv", "\n".join(lines).encode())
     api.post(f"/evidence/{up['evidence_id']}/process").raise_for_status()
     return inv
@@ -59,15 +62,12 @@ def test_case_a_exact_counts_no_click_verification(analyst):
 
 
 def test_guidance_scope_filters_time_either_has_no_duplicates(analyst):
-    inv = make_case(analyst)
-    d = preview(analyst, inv, time={"start": "2026-10-01T00:01:58Z", "end": "2026-10-01T00:01:59Z"})
-    assert {x["id"]: x["value"] for x in d["facts"]}["events"] == 2
-    assert {x["id"]: x["value"] for x in preview(analyst, inv, role="dst")["facts"]}["events"] == 0
-    es = container.get().events
-    ev = es.search(inv["id"], [], limit=1)["events"][0]
-    ev["dst_ip"] = IP
-    es.index([ev])
-    assert {x["id"]: x["value"] for x in preview(analyst, inv)["facts"]}["events"] == 120
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv = make_case(analyst, overlap=True)
+        d = preview(analyst, inv, time={"start": "2026-10-01T00:01:58Z", "end": "2026-10-01T00:01:59Z"})
+        assert {x["id"]: x["value"] for x in d["facts"]}["events"] == 2
+        assert {x["id"]: x["value"] for x in preview(analyst, inv, role="dst")["facts"]}["events"] == 1
+        assert {x["id"]: x["value"] for x in preview(analyst, inv)["facts"]}["events"] == 120
 
 
 def test_answer_persists_real_capture_reuses_closure_and_revision(analyst):
@@ -93,13 +93,14 @@ def test_answer_persists_real_capture_reuses_closure_and_revision(analyst):
 
 
 def test_forged_receipt_and_other_scope_evidence_are_rejected(analyst):
-    inv, other = make_case(analyst), make_case(analyst)
-    d = preview(analyst, inv)
-    bad = answer_body(d, receipts=[{"matched_count": 0}])
-    assert analyst.post(f"/investigations/{inv['id']}/checks", json=bad).status_code in (400, 422)
-    bad = answer_body(d)
-    bad["evidence"] = [container.get().events.search(other["id"], [], limit=1)["events"][0]["event_id"]]
-    assert analyst.post(f"/investigations/{inv['id']}/checks", json=bad).status_code == 400
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv, other = make_case(analyst), make_case(analyst)
+        d = preview(analyst, inv)
+        bad = answer_body(d, receipts=[{"matched_count": 0}])
+        assert analyst.post(f"/investigations/{inv['id']}/checks", json=bad).status_code in (400, 422)
+        bad = answer_body(d)
+        bad["evidence"] = [container.get().events.search(other["id"], [], limit=1)["events"][0]["event_id"]]
+        assert analyst.post(f"/investigations/{inv['id']}/checks", json=bad).status_code == 400
 
 
 def test_old_cutoff_not_evaluable_query_failure_not_zero(analyst, monkeypatch):
@@ -165,14 +166,15 @@ def test_http_evidence_does_not_become_direct_compromise(analyst):
     assert "G" not in {q["rule_id"] for q in preview(analyst, inv)["questions"]}
 
 def test_fact_navigation_uses_matching_allowed_records(analyst):
-    inv = make_case(analyst)
-    d = preview(analyst, inv)
-    fact = next(x for x in d["facts"] if x["id"] == "allowed")
-    query = next(q for q in d["queries"] if q["id"] == fact["query_ref"])
-    assert query["matched_count"] == 2
-    assert len(fact["evidence_refs"]) == 2
-    assert all(container.get().events.get(inv["id"], eid)["enforcement_action"] == "allowed" for eid in fact["evidence_refs"])
-    assert any(f["field"] == "enforcement_action" and f["value"] == "allowed" for f in query["query"]["branches"][0])
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv = make_case(analyst)
+        d = preview(analyst, inv)
+        fact = next(x for x in d["facts"] if x["id"] == "allowed")
+        query = next(q for q in d["queries"] if q["id"] == fact["query_ref"])
+        assert query["matched_count"] == 2
+        assert len(fact["evidence_refs"]) == 2
+        assert all(container.get().events.get(inv["id"], eid)["enforcement_action"] == "allowed" for eid in fact["evidence_refs"])
+        assert any(f["field"] == "enforcement_action" and f["value"] == "allowed" for f in query["query"]["branches"][0])
 
 
 def test_external_only_and_real_repeated_connection_case_c(analyst):
@@ -191,11 +193,12 @@ def test_external_only_and_real_repeated_connection_case_c(analyst):
 
 
 def test_selected_evidence_bound_is_not_silently_truncated(analyst):
-    inv = make_case(analyst)
-    d = preview(analyst, inv)
-    body = answer_body(d)
-    body["evidence"] = [e["event_id"] for e in container.get().events.search(inv["id"], [], limit=21)["events"]]
-    assert analyst.post(f"/investigations/{inv['id']}/checks", json=body).status_code in (400, 422)
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv = make_case(analyst)
+        d = preview(analyst, inv)
+        body = answer_body(d)
+        body["evidence"] = [e["event_id"] for e in container.get().events.search(inv["id"], [], limit=21)["events"]]
+        assert analyst.post(f"/investigations/{inv['id']}/checks", json=body).status_code in (400, 422)
 
 def test_legacy_business_query_reused_only_for_same_scope(analyst):
     inv = make_case(analyst)
@@ -210,12 +213,13 @@ def test_legacy_business_query_reused_only_for_same_scope(analyst):
 
 
 def test_guidance_revision_cannot_swap_evidence_without_new_capture(analyst):
-    inv, other = make_case(analyst), make_case(analyst)
-    c = analyst.post(f"/investigations/{inv['id']}/checks", json=answer_body(preview(analyst, inv))).json()
-    foreign = container.get().events.search(other["id"], [], limit=1)["events"][0]["event_id"]
-    assert analyst.put(f"/investigations/{inv['id']}/checks/{c['id']}", json={"evidence": [foreign]}).status_code == 400
-    files = [f for e in c["capture"]["scope"]["evidence_manifest"] for f in e["files"]]
-    assert files and files[0]["processing_run"]["run_digest"]
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv, other = make_case(analyst), make_case(analyst)
+        c = analyst.post(f"/investigations/{inv['id']}/checks", json=answer_body(preview(analyst, inv))).json()
+        foreign = container.get().events.search(other["id"], [], limit=1)["events"][0]["event_id"]
+        assert analyst.put(f"/investigations/{inv['id']}/checks/{c['id']}", json={"evidence": [foreign]}).status_code == 400
+        files = [f for e in c["capture"]["scope"]["evidence_manifest"] for f in e["files"]]
+        assert files and files[0]["processing_run"]["run_digest"]
 
 def test_closure_prefill_does_not_duplicate_recorded_followup(analyst):
     inv = make_case(analyst)
@@ -234,29 +238,47 @@ def test_closure_prefill_does_not_duplicate_recorded_followup(analyst):
 
 
 def test_attack_guidance_queries_beyond_first_general_sample(analyst):
-    inv = make_case(analyst)
-    es = container.get().events
-    events = es.search(inv["id"], [], sort="asc", limit=120)["events"]
-    for index, event in enumerate(events):
-        event["uri"] = "/health" if index < 20 else "/../../etc/passwd"
-        event["tags"] = []
-    es.index(events)
-    d = preview(analyst, inv)
-    assert all(es.get(inv["id"], eid)["uri"] == "/health" for eid in d["queries"][0]["evidence_refs"])
-    assert "B" in {q["rule_id"] for q in d["questions"]}
-    fact = next(f for f in d["facts"] if f["id"] == "attack_request_evidence")
-    assert fact["evidence_refs"]
-    assert all(es.get(inv["id"], eid)["uri"] != "/health" for eid in fact["evidence_refs"])
-    assert any(q["matched_count"] == 100 and any(
-        f["field"] == "uri" and f["op"] == "contains" for branch in q["query"]["branches"] for f in branch
-    ) for q in d["queries"])
-    early = preview(analyst, inv, time={"start": "2026-10-01T00:00:00Z", "end": "2026-10-01T00:00:19Z"})
-    assert "B" not in {q["rule_id"] for q in early["questions"]}
-    assert "B" not in {q["rule_id"] for q in preview(analyst, inv, role="dst")["questions"]}
-    for event in events:
-        event["uri"] = "/union-members"
-    es.index(events)
-    assert "B" not in {q["rule_id"] for q in preview(analyst, inv)["questions"]}
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv = make_case(analyst, lead_health=20)
+        es = container.get().events
+        d = preview(analyst, inv)
+        assert all(es.get(inv["id"], eid)["uri"] == "/health" for eid in d["queries"][0]["evidence_refs"])
+        assert "B" in {q["rule_id"] for q in d["questions"]}
+        fact = next(f for f in d["facts"] if f["id"] == "attack_request_evidence")
+        assert fact["evidence_refs"]
+        assert all(es.get(inv["id"], eid)["uri"] != "/health" for eid in fact["evidence_refs"])
+        assert any(q["matched_count"] == 100 and any(
+            f["field"] == "tags" and f["op"] == "contains" and f["value"] == "pattern:"
+            for branch in q["query"]["branches"] for f in branch
+        ) for q in d["queries"])
+        early = preview(analyst, inv, time={"start": "2026-10-01T00:00:00Z", "end": "2026-10-01T00:00:19Z"})
+        assert "B" not in {q["rule_id"] for q in early["questions"]}
+        assert "B" not in {q["rule_id"] for q in preview(analyst, inv, role="dst")["questions"]}
+        benign = make_case(analyst, benign=True)
+        assert "B" not in {q["rule_id"] for q in preview(analyst, benign)["questions"]}
+
+
+
+def test_attack_guidance_discovers_untagged_uri_beyond_general_sample(analyst):
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        inv = make_case(analyst, lead_health=20, attack_uri="/etc/passwd")
+        es = container.get().events
+        events = es.search(inv["id"], [], sort="asc", limit=120)["events"]
+        assert len(events) == 120 and all(event["parser"] == "csv" for event in events)
+        attack_events = [event for event in events if event["uri"] == "/etc/passwd"]
+        assert len(attack_events) == 100 and all(not event.get("tags") for event in attack_events)
+
+        result = preview(analyst, inv)
+        assert all(es.get(inv["id"], eid)["uri"] == "/health"
+                   for eid in result["queries"][0]["evidence_refs"])
+        assert "B" in {question["rule_id"] for question in result["questions"]}
+        uri_candidates = [query for query in result["queries"] if query["id"].startswith("attack_candidates")
+                          and any(f["field"] == "uri" and f["op"] == "contains" and f["value"] == "/etc/"
+                                  for branch in query["query"]["branches"] for f in branch)]
+        assert len(uri_candidates) == 1 and uri_candidates[0]["matched_count"] == 100
+        fact = next(fact for fact in result["facts"] if fact["id"] == "attack_request_evidence")
+        assert fact["evidence_refs"]
+        assert all(es.get(inv["id"], eid)["uri"] == "/etc/passwd" for eid in fact["evidence_refs"])
 
 
 def test_query_failure_and_forbidden_propagate_to_derived_sources(analyst, monkeypatch):
@@ -279,64 +301,67 @@ def test_query_failure_and_forbidden_propagate_to_derived_sources(analyst, monke
 
 
 def test_partial_read_does_not_claim_derived_sources_absent(analyst):
-    from sqlalchemy import select
-    from saw.storage.models import Evidence, EvidenceFile
-    inv = make_case(analyst)
-    with session_scope() as s:
-        file = s.scalars(select(EvidenceFile).join(Evidence, Evidence.id == EvidenceFile.evidence_id).where(Evidence.investigation_id == inv["id"])).first()
-        file.parse_status = "degraded"
-    d = preview(analyst, inv)
-    states = {x["source"]: x for x in d["unknowns"]}
-    assert d["queries"][0]["data_state"] == "partial"
-    assert states["origin_service"]["state"] == states["process"]["state"] == "partial"
-    assert states["origin_service"]["observed_count"] == states["process"]["observed_count"] == 0
-    event = container.get().events.search(inv["id"], [], limit=1)["events"][0]
-    event.update(data_source="web", process="synthetic-worker")
-    container.get().events.index([event])
-    d = preview(analyst, inv)
-    states = {x["source"]: x for x in d["unknowns"]}
-    assert states["origin_service"]["state"] == states["process"]["state"] == "partial"
-    assert states["origin_service"]["observed_count"] == states["process"]["observed_count"] == 1
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        from sqlalchemy import select
+        from saw.storage.models import Evidence, EvidenceFile
+        inv = make_case(analyst)
+        with session_scope() as s:
+            file = s.scalars(select(EvidenceFile).join(Evidence, Evidence.id == EvidenceFile.evidence_id).where(Evidence.investigation_id == inv["id"])).first()
+            file.parse_status = "degraded"
+        d = preview(analyst, inv)
+        states = {x["source"]: x for x in d["unknowns"]}
+        assert d["queries"][0]["data_state"] == "partial"
+        assert states["origin_service"]["state"] == states["process"]["state"] == "partial"
+        assert states["origin_service"]["observed_count"] == states["process"]["observed_count"] == 0
+        extra = ("timestamp,src_ip,dst_ip,dst_port,method,uri,status,process\n"
+                 f"2026-10-01T00:02:00Z,{IP},10.0.0.8,443,GET,/health,200,synthetic-worker")
+        up = upload(analyst, inv["id"], "synthetic-process.csv", extra.encode())
+        analyst.post(f"/evidence/{up['evidence_id']}/process").raise_for_status()
+        d = preview(analyst, inv)
+        states = {x["source"]: x for x in d["unknowns"]}
+        assert states["origin_service"]["state"] == states["process"]["state"] == "partial"
+        assert states["origin_service"]["observed_count"] == states["process"]["observed_count"] == 1
 
 
 def test_case_c_counts_three_fw_records_as_one_session_without_claiming_repeated_connections(analyst, senior):
-    from saw.observation.firewall import analyze_firewall
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        from saw.observation.firewall import analyze_firewall
 
-    org = senior.post("/source-context/org-units", json={"display_name": "합성 가이던스 조직"}).json()
-    inv = analyst.post("/investigations", json={"title": "합성 FW 단일 세션", "org_unit_id": org["id"]}).json()
-    device = analyst.post(f"/source-context/investigations/{inv['id']}/devices",
-                          json={"display_name": "synthetic-fw-guidance"}).json()
-    profile = analyst.post(f"/source-context/devices/{device['id']}/profiles", json={
-        "functions": ["FW"], "network": "guidance-lab",
-        "source_fields": {"record_kind": "record_type", "session_id": "session_id", "timestamp": "timestamp",
-                          "action": "action", "src_bytes": "sent", "dst_bytes": "received"},
-        "record_kind_map": {"start": "session_start", "interim": "session_interim", "end": "session_end"},
-        "action_map": {"allow": "allowed"}, "action_verified": True, "action_basis": "synthetic allow",
-        "measurement_profile": {"counter_semantics": "cumulative", "direction": "src_to_dst", "unit": "bytes",
-                                "verified": True, "basis": "synthetic cumulative bytes"},
-        "time": {"role": "occurred", "timezone": "UTC", "precision": "second",
-                 "verified": True, "basis": "synthetic UTC timestamps"}})
-    assert profile.status_code == 201, profile.text
-    lines = ["timestamp,src_ip,dst_ip,dst_port,session_id,record_type,sent,received,action"]
-    lines += [f"2026-10-01T00:0{i}:00Z,{IP},8.8.8.8,443,S7,{kind},{sent},{received},allow"
-              for i, kind, sent, received in [(0, "start", 0, 0), (1, "interim", 100, 900), (2, "end", 300, 1200)]]
-    up = upload(analyst, inv["id"], "synthetic-fw-session.csv", "\n".join(lines).encode())
-    attached = analyst.post(f"/source-context/evidence/{up['evidence_id']}/context", json={
-        "device_profile_version_id": profile.json()["id"],
-        "subject": {"org_unit_id": org["id"], "status": "verified", "basis": "synthetic fixture"},
-        "collection": {"scope": "full", "loss": "known"}})
-    assert attached.status_code == 201, attached.text
-    analyst.post(f"/evidence/{up['evidence_id']}/process").raise_for_status()
-    rows = list(container.get().events.iterate(inv["id"], []))
-    fw = analyze_firewall(iter(rows))
-    assert fw["counts"]["records"] == 3 and fw["counts"]["sessions"] == 1
-    d = preview(analyst, inv)
-    fact = next(fact for fact in d["facts"] if fact["id"] == "external_connections")
-    assert fact["value"] == 3 and fact["label"] == "외부 목적지 기록(세션 수 아님)"
-    question = next(question for question in d["questions"] if question["rule_id"] == "C")
-    assert all(term in question["title"] for term in ("실제 연결 수", "프로세스", "계정", "대상 서비스", "정상업무"))
-    assert "반복 외부 통신" not in question["title"]
-    assert any("같은 세션" in limit and "시작·중간·종료" in limit and "주기성" in limit for limit in d["limits"])
+        org = senior.post("/source-context/org-units", json={"display_name": "합성 가이던스 조직"}).json()
+        inv = analyst.post("/investigations", json={"title": "합성 FW 단일 세션", "org_unit_id": org["id"]}).json()
+        device = analyst.post(f"/source-context/investigations/{inv['id']}/devices",
+                              json={"display_name": "synthetic-fw-guidance"}).json()
+        profile = analyst.post(f"/source-context/devices/{device['id']}/profiles", json={
+            "functions": ["FW"], "network": "guidance-lab",
+            "source_fields": {"record_kind": "record_type", "session_id": "session_id", "timestamp": "timestamp",
+                              "action": "action", "src_bytes": "sent", "dst_bytes": "received"},
+            "record_kind_map": {"start": "session_start", "interim": "session_interim", "end": "session_end"},
+            "action_map": {"allow": "allowed"}, "action_verified": True, "action_basis": "synthetic allow",
+            "measurement_profile": {"counter_semantics": "cumulative", "direction": "src_to_dst", "unit": "bytes",
+                                    "verified": True, "basis": "synthetic cumulative bytes"},
+            "time": {"role": "occurred", "timezone": "UTC", "precision": "second",
+                     "verified": True, "basis": "synthetic UTC timestamps"}})
+        assert profile.status_code == 201, profile.text
+        lines = ["timestamp,src_ip,dst_ip,dst_port,session_id,record_type,sent,received,action"]
+        lines += [f"2026-10-01T00:0{i}:00Z,{IP},8.8.8.8,443,S7,{kind},{sent},{received},allow"
+                  for i, kind, sent, received in [(0, "start", 0, 0), (1, "interim", 100, 900), (2, "end", 300, 1200)]]
+        up = upload(analyst, inv["id"], "synthetic-fw-session.csv", "\n".join(lines).encode())
+        attached = analyst.post(f"/source-context/evidence/{up['evidence_id']}/context", json={
+            "device_profile_version_id": profile.json()["id"],
+            "subject": {"org_unit_id": org["id"], "status": "verified", "basis": "synthetic fixture"},
+            "collection": {"scope": "full", "loss": "known"}})
+        assert attached.status_code == 201, attached.text
+        analyst.post(f"/evidence/{up['evidence_id']}/process").raise_for_status()
+        rows = list(container.get().events.iterate(inv["id"], []))
+        fw = analyze_firewall(iter(rows))
+        assert fw["counts"]["records"] == 3 and fw["counts"]["sessions"] == 1
+        d = preview(analyst, inv)
+        fact = next(fact for fact in d["facts"] if fact["id"] == "external_connections")
+        assert fact["value"] == 3 and fact["label"] == "외부 목적지 기록(세션 수 아님)"
+        question = next(question for question in d["questions"] if question["rule_id"] == "C")
+        assert all(term in question["title"] for term in ("실제 연결 수", "프로세스", "계정", "대상 서비스", "정상업무"))
+        assert "반복 외부 통신" not in question["title"]
+        assert any("같은 세션" in limit and "시작·중간·종료" in limit and "주기성" in limit for limit in d["limits"])
 
 
 def test_wording_revision_pins_new_methodology_hash_and_keeps_legacy_capture(analyst, monkeypatch):

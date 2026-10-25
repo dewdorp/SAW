@@ -154,10 +154,13 @@ export function ParserWizard() {
   const save = useMutation({
     mutationFn: async () => {
       const saved = await api.post("/parser-library", { name, slug: slug || undefined, spec, note });
-      if (ev && fid) await api.post(`/evidence/${ev}/files/${fid}/parser`, { parser_id: saved.pinned_id });
+      if (ev && fid) {
+        const processing = await api.post(`/evidence/${ev}/files/${fid}/parser`, { parser_id: saved.pinned_id });
+        return { ...saved, processingJobId: processing.job_id };
+      }
       return saved;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["parser-library"] }); qc.invalidateQueries({ queryKey: ["parsers"] }); nav(job ? `/jobs/${job}` : "/parsers"); },
+    onSuccess: (saved) => { qc.invalidateQueries({ queryKey: ["parser-library"] }); qc.invalidateQueries({ queryKey: ["parsers"] }); if (saved.processingJobId) { nav("/jobs/" + encodeURIComponent(saved.processingJobId)); return; } nav(job ? `/jobs/${job}` : "/parsers"); },
   });
 
   const set = <K extends keyof Spec>(k: K, v: Spec[K]) => setSpec((s) => ({ ...s, [k]: v }));

@@ -13,10 +13,34 @@ from saw.core.application import audit
 from saw.core.application.investigations import NotFound
 from saw.core.schemas.query import Filter
 from saw.core.security.authz import Principal
-from saw.storage.db import new_id, utcnow
-from saw.storage.models import (AttackStory, Briefing, Case, CaseItem, Check, Correlation, CustodyLog, DataDeletion,
-    Entity, Evidence, EvidenceFile, Finding, FindingFeedback, Investigation, InvestigationMember, Job, Note,
-    ParameterProfile, Pattern, ProcessingRun, Relation, Review, SavedView, Support, UploadSession)
+from saw.storage.db import new_id
+from saw.storage.models import (
+    AttackStory,
+    Briefing,
+    Case,
+    CaseItem,
+    Check,
+    Correlation,
+    CustodyLog,
+    DataDeletion,
+    Entity,
+    Evidence,
+    EvidenceFile,
+    Finding,
+    FindingFeedback,
+    Investigation,
+    InvestigationMember,
+    Job,
+    Note,
+    ParameterProfile,
+    Pattern,
+    ProcessingRun,
+    Relation,
+    Review,
+    SavedView,
+    Support,
+    UploadSession,
+)
 from saw.storage.objectstore import LocalFSObjectStore
 
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
@@ -131,7 +155,9 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
     files = list(s.scalars(select(EvidenceFile).where(EvidenceFile.evidence_id.in_(ids))))
     if len(files) > 10000:
         blockers.add("too_many_objects")
-    es, store = container.get().events, container.get().objects
+    from saw.event_generations import retention
+    captured = container.get()
+    es, store = retention.legacy_store(captured), captured.objects
     from saw.storage.eventstore import SQLiteEventStore
     from saw.storage.opensearch_store import OpenSearchEventStore
     if not isinstance(store, LocalFSObjectStore) or not isinstance(es, (SQLiteEventStore, OpenSearchEventStore)):
@@ -198,6 +224,28 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
                             raise ValueError("too many cleanup objects")
         except (ValueError, OSError):
             blockers.add("unsafe_object")
+    generation_closure = {}
+    try:
+        generation_closure = retention.closure(s, captured, inv_id, set(ids), kind == "investigation")
+        if generation_closure.get("shared_objects"):
+            blockers.add("shared_object")
+        kept = {tuple(x) for x in generation_closure["kept_objects"]}
+        known = {(o["bucket"], o["key"]): o for o in objects if (o["bucket"], o["key"]) not in kept}
+        for obj in generation_closure["objects"]:
+            known.setdefault((obj["bucket"], obj["key"]), obj)
+        objects = list(known.values())
+        from saw.event_generations.retention_targets import safe_path
+        for obj in objects:
+            safe_path(store.safe_delete_path(obj["bucket"], obj["key"]))
+        if len(objects) > 10000:
+            blockers.add("too_many_objects")
+    except (ValueError, OSError):
+        blockers.add("unsafe_object")
+    # Invalid heads/targets never fall back to legacy event counts.
+    if not generation_closure:
+        from saw.event_generations.models import InvestigationHead
+        if s.get(InvestigationHead, inv_id) is not None:
+            raise HTTPException(409, "세대 저장 범위를 확인할 수 없습니다.")
     objects.sort(key=lambda o: (o["bucket"], o["key"]))
     findings = list(s.scalars(select(Finding).where(Finding.investigation_id == inv_id)))
     finding_ids = [f.id for f in findings]
@@ -208,7 +256,7 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
         for item in s.scalars(select(CaseItem).where(CaseItem.case_id == c.id)):
             if item.ref_id in related_ids or _has_ref(item.snapshot, related_ids):
                 blockers.add("case_reference")
-    from saw.reports.models import ReportSourceInvestigation, ReportVersion, JobSourceInvestigation
+    from saw.reports.models import JobSourceInvestigation, ReportSourceInvestigation, ReportVersion
     if s.scalar(select(ReportVersion.id).join(
             ReportSourceInvestigation, ReportSourceInvestigation.report_id == ReportVersion.id).where(
             ReportSourceInvestigation.investigation_id == inv_id,
@@ -218,7 +266,7 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
             JobSourceInvestigation.investigation_id == inv_id, Job.investigation_id != inv_id,
             Job.state.notin_(TERMINAL)).limit(1)):
         blockers.add("active_jobs")
-    from saw.knowledge.golden_governance_models import GoldenReleaseSource, GoldenHoldoutAttempt
+    from saw.knowledge.golden_governance_models import GoldenHoldoutAttempt, GoldenReleaseSource
     if s.scalar(select(GoldenReleaseSource.release_version_id).where(
             GoldenReleaseSource.investigation_id == inv_id).limit(1)):
         blockers.add("golden_reference")
@@ -230,9 +278,9 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
         GoldenHoldoutAttempt.source_investigation_ids)).yield_per(500)
     if any(inv_id in set(family or []) | set(sources or []) for family, sources in attempt_sources):
         blockers.add("golden_reference")
-    from saw.knowledge.models import Experience
     from saw.detection.service import Detection, TestRun
     from saw.detection.truth_models import DetectionCase
+    from saw.knowledge.models import Experience
     if _count(s, DetectionCase, DetectionCase.investigation_id == inv_id):
         blockers.add("detection_reference")
     from saw.hunting.service import HuntSession, HuntStep
@@ -269,13 +317,14 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
         if human:
             blockers.add("analyst_records")
     counts = {"investigations": int(kind == "investigation"), "evidence_bundles": len(targets), "files": len(files),
-              "bytes": sum(o["size"] for o in objects), "objects": len(objects), "events": es.count(inv_id) if kind == "investigation" else sum(es.count(inv_id, [Filter(field="evidence_id", value=e.id)]) for e in targets),
+              "bytes": sum(o["size"] for o in objects), "objects": len(objects), "events": (generation_closure.get("events") if generation_closure.get("events") is not None else (es.count(inv_id) if kind == "investigation" else sum(es.count(inv_id, [Filter(field="evidence_id", value=e.id)]) for e in targets))),
               "invalidated_findings": len(findings), "notes": _count(s, Note, Note.investigation_id == inv_id),
               "retained_custody": _count(s, CustodyLog, CustodyLog.evidence_id.in_(ids)),
               "retained_processing_runs": _count(s, ProcessingRun, ProcessingRun.investigation_id == inv_id)}
     return {"target_type": kind, "target_id": target_id, "investigation_id": inv_id,
             "confirmation": inv.display_id if kind == "investigation" else target_id,
             "counts": counts, "blockers": sorted(blockers), "objects": objects, "evidence_ids": ids,
+            "generation_closure": generation_closure,
             "retained": RETAINED, "revision": {"epoch": epoch(inv), "findings": sorted(finding_ids),
             "jobs": [(j.id, j.state, j.attempt) for j in s.scalars(select(Job).where(Job.investigation_id == inv_id))]}}
 
@@ -298,6 +347,8 @@ def receipt(op: DataDeletion) -> dict:
 
 
 def start(s: Session, p: Principal, kind: str, tid: str, confirmation: str, fingerprint: str, reason: str) -> DataDeletion:
+    from saw.event_generations.retention import fresh_admin
+    p = fresh_admin(s, p)
     plan = _plan(s, kind, tid)
     if confirmation != plan["confirmation"] or fingerprint != _fingerprint(plan):
         raise HTTPException(409, "대상 또는 영향 범위가 변경되었습니다. 미리보기를 다시 확인하세요.")
@@ -314,8 +365,10 @@ def start(s: Session, p: Principal, kind: str, tid: str, confirmation: str, fing
     audit.record(s, "data.delete_requested", actor_id=p.user_id, actor_name=p.username, target_type=kind,
                  target_id=tid, investigation_id=op.investigation_id,
                  detail={"receipt_id": op.id, "reason": reason, "counts": plan["counts"], "retained": RETAINED})
-    s.commit()  # Barrier and receipt must survive any external-store failure.
-    return resume(s, op.id)
+    from saw.event_generations import retention
+    retention.abandon_writers(s, op)
+    s.commit()  # Barrier, abandoned reservations and receipt survive external-store failure.
+    return retention.resume(s, container.get(), op.id, p, retry_request=False)
 
 
 def _finish_relational(s: Session, op: DataDeletion) -> None:
@@ -324,9 +377,9 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
         c = s.get(Case, op.target_id)
         c.status = "deleted"
         return
+    from saw.behavior.models import BehaviorResult
     from saw.knowledge.similar import KnowledgeDoc
     from saw.llm.service import LlmInteraction
-    from saw.behavior.models import BehaviorResult
     s.execute(delete(BehaviorResult).where(BehaviorResult.investigation_id == iid))
     from saw.analysis_runs.models import AnalysisRun, DetectorExecution, FindingSnapshot
     from saw.reports.models import ReportVersion
@@ -334,6 +387,8 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     s.execute(delete(FindingSnapshot).where(FindingSnapshot.run_id.in_(run_ids)))
     s.execute(delete(DetectorExecution).where(DetectorExecution.run_id.in_(run_ids)))
     s.execute(delete(ReportVersion).where(ReportVersion.investigation_id == iid))
+    from saw.event_generations.models import AnalysisRunGeneration
+    s.execute(delete(AnalysisRunGeneration).where(AnalysisRunGeneration.run_id.in_(run_ids)))
     s.execute(delete(AnalysisRun).where(AnalysisRun.investigation_id == iid))
     fids = select(Finding.id).where(Finding.investigation_id == iid)
     s.execute(delete(FindingFeedback).where(FindingFeedback.finding_id.in_(fids)))
@@ -369,88 +424,5 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
 
 
 def resume(s: Session, deletion_id: str, *, requested_by: Principal | None = None) -> DataDeletion:
-    # Lock the receipt to prevent concurrent retries from racing external deletion with finalization.
-    s.execute(update(DataDeletion).where(DataDeletion.id == deletion_id).values(id=deletion_id)
-              .execution_options(synchronize_session=False))
-    op = s.scalar(select(DataDeletion).where(DataDeletion.id == deletion_id).execution_options(populate_existing=True))
-    if op is None:
-        raise NotFound("deletion receipt not found")
-    if requested_by is not None:
-        # Keep the original requester on the receipt; record each retry caller separately.
-        # Persist the request before external work while preserving database lock order.
-        if op.state != "COMPLETED" and op.investigation_id:
-            lock_investigation(s, op.investigation_id, allow_deleting=True)
-        audit.record(s, "data.delete_retry_requested", actor_id=requested_by.user_id,
-                     actor_name=requested_by.username, target_type=op.target_type,
-                     target_id=op.target_id, investigation_id=op.investigation_id,
-                     detail={"receipt_id": op.id, "previous_state": op.state, "previous_step": op.step})
-        s.commit()
-        # Reacquire the receipt and barrier after committing the durable audit request.
-        return resume(s, deletion_id)
-    if op.state == "COMPLETED":
-        return op
-    phase = op.step
-    try:
-        if op.investigation_id:
-            inv = lock_investigation(s, op.investigation_id, allow_deleting=True)
-            if (inv.settings or {}).get("data_deletion") != op.id:
-                raise ValueError("barrier changed")
-            if _count(s, Evidence, Evidence.id.in_(op.plan["evidence_ids"]), Evidence.legal_hold.is_(True)):
-                raise ValueError("legal hold changed")
-            if _count(s, Job, Job.investigation_id == op.investigation_id, Job.state.notin_(TERMINAL)):
-                raise ValueError("active job changed")
-        if phase == "planned":
-            if op.investigation_id:
-                es = container.get().events
-                if op.target_type == "investigation":
-                    es.delete_by_investigation(op.investigation_id)
-                    if es.count(op.investigation_id):
-                        raise ValueError("remaining events")
-                else:
-                    for eid in op.plan["evidence_ids"]:
-                        es.delete_by_evidence(op.investigation_id, eid)
-                        if es.count(op.investigation_id, [Filter(field="evidence_id", value=eid)]):
-                            raise ValueError("remaining events")
-            op.step = phase = "events_removed"
-            s.flush()
-        if phase == "events_removed":
-            store = container.get().objects
-            for obj in op.plan["objects"]:
-                if not isinstance(store, LocalFSObjectStore):
-                    raise ValueError("unsupported store")
-                store.safe_delete_path(obj["bucket"], obj["key"])
-                store.delete(obj["bucket"], obj["key"])
-                if store.exists(obj["bucket"], obj["key"]):
-                    raise ValueError("remaining object")
-            op.step = phase = "objects_removed"
-            s.flush()
-        # External stores are not part of this transaction. Recheck even after a saved
-        # checkpoint so a failed attempt cannot certify a recreated event as removed.
-        if op.investigation_id:
-            es = container.get().events
-            if op.target_type == "investigation":
-                es.delete_by_investigation(op.investigation_id)
-                if es.count(op.investigation_id):
-                    raise ValueError("remaining events")
-            else:
-                for eid in op.plan["evidence_ids"]:
-                    es.delete_by_evidence(op.investigation_id, eid)
-                    if es.count(op.investigation_id, [Filter(field="evidence_id", value=eid)]):
-                        raise ValueError("remaining events")
-        _finish_relational(s, op)
-        op.state, op.step, op.error_code, op.updated_at = "COMPLETED", "completed", "", utcnow()
-        audit.record(s, "data.delete_completed", actor_id=op.actor_id, actor_name=op.actor_name,
-                     target_type=op.target_type, target_id=op.target_id, investigation_id=op.investigation_id,
-                     detail={"receipt_id": op.id, "counts": op.plan["counts"], "retained": RETAINED})
-        s.commit()
-    except Exception:
-        s.rollback()
-        op = s.get(DataDeletion, deletion_id)
-        op.state, op.error_code, op.updated_at = "FAILED", f"{phase}_failed", utcnow()
-        # Keep the last externally verified checkpoint. Repeated deletes are idempotent.
-        op.step = phase
-        audit.record(s, "data.delete_failed", actor_id=op.actor_id, actor_name=op.actor_name,
-                     target_type=op.target_type, target_id=op.target_id, investigation_id=op.investigation_id,
-                     outcome="failure", detail={"receipt_id": op.id, "error_code": op.error_code})
-        s.commit()
-    return op
+    from saw.event_generations import retention
+    return retention.resume(s, container.get(), deletion_id, requested_by)

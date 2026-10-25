@@ -165,8 +165,7 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
                     explicitly_inactive.add(PREFIX + det.id)
                 except (Forbidden, NotFound, ValueError):
                     continue
-            for det in s.scalars(select(Detection).where(Detection.active_version_id.is_not(None))
-                                 .order_by(Detection.id).limit(MAX_RULES + 1)):
+            for det in gov.runtime_candidates(s, p, ctx.investigation_id):
                 try:
                     version = gov._version(s, "rule", det, det.active_version_id)
                     approval = gov.validate_approval(s, p, "rule", det, version, det.active_approval_id)
@@ -176,6 +175,8 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
                     pin.update(approval_id=approval.id, validation_kind=approval.proof["method"])
                     pin["source_investigation_ids"] = sorted(set(pin["source_investigation_ids"] + approval.source_investigation_ids))
                     pins.append(pin)
+                    if len(pins) > MAX_RULES:
+                        break
                 except (Forbidden, NotFound, ValueError):
                     continue
     elif runtime.get("schema") == "det-runtime-set/1":

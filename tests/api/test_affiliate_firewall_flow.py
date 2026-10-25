@@ -1,5 +1,6 @@
 """Run a real upload/parser/job flow with hand-checked cumulative firewall records."""
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope
 from saw.storage.models import Job
 from tests.api.test_phase5_bulk import upload
@@ -39,7 +40,8 @@ def test_context_to_parser_to_saved_fw_run(analyst, senior):
         job = s.get(Job, processed.json()["id"])
         assert job.state == "COMPLETED", job.error
         assert job.stages["analyze"]["status"] in {"complete", "partial"}
-    events = list(container.get().events.iterate(inv, []))
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        events = list(container.get().events.iterate(inv, []))
     assert len(events) == 3 and all(e["data_source"] == "connection" for e in events)
     assert all(e["ext"]["observation"]["context"]["org_unit_id"] == org["id"] for e in events)
     runs = analyst.get(f"/investigations/{inv}/analysis-runs").json()["runs"]

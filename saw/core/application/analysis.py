@@ -15,6 +15,7 @@ from saw.analyzers.relation.build import build as build_relations
 from saw.analyzers.story.build import ALGO_VERSION, build_story
 from saw.core.schemas.query import AggRequest, Filter, GroupMetric
 from saw.detectors.base import DetectorContext, FindingDraft
+from saw.event_generations.reads import analysis_scoped
 from saw.storage.db import utcnow
 from saw.storage.models import (
     AttackStory,
@@ -159,9 +160,38 @@ def finding_dict(f: Finding) -> dict:
             "investigation_id": f.investigation_id})
 
 
+def _detector_cancellation(job_id: str | None):
+    """Bound hot row polling per run; detector boundaries must force a fresh read.
+
+    Cancellation may be delayed by 0.2 seconds plus an existing blocking call.
+    Publication, authorization and generation fences always perform their own checks.
+    """
+    from saw.workers.pipeline import _cancelled
+
+    checked_at = None
+    cancelled = False
+
+    def check(force=False):
+        nonlocal checked_at, cancelled
+        if not job_id:
+            return False
+        now = time.monotonic()
+        if force or checked_at is None or (not cancelled and now - checked_at >= 0.2):
+            cancelled = _cancelled(job_id) or cancelled
+            checked_at = now
+        return cancelled
+
+    return check
+
+
+@analysis_scoped
 def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) -> list[Finding]:
+    if analysis_run is not None and analysis_run.status != "running":
+        from saw.storage.generations import GenerationConflict
+        raise GenerationConflict("analysis_history_is_immutable")
     owns_run = analysis_run is None
     analysis_run = analysis_run or run_history.start(s, inv_id)
+    container.get().events.bind_live_run(s, analysis_run)
     from saw.detection.runtime import run_device_scopes
     from saw.detection.runtime_capture import authorize, pin_run
     actor, runtime_pin = pin_run(s, analysis_run, s.get(Investigation, inv_id))
@@ -181,8 +211,9 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
     off = set(s.execute(select(SignatureSetting.sig_id).where(SignatureSetting.enabled.is_(False))).scalars())
     ctx = DetectorContext(inv_id, es, assets=assets, data_sources=sources,
                           params={"history": history_baseline(s, inv_id), "iocs": iocs, "sig_disabled": off, "runtime_pin": runtime_pin})
-    from saw.workers.pipeline import Cancelled, StaleLease, _cancelled
-    ctx.params["cancelled"] = (lambda: _cancelled(analysis_run.job_id)) if analysis_run.job_id else (lambda: False)
+    from saw.workers.pipeline import Cancelled, StaleLease
+    check_cancelled = _detector_cancellation(analysis_run.job_id)
+    ctx.params["cancelled"] = check_cancelled
     out = []
     every = all_detectors()
     dets = [d for d in every if d.data_sources & sources]
@@ -194,7 +225,7 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
     if analysis_run.job_id:
         s.commit()
     for i, det in enumerate(dets):
-        if ctx.params["cancelled"]():
+        if check_cancelled(force=True):
             raise Cancelled()
         started = time.monotonic()
         input_count = es.count(inv_id, [Filter(field="data_source", op="in", value=sorted(det.data_sources))])
@@ -205,12 +236,16 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
         except (Cancelled, StaleLease):
             raise
         except Exception as e:  # noqa: BLE001 - one detector must not abort the run
+            if check_cancelled(force=True):
+                raise Cancelled()
             import logging
 
             logging.getLogger("saw.detectors").warning("detector %s failed (%s)", det.id, type(e).__name__)
             run_history.record(s, analysis_run, det.id, det.version, "failed", input_count=input_count,
                 elapsed_ms=round((time.monotonic() - started) * 1000), detail={"error_type": type(e).__name__})
             continue
+        if check_cancelled(force=True):
+            raise Cancelled()
         report = ctx.params.get("execution_reports", {}).get(det.id) or {}
         result_status = {"partial": "partial", "insufficient_data": "insufficient_data", "failed": "failed",
                          "disabled": "not_applicable", "not_applicable": "not_applicable", "cancelled": "cancelled"}.get(report.get("status"), "complete")
@@ -345,6 +380,7 @@ def _drop_unsupported(s: Session, inv_id: str, settled: set[str], produced: set[
     return len(gone)
 
 
+@analysis_scoped
 def run_patterns(s: Session, inv_id: str) -> None:
     es = container.get().events
     s.execute(delete(Pattern).where(Pattern.investigation_id == inv_id))
@@ -357,6 +393,7 @@ def run_patterns(s: Session, inv_id: str) -> None:
                       tags=p["tags"]))
 
 
+@analysis_scoped
 def run_parameters(s: Session, inv_id: str, top: int = 30) -> None:
     es = container.get().events
     s.execute(delete(ParameterProfile).where(ParameterProfile.investigation_id == inv_id))
@@ -376,6 +413,7 @@ def run_parameters(s: Session, inv_id: str, top: int = 30) -> None:
                                    profile=prof))
 
 
+@analysis_scoped
 def run_relations(s: Session, inv_id: str) -> None:
     es = container.get().events
     ents, edges = build_relations(es, inv_id, present_sources(inv_id))
@@ -445,6 +483,7 @@ def run_story(s: Session, inv_id: str) -> AttackStory:
     return st
 
 
+@analysis_scoped
 def refresh_investigation(s: Session, inv_id: str) -> None:
     inv = s.get(Investigation, inv_id)
     es = container.get().events
@@ -463,6 +502,7 @@ def refresh_investigation(s: Session, inv_id: str) -> None:
         inv.status = "in_progress"
 
 
+@analysis_scoped
 def run_all(s: Session, inv_id: str, progress=None, *, job_id=None):
     from saw.core.application.correlation import run_correlation
 

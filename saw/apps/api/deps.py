@@ -62,6 +62,9 @@ def auth(request: Request, s: Session = Depends(db, scope="function")) -> AuthCo
     sess, u = _session(request, s)
     if not sess.mfa_passed:
         raise HTTPException(401, "MFA required")
+    from saw.event_generations.reads import bind_request_actor
+
+    bind_request_actor(u.id, sess.id)
     principal = identity.principal_of(u)
     s.info["principal"] = principal
     return AuthContext(principal, u, sess, client_ip(request))

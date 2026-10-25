@@ -112,6 +112,7 @@ class SQLiteEventStore:
               event_id TEXT PRIMARY KEY, investigation_id TEXT NOT NULL, evidence_id TEXT,
               data_source TEXT, ts TEXT, ts_epoch REAL, doc TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_ev_inv_ts ON events(investigation_id, ts_epoch, event_id);
+            CREATE INDEX IF NOT EXISTS ix_ev_inv_cursor ON events(investigation_id, COALESCE(ts_epoch,0), event_id);
             CREATE INDEX IF NOT EXISTS ix_ev_inv_src ON events(investigation_id, json_extract(doc,'$."src_ip"'));
             CREATE INDEX IF NOT EXISTS ix_ev_inv_tpl ON events(investigation_id, json_extract(doc,'$."uri_template"'));
             CREATE INDEX IF NOT EXISTS ix_ev_inv_evd ON events(investigation_id, evidence_id);
@@ -271,18 +272,35 @@ class SQLiteEventStore:
     def _page(self, inv: str, filters: list[Filter], time: TimeRange | None, batch: int, cursor: str | None,
               fields: list[str] | None = None):
         w, p = self._where(inv, filters, time)
-        if cursor:
-            cts, cid = decode_cursor(cursor)
-            w += " AND (COALESCE(ts_epoch,0), event_id) > (?, ?)"
-            p += [cts, cid]
         # projection inside SQLite: detectors ask for a few fields, parsing whole documents in Python dominated
         sel = "doc"
         if fields and all(FIELD_RE.match(f) for f in fields):
             sel = "json_object(" + ", ".join(f"'{f}', json(doc -> '{_jpath(f)}')" for f in fields) + ")"
-        rows = self._conn().execute(
-            f"SELECT {sel}, COALESCE(ts_epoch,0), event_id FROM events WHERE {w} "
-            f"ORDER BY COALESCE(ts_epoch,0), event_id LIMIT ?", p + [batch]
-        ).fetchall()
+        if cursor:
+            # _where emits trusted SQL; paths and values are bound, never literals.
+            # Number only its placeholders so both ranges share the old P+3 budget.
+            parts = w.split("?")
+            if len(parts) != len(p) + 1:
+                raise ValueError("unexpected SQL placeholder count")
+            w = "".join(f"{part}?{number}" for number, part in enumerate(parts[:-1], 1)) + parts[-1]
+        query = f"SELECT {sel} AS document, COALESCE(ts_epoch,0) AS cursor_ts, event_id FROM events WHERE {w}"
+        if cursor:
+            cts, cid = decode_cursor(cursor)
+            ts_arg, id_arg, batch_arg = (f"?{len(p) + offset}" for offset in (1, 2, 3))
+            # A tuple over an expression cannot seek both index keys. Split its
+            # disjoint ranges, bound each before merging, and keep one snapshot.
+            rows = self._conn().execute(
+                f"SELECT * FROM ({query} AND COALESCE(ts_epoch,0)={ts_arg} AND event_id>{id_arg} "
+                f"ORDER BY event_id LIMIT {batch_arg}) "
+                f"UNION ALL SELECT * FROM ({query} AND COALESCE(ts_epoch,0)>{ts_arg} "
+                f"ORDER BY COALESCE(ts_epoch,0), event_id LIMIT {batch_arg}) "
+                f"ORDER BY cursor_ts, event_id LIMIT {batch_arg}",
+                p + [cts, cid, batch],
+            ).fetchall()
+        else:
+            rows = self._conn().execute(
+                query + " ORDER BY COALESCE(ts_epoch,0), event_id LIMIT ?", p + [batch]
+            ).fetchall()
         nxt = encode_cursor([rows[-1][1], rows[-1][2]]) if len(rows) == batch else None
         return {"events": [orjson.loads(r[0]) for r in rows], "next_cursor": nxt}
 

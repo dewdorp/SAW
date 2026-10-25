@@ -1,6 +1,7 @@
 """Synthetic contracts for frozen reports and exact source-scoped export jobs."""
 from sqlalchemy import select
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.analysis_runs import service as runs
 from saw.core.application import identity
 from saw.storage.db import session_scope
@@ -10,7 +11,7 @@ from tests.conftest import Api, make_user
 
 def finished(analyst, title="가상 관계사 보고"):
     inv = analyst.post("/investigations", json={"title": title}).json()["id"]
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         row = runs.start(s, inv)
         row.created_by = s.get(Investigation, inv).owner_id
         runs.record(s, row, "fw.observation", "1", "insufficient_data",

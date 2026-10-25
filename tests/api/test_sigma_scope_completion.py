@@ -9,6 +9,7 @@ from saw.core.application.investigations import Forbidden
 from saw.detection import auto, governance
 from saw.detection.derived_access import source_ids
 from saw.detectors.base import DetectorContext
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope
 from saw.storage.models import User, InvestigationMember
 from tests.api.test_derived_finding_access import generated
@@ -17,7 +18,7 @@ from tests.conftest import make_user
 
 
 def test_one_unfinished_scope_prevents_settling_the_same_rule(analyst, manager, monkeypatch):
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, detection, _v, _ctx = setup_rule(s)
         p = identity.principal_of(s.get(User, detection.created_by))
         pinset = governance.pin_runtime(s, p, inv.id, [{"kind": "group"}])
@@ -36,7 +37,7 @@ def test_one_unfinished_scope_prevents_settling_the_same_rule(analyst, manager, 
 
 def test_attack_flow_and_serializer_keep_private_source_lineage(analyst, manager):
     uid = make_user("lineage-review-reader", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _run = generated(s)
         # The actual flow matcher consumes two ordered stages sharing a source address.
         finding.stage = "EXPLOITATION"
@@ -71,7 +72,7 @@ def test_attack_flow_and_serializer_keep_private_source_lineage(analyst, manager
 
 
 def test_distinct_complete_rule_scopes_are_both_settled(analyst, manager):
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         inv, first, _v, _ctx = setup_rule(s)
         _other, second, _v2, _ctx2 = setup_rule(s, data={"title": "Synthetic second scoped rule"})
         p = identity.principal_of(s.get(User, first.created_by))
@@ -89,14 +90,14 @@ def test_distinct_complete_rule_scopes_are_both_settled(analyst, manager):
 def test_source_revoked_after_capture_blocks_success_but_allows_failure_sealing(analyst, manager):
     from saw.analysis_runs import service as history
     from saw.analysis_runs.models import AnalysisRun
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _old = generated(s)
         new = history.start(s, target.id)
         history.capture_findings(s, new, [finding])
         source_id, actor_id, run_id = source.id, target.owner_id, new.id
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         s.delete(s.get(InvestigationMember, (source_id, actor_id)))
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         run = s.get(AnalysisRun, run_id)
         with pytest.raises(Forbidden):
             history.finish(s, run)

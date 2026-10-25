@@ -1,6 +1,7 @@
 """Golden jobs never expose private inputs and cannot mutate source manifests."""
 from saw.analysis_runs.scoped import _manifest
 from saw.apps.api.routers.evidence import job_out
+from saw.event_generations.reads import actor_scope
 from saw.storage.db import session_scope
 from saw.storage.models import Job
 
@@ -21,11 +22,11 @@ def test_golden_job_output_excludes_private_input_mapping_and_object_keys():
 
 def test_readonly_golden_job_does_not_change_analysis_source_manifest(analyst):
     inv = analyst.post("/investigations", json={"title": "Synthetic Golden job scope"}).json()["id"]
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         before = _manifest(s, inv)
         s.add(Job(investigation_id=inv, kind="golden_export", requested_by="synthetic",
                   state="QUEUED", stages={"golden_export": {"release_id": "synthetic-release"}}))
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         assert _manifest(s, inv) == before
 
 

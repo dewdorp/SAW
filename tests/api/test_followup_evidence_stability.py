@@ -1,6 +1,7 @@
 """Finite independent A review: evidence stability at follow-up mutation publication."""
 from saw import container
-from saw.storage.db import utcnow
+from saw.event_generations.models import InvestigationHead, WriterReservation
+from saw.storage.db import session_scope, utcnow
 from tests.api.test_followups import create, setup
 
 
@@ -39,12 +40,18 @@ def test_reply_rechecks_evidence_after_read_before_append(analyst, monkeypatch):
     endpoint = f"{url}/{task['id']}"
     native_get = store.get
     altered = False
+    with session_scope() as s:
+        assert s.get(InvestigationHead, inv["id"]) is None
+        assert s.get(WriterReservation, inv["id"]) is None
+
     def read_then_reprocess(*args, **kwargs):
         nonlocal altered
         value = native_get(*args, **kwargs)
         if not altered:
             altered = True
-            store.index([{**event, "raw_event": "Changed during capture"}])
+            # Simulate real storage reprocessing inside the API transaction without
+            # taking a second SQLite investigation writer lock. This fixture has no head.
+            container.get().legacy_events.index([{**event, "raw_event": "Changed during capture"}])
         return value
     monkeypatch.setattr(store, "get", read_then_reprocess)
     response = analyst.post(endpoint + "/reply", json={

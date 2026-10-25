@@ -1,6 +1,7 @@
 """Inherited source authority survives a new run without the original rule pin."""
 from saw.analysis_runs import service as history
 from saw.core.application import identity
+from saw.event_generations.reads import actor_scope
 from saw.reports import service as reports
 from saw.storage.db import session_scope
 from saw.storage.models import InvestigationMember, User
@@ -10,7 +11,7 @@ from tests.conftest import Api, make_user
 
 def test_retained_derived_snapshot_requires_its_source_without_current_pin(analyst, manager, app):
     reader_id = make_user("snapshot-target-reader", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         source, target, finding, _old = generated(s)
         s.add(InvestigationMember(investigation_id=target.id, user_id=reader_id, access="read"))
         new = history.start(s, target.id)
@@ -28,7 +29,7 @@ def test_unreadable_derived_input_cannot_publish_in_new_run(analyst, manager):
     import pytest
     from saw.core.application.investigations import Forbidden
     reader_id = make_user("snapshot-target-writer", ["analyst"])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         _source, target, finding, _old = generated(s)
         s.add(InvestigationMember(investigation_id=target.id, user_id=reader_id, access="editor"))
         new = history.start(s, target.id)

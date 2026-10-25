@@ -221,7 +221,7 @@ def complete_example(scope, events):
     return ex
 
 
-def full_fixture(tmp_path, events=None, store=None):
+def full_fixture(tmp_path, events=None, store=None, *, managed_investigation_id=None):
     from saw.detection.specs import get_spec
     from saw.observation.firewall import DEFAULT_POLICY, analyze_firewall
     from saw.storage.eventstore import SQLiteEventStore
@@ -232,7 +232,7 @@ def full_fixture(tmp_path, events=None, store=None):
 
         # Shared native indices survive SQL fixture resets, and their document
         # keys are event IDs alone. Isolate both IDs without deleting other cases.
-        investigation_id = "fixture-" + uuid4().hex
+        investigation_id = managed_investigation_id or "fixture-" + uuid4().hex
         for row in events:
             row["investigation_id"] = investigation_id
             row["event_id"] = investigation_id + "-" + row["event_id"]
@@ -557,35 +557,44 @@ def test_reviewed_followup_status_survives_without_private_payload_text(tmp_path
     assert sha(payload) not in text
 
 @pytest.mark.parametrize("selector", ["end", "is_not", "not_in"])
-def test_complete_window_membership_matches_actual_p2_authority(app, tmp_path, selector):
-    from time import monotonic
+def test_complete_window_membership_matches_actual_p2_authority(analyst, tmp_path, selector):
+    from saw.event_generations.reads import actor_scope
+    response = analyst.post("/investigations", json={"title": "Synthetic Golden membership"})
+    assert response.status_code == 201, response.text
+    inv = response.json()["id"]
+    actor = analyst.get("/auth/me").json()["id"]
+    with actor_scope(actor):
+        from time import monotonic
 
-    from saw import container
-    from saw.detection.testing import _members
-    rows = [event("member-before", status_code=200), event("member-end", timestamp="2026-10-20T00:01:00+00:00")]
-    store, scope, state, events = full_fixture(tmp_path, rows, container.get().events)
-    unit = scope["truth_units"][0]
-    unit["time"] = {"start": "2026-10-19T23:59:00+00:00", "end": "2026-10-20T00:01:00+00:00"}
-    if selector != "end":
-        unit["time"]["end"] = "2026-10-20T00:02:00+00:00"
-        unit["filters"] = [{"field": "status_code", "op": selector, "value": 500 if selector == "is_not" else [500]}]
-    case = scope["truth_cases"][0]
-    case["payload"]["units"] = [{k:v for k,v in unit.items() if k != "case_version_id"}]
-    case["sha256"] = sha(case["payload"])
-    authoritative = _members(case["payload"], case["payload"]["units"], monotonic()+30)["window"]
-    assert authoritative == {e["event_id"] for e in events}
-    m = module("golden_capture")
-    selected = {e["event_id"] for e in events if m._within(e, [case["payload"].get("time"), unit["time"]])
-                and m._matches(e, unit["filters"])}
-    assert selected == authoritative
-    ex = complete_example(scope, events)
-    capture = m.capture_complete_scope(store, scope, source_state=lambda: deepcopy(state), cancelled=lambda: False)
-    assert capture.status == "passed", capture.reasons
-    inputs = prepare([ex], full=True)
-    inputs["captures"][ex["version_id"]] = capture
-    result = module("golden_artifact").build_release(inputs, tmp_path / "native-window.zip", cancelled=lambda: False)
-    check = next(c for c in result["validations"][0]["checks"] if c["code"] == "native_truth_membership")
-    assert check["input_count"] == 2 and check["expected_sha256"] == check["actual_sha256"]
+        from saw import container
+        from saw.detection.testing import _members
+        rows = [event("member-before", status_code=200), event("member-end", timestamp="2026-10-20T00:01:00+00:00")]
+        store, scope, state, events = full_fixture(tmp_path, rows, container.get().events, managed_investigation_id=inv)
+        unit = scope["truth_units"][0]
+        unit["time"] = {"start": "2026-10-19T23:59:00+00:00", "end": "2026-10-20T00:01:00+00:00"}
+        if selector != "end":
+            unit["time"]["end"] = "2026-10-20T00:02:00+00:00"
+            unit["filters"] = [{"field": "status_code", "op": selector, "value": 500 if selector == "is_not" else [500]}]
+        case = scope["truth_cases"][0]
+        case["payload"]["units"] = [{k:v for k,v in unit.items() if k != "case_version_id"}]
+        case["sha256"] = sha(case["payload"])
+        authoritative = _members(case["payload"], case["payload"]["units"], monotonic()+30)["window"]
+        assert authoritative == {e["event_id"] for e in events}
+        m = module("golden_capture")
+        selected = {e["event_id"] for e in events if m._within(e, [case["payload"].get("time"), unit["time"]])
+                    and m._matches(e, unit["filters"])}
+        assert selected == authoritative
+        ex = complete_example(scope, events)
+        # This unit fixture has a synthetic frozen run, not a persisted AnalysisRun.
+        # Open the authorized native view explicitly; SQL run binding has API coverage.
+        with store.open_view(inv) as view:
+            capture = m.capture_complete_scope(view, scope, source_state=lambda: deepcopy(state), cancelled=lambda: False)
+        assert capture.status == "passed", capture.reasons
+        inputs = prepare([ex], full=True)
+        inputs["captures"][ex["version_id"]] = capture
+        result = module("golden_artifact").build_release(inputs, tmp_path / "native-window.zip", cancelled=lambda: False)
+        check = next(c for c in result["validations"][0]["checks"] if c["code"] == "native_truth_membership")
+        assert check["input_count"] == 2 and check["expected_sha256"] == check["actual_sha256"]
 
 
 @pytest.mark.parametrize("second_event_id", ["original-event-1", "member-before"])
@@ -618,23 +627,32 @@ def test_full_fixture_isolates_cases_in_a_shared_event_store(tmp_path, second_ev
     assert {e["event_id"] for e in fixtures[0][3]}.isdisjoint(e["event_id"] for e in fixtures[1][3])
 
 
-def test_native_membership_disagreement_cannot_attest_complete(app, tmp_path, monkeypatch):
-    from saw import container
-    store, scope, state, events = full_fixture(tmp_path, store=container.get().events)
-    ex = complete_example(scope, events)
-    m = module("golden_capture")
-    capture = m.capture_complete_scope(store, scope, source_state=lambda: deepcopy(state), cancelled=lambda: False)
-    assert capture.status == "passed" and capture.native_count == len(events)
-    inputs = prepare([ex], full=True)
-    inputs["captures"][ex["version_id"]] = capture
-    # Prove the unchanged engine/snapshot checks pass before injecting only the
-    # local-vs-native membership disagreement this test is intended to reject.
-    control = module("golden_artifact").build_release(inputs, tmp_path / "control.zip", cancelled=lambda: False)
-    assert control["validations"][0]["complete"] is True
-    monkeypatch.setattr(m, "_matches", lambda event, filters: False)
-    with pytest.raises(ValueError, match="native_truth_membership_changed"):
-        module("golden_artifact").build_release(inputs, tmp_path / "wrong.zip", cancelled=lambda: False)
-    assert not (tmp_path / "wrong.zip").exists()
+def test_native_membership_disagreement_cannot_attest_complete(analyst, tmp_path, monkeypatch):
+    from saw.event_generations.reads import actor_scope
+    response = analyst.post("/investigations", json={"title": "Synthetic Golden membership"})
+    assert response.status_code == 201, response.text
+    inv = response.json()["id"]
+    actor = analyst.get("/auth/me").json()["id"]
+    with actor_scope(actor):
+        from saw import container
+        store, scope, state, events = full_fixture(tmp_path, store=container.get().events, managed_investigation_id=inv)
+        ex = complete_example(scope, events)
+        m = module("golden_capture")
+        # This unit fixture has a synthetic frozen run, not a persisted AnalysisRun.
+        # Open the authorized native view explicitly; SQL run binding has API coverage.
+        with store.open_view(inv) as view:
+            capture = m.capture_complete_scope(view, scope, source_state=lambda: deepcopy(state), cancelled=lambda: False)
+        assert capture.status == "passed" and capture.native_count == len(events)
+        inputs = prepare([ex], full=True)
+        inputs["captures"][ex["version_id"]] = capture
+        # Prove the unchanged engine/snapshot checks pass before injecting only the
+        # local-vs-native membership disagreement this test is intended to reject.
+        control = module("golden_artifact").build_release(inputs, tmp_path / "control.zip", cancelled=lambda: False)
+        assert control["validations"][0]["complete"] is True
+        monkeypatch.setattr(m, "_matches", lambda event, filters: False)
+        with pytest.raises(ValueError, match="native_truth_membership_changed"):
+            module("golden_artifact").build_release(inputs, tmp_path / "wrong.zip", cancelled=lambda: False)
+        assert not (tmp_path / "wrong.zip").exists()
 
 
 @pytest.mark.parametrize("kind", ["event", "sequence"])

@@ -192,7 +192,9 @@ def mutate(s, p, inv_id, ident, action, data):
     # Recheck the final retained/new references after action replacement, using fresh reads.
     # The initial lookup can race with reprocessing; an old reply must not become verified.
     authorize(s, p, sources, write_target=inv_id)
-    _verify_evidence(payload, {})
+    # The request read scope pins its first view; publication needs a new current view.
+    with container.get().events.read_scope():
+        _verify_evidence(payload, {})
     reason = payload["reason"] if action == "edit" else body.reason
     return _append(s, p, row, payload, action, sources, reason)
 

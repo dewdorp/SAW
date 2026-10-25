@@ -135,6 +135,16 @@ def _state_checks(scope, state):
 
 
 def capture_complete_scope(store, frozen_scope, *, source_state, cancelled):
+    from saw.event_generations.reads import EventFacade, ensure_scope
+    if isinstance(store, EventFacade):
+        with ensure_scope(), store.session_factory() as s:
+            run = frozen_scope.get("analysis_run") or {}
+            store.bind_run(s, run.get("investigation_id"), run.get("id"))
+            return _capture_complete_scope(store, frozen_scope, source_state=source_state, cancelled=cancelled)
+    return _capture_complete_scope(store, frozen_scope, source_state=source_state, cancelled=cancelled)
+
+
+def _capture_complete_scope(store, frozen_scope, *, source_state, cancelled):
     """Only this reader can create a trusted capture; JSON parts are never an authority."""
     check_cancel(cancelled)
     scope = deepcopy(frozen_scope)

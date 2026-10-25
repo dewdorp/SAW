@@ -30,6 +30,12 @@ def translog(durability: str) -> dict:
 
 def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, durability: str = "request") -> dict:
     kw = {"type": "keyword", "ignore_above": 4096}
+    # Keep typed parser/producer contracts; unknown vendor objects preserve arbitrary JSON.
+    # Inventory and query limitations: docs/opensearch-vendor-extensions.md.
+    typed_extensions = (
+        "apache", "cloudflare", "csv", "iis", "json", "kv", "ndr", "nginx", "suricata", "syslog", "waf", "zeek",
+        "observation", "saw_observation", "device_observation", "connector", "fw", "ips", "vpn",
+    )
     return {
         "index_patterns": [f"{prefix}-*"],
         "priority": 100 if prefix == "saw" else 101,
@@ -46,7 +52,13 @@ def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, dura
             "mappings": {
                 "date_detection": False,
                 "numeric_detection": False,
-                "dynamic_templates": [{"strings": {"match_mapping_type": "string", "mapping": kw}}],
+                "dynamic_templates": [
+                    {"analyst_extensions": {"match_mapping_type": "object", "match_pattern": "regex",
+                        "path_match": r"ext\.u_[^.]+", "mapping": {"type": "object"}}},
+                    {"vendor_extensions": {"match_mapping_type": "object", "match_pattern": "regex",
+                        "path_match": r"ext\.[^.]+", "mapping": {"type": "flat_object"}}},
+                    {"strings": {"match_mapping_type": "string", "mapping": kw}},
+                ],
                 "properties": {
                     "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                     "event_id": {"type": "keyword"}, "investigation_id": {"type": "keyword"},
@@ -57,6 +69,8 @@ def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, dura
                     "status_code": {"type": "integer"}, "bytes_in": {"type": "long"}, "bytes_out": {"type": "long"},
                     "params": {"type": "flat_object"},  # arbitrary parameter names must not grow the mapping
                     "raw_ref": {"type": "object", "enabled": False},
+                    "ext": {"type": "object", "properties": {
+                        name: {"type": "object"} for name in typed_extensions}},
                 },
             },
         },

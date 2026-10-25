@@ -1,6 +1,7 @@
 """Immutable run provenance must survive reruns and isolate failed detectors."""
 from sqlalchemy import select
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.core.application import analysis
 from saw.detectors.base import FindingDraft
 from saw.storage.db import session_scope
@@ -37,11 +38,11 @@ def test_rerun_keeps_old_snapshot_and_stable_finding(analyst, monkeypatch):
     inv = setup_events(analyst)
     fixed = FixedDetector()
     monkeypatch.setattr(analysis, "all_detectors", lambda: [fixed])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         first = analysis.run_detectors(s, inv)[0]
         first_id = first.id
     fixed.version = "2"
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         second = analysis.run_detectors(s, inv)[0]
         assert second.id == first_id
     with session_scope() as s:
@@ -58,7 +59,7 @@ def test_failure_is_partial_and_has_no_false_zero_match_count(analyst, monkeypat
     from saw.analysis_runs.models import AnalysisRun, DetectorExecution
     inv = setup_events(analyst)
     monkeypatch.setattr(analysis, "all_detectors", lambda: [FixedDetector(), BrokenDetector()])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         analysis.run_detectors(s, inv)
     with session_scope() as s:
         run = s.scalar(select(AnalysisRun).where(AnalysisRun.investigation_id == inv))
@@ -74,7 +75,7 @@ def test_no_source_is_not_an_executed_zero(analyst, monkeypatch):
     from saw.analysis_runs.models import DetectorExecution
     inv = analyst.post("/investigations", json={"title": "empty"}).json()["id"]
     monkeypatch.setattr(analysis, "all_detectors", lambda: [FixedDetector()])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         analysis.run_detectors(s, inv)
     with session_scope() as s:
         execution = s.scalar(select(DetectorExecution).where(DetectorExecution.detector_id == "test.fixed"))
@@ -86,7 +87,7 @@ def test_no_source_is_not_an_executed_zero(analyst, monkeypatch):
 def test_saved_report_is_immutable_and_requires_source_acl(app, analyst, monkeypatch):
     inv = setup_events(analyst)
     monkeypatch.setattr(analysis, "all_detectors", lambda: [FixedDetector()])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         analysis.run_detectors(s, inv)
     runs = analyst.get(f"/investigations/{inv}/analysis-runs")
     assert runs.status_code == 200
@@ -136,7 +137,7 @@ def test_saved_report_is_removed_by_approved_source_cleanup(analyst, admin, monk
     from tests.api.test_admin_data import preview, execute
     inv = setup_events(analyst)
     monkeypatch.setattr(analysis, "all_detectors", lambda: [FixedDetector()])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         analysis.run_detectors(s, inv)
     run_id = analyst.get(f"/investigations/{inv}/analysis-runs").json()["runs"][0]["id"]
     report = analyst.post(f"/investigations/{inv}/report-versions",
@@ -158,7 +159,7 @@ def test_insufficient_semantics_never_becomes_complete_or_zero(analyst, monkeypa
             ctx.params.setdefault("execution_reports", {})[self.id] = {"status": "insufficient_data"}
             return []
     monkeypatch.setattr(analysis, "all_detectors", lambda: [Unresolved()])
-    with session_scope() as s:
+    with actor_scope(analyst.get("/auth/me").json()["id"]), session_scope() as s:
         analysis.run_detectors(s, inv)
     with session_scope() as s:
         run = s.scalar(select(AnalysisRun).where(AnalysisRun.investigation_id == inv))

@@ -4,6 +4,7 @@ import io
 import zipfile
 
 from saw.devtools.sample_data import scenario_zeek
+from saw.event_generations.reads import actor_scope
 from tests.api.test_phase5_bulk import upload
 
 
@@ -39,16 +40,17 @@ def test_network_logs_pipeline(analyst):
     assert ov["top_destinations"][0]["ip"] == "185.220.100.5"
     assert any(e["flags"] for e in ov["story"])
     # uploaded Zeek logs carry no packets → session PCAP is refused honestly
-    conn_ev = _first_event(inv["id"], "zeek_conn")
+    conn_ev = _first_event(analyst, inv["id"], "zeek_conn")
     assert analyst.get(f"/investigations/{inv['id']}/network/sessions/{conn_ev}/pcap").status_code == 409
 
 
-def _first_event(inv_id: str, data_source: str, **eq) -> str:
+def _first_event(api, inv_id: str, data_source: str, **eq) -> str:
     from saw import container
     from saw.core.schemas.query import Filter
 
     flt = [Filter(field="data_source", value=data_source)] + [Filter(field=k, value=v) for k, v in eq.items()]
-    return container.get().events.search(inv_id, flt, limit=1)["events"][0]["event_id"]
+    with actor_scope(api.get("/auth/me").json()["id"]):
+        return container.get().events.search(inv_id, flt, limit=1)["events"][0]["event_id"]
 
 
 def test_raw_pcap_builtin_analyzer_end_to_end(analyst):
@@ -61,7 +63,7 @@ def test_raw_pcap_builtin_analyzer_end_to_end(analyst):
     job = analyst.post(f"/evidence/{up['evidence_id']}/process").json()
     j = analyst.get(f"/jobs/{job['id']}").json()
     f = j["files"][0]
-    assert j["state"] == "COMPLETED" and f["parser_id"] == "pcap(builtin)" and f["status"] == "done", f
+    assert j["state"] == "COMPLETED" and f["parser_id"] == "pcap" and f["status"] == "done", f
     assert "Suricata 미설치" in f["message"] and f["events_parsed"] > 1000
     fs = analyst.get(f"/investigations/{inv['id']}/findings").json()
     cats = {x["category"] for x in fs}
@@ -72,7 +74,7 @@ def test_raw_pcap_builtin_analyzer_end_to_end(analyst):
     ov = analyst.get(f"/investigations/{inv['id']}/network/overview").json()
     assert ov["available"] and ov["tools"]["builtin"].startswith("saw-pcapkit") and ov["tools"]["zeek"] is None
     # session PCAP download: an HTTP event resolves to its whole TCP connection
-    ev = _first_event(inv["id"], "zeek_http", dst_ip="104.248.11.20")
+    ev = _first_event(analyst, inv["id"], "zeek_http", dst_ip="104.248.11.20")
     r = analyst.get(f"/investigations/{inv['id']}/network/sessions/{ev}/pcap")
     assert r.status_code == 200 and r.headers["content-type"] == "application/vnd.tcpdump.pcap"
     assert int(r.headers["x-saw-packets"]) == 8 and len(list(iter_packets(io.BytesIO(r.content)))) == 8  # 3-way, req, resp, FIN×2, ACK
@@ -91,7 +93,7 @@ def test_garbage_pcap_fails_honestly(analyst):
     up = upload(analyst, inv["id"], "capture.pcap", pcap, kind="pcap")
     job = analyst.post(f"/evidence/{up['evidence_id']}/process").json()
     f = analyst.get(f"/jobs/{job['id']}").json()["files"][0]
-    assert f["type"] == "pcap" and f["status"] == "failed" and "decoded=0" in f["message"]
+    assert f["type"] == "pcap" and f["status"] == "failed" and f["events_parsed"] == 0 and f["coverage"]["decoded"] == 0
 
 
 def test_unified_investigation_correlation(analyst):
@@ -170,7 +172,7 @@ def test_forensics_workspace_api(analyst):
     assert analyst.get(base + "/files/" + "0" * 64 + "/download").status_code == 404
     cr = analyst.get(base + "/credentials").json()
     assert {c["outcome"] for c in cr} == {"failure", "success"} and "password" not in str([list(c) for c in cr]).replace("password_", "")
-    http = _first_event(inv["id"], "zeek_http", dst_ip="10.20.1.15")
+    http = _first_event(analyst, inv["id"], "zeek_http", dst_ip="10.20.1.15")
     st = analyst.get(base + f"/sessions/{http}/stream").json()
     assert st["client_view"]["mode"] == "text" and st["client_view"]["text"].startswith("GET /item")
     assert st["server_view"]["text"].startswith("HTTP/1.1 200")

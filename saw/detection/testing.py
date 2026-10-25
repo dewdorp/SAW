@@ -565,9 +565,10 @@ def run_selected(s, p, subject_id, raw, *, subject_kind="rule", session_id=None)
                 "reference_status": old.get(unit["unit_id"], {}).get("status")})
     # A final read catches content mutation even when a caller changed the event store
     # outside the normal epoch-fenced ingestion path.
-    for case in cases.values():
-        if _fingerprint(case["payload"], deadline) != {"count": case["input_count"], "sha256": case["input_sha256"]}:
-            raise HTTPException(409, "selected_truth_input_changed")
+    with container.get().events.read_scope():
+        for case in cases.values():
+            if _fingerprint(case["payload"], deadline) != {"count": case["input_count"], "sha256": case["input_sha256"]}:
+                raise HTTPException(409, "selected_truth_input_changed")
     counts = metrics(results)
     execution = "complete" if all(u["status"] == "complete" for u in results) else (
         "failed" if any(u["status"] == "failed" for u in results) else

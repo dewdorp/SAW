@@ -16,7 +16,6 @@ from saw.apps.api.deps import AuthContext, auth, db, require_perm
 from saw.core.application import audit
 from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import NotFound, require
-from saw.core.application.rawref import hydrate_raw
 from saw.core.schemas.query import AggregateRequest, AggRequest, Filter, GroupMetric, SearchRequest, TimeRange
 from saw.core.security.authz import has_permission
 from saw.core.security.masking import mask_event, mask_text
@@ -27,11 +26,10 @@ from saw.detection.derived_access import (
     require_snapshot,
     visible_findings,
 )
+from saw.event_generations.reads import hydrate_raw
 from saw.storage.models import (
     AttackStory,
     Entity,
-    Evidence,
-    EvidenceFile,
     Finding,
     FindingFeedback,
     Investigation,
@@ -127,11 +125,10 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
     def card(field: str):
         return es.aggregate(inv_id, f, AggRequest(type="cardinality", field=field), t)
 
-    files = s.execute(select(EvidenceFile).join(Evidence, Evidence.id == EvidenceFile.evidence_id)
-                      .where(Evidence.investigation_id == inv_id)).scalars().all()
-    leaves = [x for x in files if x.parse_status in ("done", "degraded", "failed", "skipped", "parsing")]
-    parsed = sum(x.events_parsed for x in files)
-    failed = sum(x.events_failed for x in files)
+    files = es.file_state(s, inv_id)
+    leaves = [x for x in files if x['parse_status'] in ("done", "degraded", "failed", "skipped", "parsing")]
+    parsed = sum(x['events_parsed'] for x in files)
+    failed = sum(x['events_failed'] for x in files)
     fc = dict(s.execute(select(Finding.risk_level, func.count()).where(Finding.investigation_id == inv_id)
                         .group_by(Finding.risk_level)).all())
     top_findings = [finding_dict(x) for x in s.execute(
@@ -168,9 +165,13 @@ def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth)
 
 # ------------------------------------------------------------------ events
 @router.post("/query/events")
-def query_events(inv_id: str, body: SearchRequest, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def query_events(inv_id: str, body: SearchRequest, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
-    page = _es().search(inv_id, body.filters, body.time, body.sort, body.limit, body.cursor)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
+    projection = (sorted(set(body.fields) | {"event_id", "timestamp", "data_source", "investigation_id",
+                  "raw_ref", "raw_redacted"}) if body.fields else None)
+    page = _es().search(inv_id, body.filters, body.time, body.sort, body.limit, body.cursor, fields=projection)
     evs = []
     want_raw = bool(body.fields) and "raw_event" in body.fields  # list views show fields; detail reads the line
     for e in page["events"]:
@@ -198,8 +199,10 @@ def pivot(inv_id: str, body: PivotIn, ctx: AuthContext = Depends(auth), s: Sessi
 
 
 @router.get("/events/{event_id}")
-def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None:
         raise NotFound("event not found")
@@ -218,8 +221,10 @@ def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s
 
 @router.post("/events/{event_id}/unmask")
 def unmask(inv_id: str, event_id: str, body: UnmaskIn, ctx: AuthContext = Depends(require_perm("data.unmask")),
-           s: Session = Depends(db, scope="function")):
+           s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None:
         raise NotFound("event not found")
@@ -230,18 +235,19 @@ def unmask(inv_id: str, event_id: str, body: UnmaskIn, ctx: AuthContext = Depend
 
 @router.get("/events/{event_id}/context")
 def raw_context(inv_id: str, event_id: str, lines: int = Query(50, le=200), ctx: AuthContext = Depends(auth),
-                s: Session = Depends(db, scope="function")):
+                s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Original file lines around the event (S3 range read), masked."""
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None or not (e.get("raw_ref") or {}).get("object_key"):
         raise NotFound("raw reference not available")
     ref = e["raw_ref"]
-    bucket, _, key = ref["object_key"].partition("/")
     off = int(ref["offset"])
     span = 400 * lines
     start = max(0, off - span)
-    data = container.get().objects.read_range(bucket, key, start, span * 2)
+    data = _es().read_raw_range(e, start, span * 2)
     enc = ref.get("enc") or "utf-8"
     rel = off - start  # byte offset: split bytes first, decode per line (multibyte text / CP949 files)
     head = data[:rel].split(b"\n")
@@ -534,8 +540,10 @@ def finding(inv_id: str, fid: str, ctx: AuthContext = Depends(auth), s: Session 
 
 @router.post("/findings/{fid}/events")
 def finding_events(inv_id: str, fid: str, body: SearchRequest, ctx: AuthContext = Depends(auth),
-                   s: Session = Depends(db, scope="function")):
+                   s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     f = _finding(s, ctx, inv_id, fid)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     q = (f.evidence_refs or {}).get("query", {})
     flt = [Filter(**x) for x in q.get("filters", [])] + body.filters
     # A caller may narrow evidence time, but must never expand the finding's scope.
@@ -594,12 +602,14 @@ class EventDiffIn(FiltersIn):
 
 
 @router.post("/diff")
-def event_diff(inv_id: str, body: EventDiffIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def event_diff(inv_id: str, body: EventDiffIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Compare observed requests within the same explicit investigation scope."""
     from saw.analyzers.diff.request_diff import evolution, from_event
     from saw.storage.eventstore import ts_epoch
 
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     es = _es()
     if body.behavior_result_id:
         from saw.behavior.service import get as get_behavior

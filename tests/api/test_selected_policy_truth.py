@@ -2,6 +2,7 @@
 from sqlalchemy import select
 
 from saw import container
+from saw.event_generations.reads import actor_scope
 from saw.detectors import signatures
 from saw.storage.db import session_scope
 from saw.storage.models import InvestigationMember, User
@@ -23,7 +24,8 @@ def test_signature_disable_uses_actual_examples_and_explicit_apply(analyst, seni
                 "detection_truth": "expected_no_match", "investigation_truth": "approved_activity",
                 "basis": "Synthetic scoped disable exercise"}])
     grant_review(inv["id"])
-    assert signature.id in signatures.sig_ids(container.get().events.get(inv["id"], "hit"))
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        assert signature.id in signatures.sig_ids(container.get().events.get(inv["id"], "hit"))
     response = analyst.post("/detection-policies/drafts", json={"detector_id": "signature:" + signature.id,
         "scope": {"kind": "group"}, "expected_draft_version_id": None, "base_version_id": None,
         "changes": {"set": {"enabled": False}, "inherit": []}, "exclusions": {"mode": "inherit"},

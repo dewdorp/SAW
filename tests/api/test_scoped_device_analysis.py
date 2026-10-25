@@ -45,8 +45,9 @@ def fw(result):
 
 def test_scoped_filter_time_and_device_bounds(senior):
     inv, organization, dev, rows = case(senior)
+    other = senior.post("/investigations", json={"title": "Unrelated synthetic device"}).json()["id"]
     foreign = deepcopy(rows[0])
-    foreign.update(event_id="foreign", investigation_id="foreign-investigation")
+    foreign.update(event_id="foreign", investigation_id=other)
     container.get().events.index([foreign])
     body = {"org_unit_id":organization, "device_id":dev,
             "filters":[{"field":"src_ip","op":"is","value":"10.0.0.1"}],

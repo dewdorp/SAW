@@ -7,10 +7,8 @@ import gzip
 
 import pytest
 
-from saw import container
 from saw.analyzers.payload.transforms import Incomplete, auto_decode, t_gzip
 from saw.core.application.analyze import payload
-from saw.core.schemas.query import Filter
 from saw.detectors.base import DetectorContext
 from saw.detectors.pcap_forensics import WebShellUpload
 from saw.devtools.sample_data import NDR_HEADER, scenario_ndr_meta_csv
@@ -22,6 +20,7 @@ from saw.storage.db import session_scope
 from saw.storage.eventstore import SQLiteEventStore
 from saw.storage.models import EvidenceFile
 from saw.storage.opensearch_store import IndexUnavailable, OpenSearchEventStore
+from tests.api.test_generation_reprocessing import read_actor
 from tests.api.test_phase5_bulk import upload
 from tests.unit.test_text_ingest import _events
 
@@ -132,35 +131,24 @@ def test_cut_off_gzip_is_marked_incomplete():
 
 # ---------------------------------------------------------------- events the search engine did not store
 def test_refused_events_are_not_counted_as_stored(analyst, monkeypatch):
-    store = container.get().events
-    real = store.index
-
-    def index(events):
+    from saw.event_generations.models import EventGeneration, InvestigationHead
+    from saw.storage.generations import GenerationWriter
+    real = GenerationWriter.index
+    def index(writer, events):
         events = list(events)
-        keep = [e for i, e in enumerate(events) if i % 7]   # the engine refuses every 7th document
-        stored = real(keep)                                 # the real store resets its own report: set ours after it
-        kept = {e["event_id"] for e in keep}
-        store.last_errors = [{"event_id": e["event_id"], "reason": "mapper_parsing_exception"}
-                             for e in events if e["event_id"] not in kept]
-        return stored
-
-    monkeypatch.setattr(store, "index", index, raising=False)
-    monkeypatch.setattr(store, "last_errors", [], raising=False)
+        keep = [e for i, e in enumerate(events) if i % 7]
+        return real(writer, keep)
+    monkeypatch.setattr(GenerationWriter, "index", index)
     inv = analyst.post("/investigations", json={"title": "refused"}).json()
     up = upload(analyst, inv["id"], "ndr.csv", scenario_ndr_meta_csv(normal=60).encode("utf-8-sig"), kind="auto")
     j = analyst.post(f"/evidence/{up['evidence_id']}/process").json()
-    assert analyst.get(f"/jobs/{j['id']}").json()["state"] == "COMPLETED"
-    searchable = store.count(inv["id"], [Filter(field="evidence_id", value=up["evidence_id"])])
+    assert analyst.get(f"/jobs/{j['id']}").json()["state"] == "FAILED"
     with session_scope() as s:
         f = s.get(EvidenceFile, up["file_id"])
-        cov = next(x["coverage"] for x in f.error_samples if "coverage" in x)
-        assert cov["rejected_events"] > 0 and f.events_parsed == searchable == cov["events"]
-        assert f.events_failed == cov["failed_lines"] + cov["rejected_events"]
-        assert "저장을 거부" in f.message
-        assert any("저장을 거부" in (x.get("reason") or "") for x in f.error_samples)
-        # every line of the file is still accounted for
-        assert cov["lines"] == sum(cov[k] for k in ("blank_lines", "skipped_lines", "failed_lines", "continuation_lines",
-                                                    "events", "rejected_events"))
+        assert f.events_parsed == 0
+        assert s.get(InvestigationHead, inv["id"]) is None
+        generation = s.query(EventGeneration).filter_by(job_id=j['id']).one()
+        assert generation.status == "abandoned" and generation.output_sha256 == ""
 
 
 def _bulk_result(monkeypatch, errors: list[dict], ok: int):
@@ -269,8 +257,12 @@ def test_reanalysis_removes_detections_that_no_longer_hold_but_keeps_reviewed_on
     reviewed = got["203.0.113.31"]
     analyst.post(f"/investigations/{inv['id']}/findings/{reviewed['id']}/feedback", json={"verdict": "valid"}).raise_for_status()
     # the evidence is replaced by one that no longer supports either detection (as after re-processing with another parser)
-    container.get().events.delete_by_evidence(inv["id"], up["evidence_id"])
-    with session_scope() as s:
+    parser = analyst.post("/parser-library", json={"name": "custom rows", "slug": "custom-rows",
+        "spec": {"format": "regex", "pattern": "^(?P<message>.*)$", "data_source": "custom"}}).json()
+    replacement = analyst.post(f"/evidence/{up['evidence_id']}/files/{up['file_id']}/parser",
+                              json={"parser_id": parser["pinned_id"]}).json()
+    assert analyst.get(f"/jobs/{replacement['job_id']}").json()["state"] == "COMPLETED"
+    with read_actor(), session_scope() as s:
         s.add(Finding(display_id="F-9000", investigation_id=inv["id"], detector_id="hunt.manual", detector_version="1.0.0",
                       title="Potential manual", category="hunt.result", risk_level="medium", risk_score=50, confidence="medium",
                       dedup_key="hunt:1"))

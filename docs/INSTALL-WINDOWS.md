@@ -236,16 +236,27 @@ admin으로 로그인 → **Admin** 메뉴 → 사용자 추가 (역할: analyst
 `C:\SAW\tls\saw.crt` 파일(공개 인증서, 개인키 아님)을 분석가 PC의 **신뢰할 수 있는 루트 인증 기관**에 등록하세요.
 여러 대라면 그룹 정책(GPO)으로 배포하는 것이 편합니다.
 
-### 4.4 백업 예약 (권장)
+### 4.4 전체 백업과 복구
 
-매일 새벽 백업을 예약합니다 (관리자 PowerShell):
+계정·DB·검색 색인·증거·이전 분석 세대는 함께 보관해야 합니다. 실행 중에 각각 만든 DB 덤프와 검색 스냅샷은 동일 시점 복구를 보장하지 않습니다. 기존 실행 중 백업 예약은 사용하지 마세요.
 
-```bash
-schtasks /Create /TN "SAW Backup" /SC DAILY /ST 02:30 /RU SYSTEM /RL HIGHEST /TR "powershell -NoProfile -ExecutionPolicy RemoteSigned -File C:\SAW\app\deploy\windows\backup.ps1 -KeepDays 14"
-```
+1. 분석가에게 점검 시간을 알리고 새 업로드·분석을 마칩니다.
+2. 설치 위치의 SAW 제어기로 SAW·PostgreSQL·OpenSearch를 모두 정상 종료합니다.
+3. 관리자 PowerShell에서 아래처럼 새 복구 위치를 지정합니다. 복구 위치는 설치 폴더 밖, 같은 드라이브의 아직 없는 폴더입니다.
 
-백업 내용: PostgreSQL 덤프, OpenSearch 스냅샷, 증거 원본 복사본 → `C:\SAW\backup`.
-**같은 디스크의 백업은 디스크 고장에 대비가 안 되므로** 주기적으로 별도 매체에 복사하세요.
+    & C:\SAW\app\deploy\windows\backup.ps1 -InstallRoot C:\SAW -BundleDir E:\SAW-package -RecoveryPoint C:\SAW-Recovery-20261024
+
+D: 설치 예:
+
+    & D:\SAW\app\deploy\windows\backup.ps1 -InstallRoot D:\SAW -BundleDir E:\SAW-package -RecoveryPoint D:\SAW-Recovery-20261024
+
+E:\SAW-package는 검증된 설치 매체를 풀어 놓은 실제 위치로 바꾸세요. 설치 폴더 밖의 매체에 있는 독립 Python으로 백업하므로 대상 설치는 계속 정지 상태를 유지합니다.
+
+프로그램은 실행 프로세스·저장 경로·권한을 확인하고, 설치 전체를 복사한 뒤 원본과 복사본을 자동 대조합니다. 사용자가 해시 값을 직접 비교할 필요는 없습니다. 실행 중이거나 복사 중 자료가 바뀌면 성공 처리하지 않습니다.
+
+완료 후 프로그램을 별도로 시작합니다. 복구할 때는 검증된 설치 매체의 업데이트 도우미에서 **복구**와 해당 복구 폴더를 선택합니다. 같은 복구 규약을 사용하며, 복구 시점 이후 자료는 별도 보관 폴더에 남고 자동 병합되지 않습니다. 이전 복구본을 자동 삭제하지 않습니다.
+
+같은 디스크의 복구본만으로 디스크 고장에 대비할 수 없습니다. 완성된 복구 폴더 전체를 권한이 보호되는 별도 매체에도 보관하고, 복구 시험으로 확인하세요. 운영 서버의 실제 정지·백업·복구는 별도 점검 시간에 수행합니다.
 
 ---
 
@@ -319,7 +330,7 @@ C:\SAW\venv\Scripts\python.exe -m saw.cli set-password 사용자ID
 
 현재 `install.ps1`은 신규 설치 전용이며 기존 설치를 발견하면 중단합니다. 같은 경로에 다시 실행하여 업그레이드하지 마세요.
 동일한 고정 런타임 조합의 중지한 설치는 새 매체의 `update.ps1`으로 사전 검사·전체 복구본 생성·앱 교체·명시적 시점 복구를 수행합니다. [업데이트·복구 안내](OFFLINE-UPDATE-GUIDE.md)를 따르세요. 실행 중 자동 업데이트나 런타임/DB 제품 버전 변경은 지원하지 않습니다. 실제 서비스 운영 전환은 별도 인수가 필요합니다.
-변경 전에는 `backup.ps1`으로 백업하고 별도 위치의 복원 가능성을 확인하세요. 데이터로 된 룰·파서 변경은 [오프라인 콘텐츠 안내](OFFLINE-CONTENT-GUIDE.md)의 검증·시험·승인·적용 절차를 사용합니다.
+변경 전에는 4.4절에 따라 정상 종료 후 전체 복구본을 만들고 복원 가능성을 확인하세요. 데이터로 된 룰·파서 변경은 [오프라인 콘텐츠 안내](OFFLINE-CONTENT-GUIDE.md)의 검증·시험·승인·적용 절차를 사용합니다.
 
 ### 제거
 

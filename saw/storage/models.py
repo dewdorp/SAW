@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -185,7 +186,8 @@ class CustodyLog(Base):
 
 class Job(Base):
     __tablename__ = "an_job"
-    __table_args__ = (UniqueConstraint("requested_by", "idempotency_key", name="uq_an_job_idempotency"),)
+    __table_args__ = (UniqueConstraint("requested_by", "idempotency_key", name="uq_an_job_idempotency"),
+                      Index("ix_an_job_queue_due", "state", "requested_by", "created_at", "id"))
     id: Mapped[str] = _id()
     investigation_id: Mapped[str] = mapped_column(String(36), index=True)
     evidence_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

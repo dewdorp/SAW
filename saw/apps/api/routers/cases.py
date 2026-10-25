@@ -42,6 +42,7 @@ class CasePatch(BaseModel):
 
 
 class ItemIn(BaseModel):
+    analysis_run_id: str | None = None
     item_type: str
     ref_id: str
     investigation_id: str | None = None
@@ -160,6 +161,8 @@ def add_item(cid: str, body: ItemIn, ctx: AuthContext = Depends(require_perm("ca
         from saw import container
 
         require(s, ctx.principal, "investigation.read", body.investigation_id)
+        if body.analysis_run_id:
+            container.get().events.bind_run(s, body.investigation_id, body.analysis_run_id)
         e = container.get().events.get(body.investigation_id, body.ref_id)
         if e:
             from saw.core.security.masking import mask_event

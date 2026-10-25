@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from saw.devtools.sample_data import scenario_kr_firewall_csv, scenario_ndr_meta_csv
+from tests.api.test_generation_reprocessing import read_events
 from tests.api.test_phase5_bulk import upload
 
 
@@ -26,10 +27,9 @@ def test_ndr_meta_csv_auto_detected_paired_and_detected(analyst):
     assert "web.api_enumeration" in cats, cats  # 300-step ID walk from one cloud IP with 200 responses
     assert {"web.injection_like", "web.sensitive_file_probe"} & cats, cats
     # cookies never reach the event store: check the stored documents, not the (masked) API view
-    from saw import container
     from saw.core.schemas.query import Filter
 
-    stored = container.get().events.search(inv["id"], [Filter(field="data_source", value="web")], limit=50)["events"]
+    stored = read_events().search(inv["id"], [Filter(field="data_source", value="web")], limit=50)["events"]
     assert stored and all("JSESSIONID=" not in str(e) for e in stored)
     assert stored[0]["ext"]["ndr"]["cookie_names"] == ["JSESSIONID", "WMONID"]
 

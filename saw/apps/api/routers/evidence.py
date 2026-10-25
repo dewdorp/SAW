@@ -47,18 +47,30 @@ class ParserIn(BaseModel):
 
 
 def job_out(j: Job, *, p=None) -> dict:
-    stages = j.stages
+    allowed = {"pct", "done", "eps", "eta_sec", "analysis_run_id", "status"}
+    stages = {name: {key: value for key, value in stage.items() if key in allowed}
+              for name, stage in (j.stages or {}).items()
+              if name in {"upload", "extract", "parse", "index", "analyze"} and isinstance(stage, dict)}
+    for key in ("analysis_run_id", "retry_of"):
+        if isinstance((j.stages or {}).get(key), str):
+            stages[key] = j.stages[key]
+    result = (j.stages or {}).get("behavior_result")
+    if isinstance(result, dict):
+        stages["behavior_result"] = {k: v for k, v in result.items() if k in {"id", "result_sha256"}}
     if j.kind == "golden_export":
-        from saw.knowledge.golden_jobs import public_stage, can_manage
+        from saw.knowledge.golden_jobs import can_manage, public_stage
         stages = {"golden_export": public_stage(j, can_manage=p is not None and can_manage(p, j),
                   can_retry=p is not None and p.user_id == j.requested_by and can_manage(p, j)),
                   "retry_of": (j.stages or {}).get("retry_of")}
     if j.kind == "report_export":
         stages = {"report_export": (j.stages or {}).get("report_export"),
                   "retry_of": (j.stages or {}).get("retry_of")}
+    error = j.error
+    if error and j.kind in {"ingest", "reprocess"}:
+        error = {"type": error.get("type", "ProcessingError"), "message": "처리를 완료하지 못했습니다."}
     return {"id": j.id, "investigation_id": j.investigation_id, "evidence_id": j.evidence_id, "kind": j.kind,
             "state": j.state, "stages": stages, "events_total_est": j.events_total_est,
-            "events_done": j.events_done, "current_item": j.current_item, "error": j.error,
+            "events_done": j.events_done, "current_item": j.current_item, "error": error,
             "created_at": j.created_at, "started_at": j.started_at, "finished_at": j.finished_at,
             "cancel_requested": j.cancel_requested}
 
@@ -114,6 +126,8 @@ def process(ev_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(d
         job, created = svc.start_processing(s, ctx.principal, ev_id, idempotency_key)
     except svc.IdempotencyConflict as e:
         raise HTTPException(409, str(e)) from None
+    if created:
+        job.stages = {**(job.stages or {}), "_queue_task": "ingest.run"}
     s.commit()
     if created:
         container.get().runner.submit("ingest.run", job_id=job.id)
@@ -138,42 +152,44 @@ def custody(ev_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(d
 
 @router.post("/evidence/{ev_id}/files/{fid}/parser")
 def set_parser(ev_id: str, fid: str, body: ParserIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    from saw.parsers.registry import get_parser
-
+    from saw.event_generations.service import request_reprocess
     e = s.get(Evidence, ev_id)
     f = s.get(EvidenceFile, fid)
     if e is None or f is None or f.evidence_id != ev_id:
         raise NotFound("file not found")
     require(s, ctx.principal, "investigation.write", e.investigation_id)
-    from saw.core.application.data_deletion import lock_investigation
-    from saw.parsers.library import check_use
-    lock_investigation(s, e.investigation_id)
-    s.refresh(f)
-    check_use(s, ctx.principal, body.parser_id)  # drafts: author only
-    get_parser(body.parser_id)  # validates
-    if f.parse_status in ("done", "degraded"):
-        # events are removed per evidence, so every parsed text file of it is parsed again (not only this one)
-        container.get().events.delete_by_evidence(e.investigation_id, ev_id)
-        for other in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id, EvidenceFile.id != fid,
-                                                          EvidenceFile.parse_status.in_(["done", "degraded"]))).scalars():
-            if other.parser_id and other.parser_id != "pcap":
-                other.parse_status = "pending"
-    f.parser_id, f.parse_status, f.message = body.parser_id, "pending", ""
+    # Initial parser selection resumes its waiting job; published results get a new immutable request.
+    waiting_job = s.scalar(select(Job).where(Job.evidence_id == ev_id, Job.state == "WAITING_INPUT")
+                          .order_by(Job.created_at.desc()).limit(1))
+    if waiting_job is not None and f.parse_status == "waiting_input":
+        from saw.parsers.library import check_use
+        from saw.parsers.registry import get_parser
+        check_use(s, ctx.principal, body.parser_id)
+        get_parser(body.parser_id)
+        f.parser_id, f.parse_status, f.message = body.parser_id, "pending", ""
+        s.flush()
+        waiting = s.scalars(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id,
+                             EvidenceFile.parse_status == "waiting_input")).all()
+        job = waiting_job
+        if not waiting:
+            job.state = "QUEUED"
+            job.stages = {**(job.stages or {}), "_queue_task": "ingest.resume"}
+        route = "ingest.resume"
+    else:
+        pins = None
+        if body.parser_id == "pcap":
+            from saw.integrations.pcap import runtime_pins
+            s.commit()
+            pins = runtime_pins()
+        job = request_reprocess(s, ctx.principal, ev_id, fid, body.parser_id, runtime_pins=pins)
+        waiting, route = [], "reprocess.run"
     audit.record(s, "evidence.parser_override", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="evidence_file", target_id=fid, investigation_id=e.investigation_id,
-                 detail={"parser_id": body.parser_id})
-    job = s.execute(select(Job).where(Job.evidence_id == ev_id).order_by(Job.created_at.desc())).scalars().first()
-    if job:  # the processing record names who re-processed, not who uploaded
-        job.stages = {**(job.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
-                                                          "action": "parser_override", "parser_id": body.parser_id}}
-    waiting = s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id,
-                                                   EvidenceFile.parse_status == "waiting_input")).scalars().all()
-    if job and not waiting:
-        job.state = "PARSING"
+                 detail={"parser_id": body.parser_id, "job_id": job.id})
     s.commit()
-    if job and not waiting:
-        container.get().runner.submit("ingest.resume", job_id=job.id)
-    return {"ok": True, "remaining_waiting": len(waiting)}
+    if not waiting:
+        container.get().runner.submit(route, job_id=job.id)
+    return {"ok": True, "remaining_waiting": len(waiting), "job_id": job.id}
 
 
 @router.get("/jobs")
@@ -276,6 +292,30 @@ def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depend
     s.refresh(j)
     if j.state not in ("FAILED", "CANCELLED", "WAITING_INPUT"):
         raise HTTPException(409, "Only failed, cancelled or waiting jobs can be retried")
+    if j.kind == "ingest":
+        published = bool((j.stages or {}).get("generation", {}).get("published"))
+        route = "analyze.run" if published else "ingest.resume"
+        newer = Job(investigation_id=j.investigation_id, evidence_id=j.evidence_id,
+                    kind="reanalyze" if published else "ingest", requested_by=ctx.principal.user_id,
+                    state="QUEUED", stages={"_queue_task": route, "retry_of": j.id,
+                        "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username}})
+        s.add(newer)
+        s.commit()
+        container.get().runner.submit(route, job_id=newer.id)
+        return job_out(newer, p=ctx.principal)
+    if j.kind == "reprocess":
+        from saw.event_generations.service import request_reprocess
+        selected = j.stages["generation_request"]["input"]["replacements"][0]
+        pins = None
+        if selected["parser"]["id"] == "pcap":
+            from saw.integrations.pcap import runtime_pins
+            s.commit()
+            pins = runtime_pins()
+        newer = request_reprocess(s, ctx.principal, selected["evidence_id"], selected["file_id"],
+                                  selected["parser"]["id"], runtime_pins=pins)
+        s.commit()
+        container.get().runner.submit("reprocess.run", job_id=newer.id)
+        return job_out(newer, p=ctx.principal)
     if j.kind == "behavior":
         from saw.behavior.service import ensure_source_idle
         ensure_source_idle(s, j.investigation_id)
@@ -285,21 +325,25 @@ def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depend
     for f in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == j.evidence_id,
                                                   EvidenceFile.parse_status == "failed")).scalars():
         f.parse_status = "pending"
-    j.state, j.cancel_requested, j.error = ("QUEUED" if j.kind == "device_analysis" else "PARSING"), False, {}
+    j.state, j.cancel_requested, j.error = "QUEUED", False, {}
     j.stages = {**(j.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
                                                   "action": "retry"}}
-    s.commit()
     task_name = {"behavior": "behavior.run", "reanalyze": "analyze.run",
                  "device_analysis": "device_analysis.run"}.get(j.kind, "ingest.resume")
+    j.stages = {**j.stages, "_queue_task": task_name}
+    s.commit()
     container.get().runner.submit(task_name, job_id=j.id)
     return job_out(j)
 
 
 @router.get("/jobs/{job_id}/events")
-async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(auth)):
+async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(auth),
+                     s: Session = Depends(db, scope="function")):
     """SSE progress stream (docs/10 §6)."""
-    with session_scope() as s:
-        _job_for(s, ctx, job_id)
+    # Authentication updates last_seen_at in this same function-scoped session.
+    # Commit it before the stream opens independent reader transactions.
+    _job_for(s, ctx, job_id)
+    s.commit()
 
     async def gen():
         last = None
@@ -311,17 +355,24 @@ async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(a
                 if j is None:
                     yield "event: end\ndata: {}\n\n"
                     return
-                if j.kind == "report_export":
-                    from saw.reports.export_jobs import _actor, require_job
+                if j.kind not in {"report_export", "golden_export"}:
                     from saw.core.application.investigations import Forbidden
+                    try:
+                        container.get().events.authorize(s, j.investigation_id)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
+                if j.kind == "report_export":
+                    from saw.core.application.investigations import Forbidden
+                    from saw.reports.export_jobs import _actor, require_job
                     try:
                         require_job(s, _actor(s, ctx.principal.user_id), j)
                     except (Forbidden, NotFound):
                         yield "event: end\ndata: {}\n\n"
                         return
                 if j.kind == "golden_export":
-                    from saw.knowledge.golden_jobs import actor, require_job
                     from saw.core.application.investigations import Forbidden
+                    from saw.knowledge.golden_jobs import actor, require_job
                     try:
                         require_job(s, actor(s, ctx.principal.user_id, session_id=ctx.session.id), j)
                     except (Forbidden, NotFound):
