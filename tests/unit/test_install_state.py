@@ -310,3 +310,81 @@ try {{ Assert-SawPrivateInstall $root; $accepted=$true }} catch {{ $failure=$_.E
 """)
     assert result["accepted"] == accepted, result
     assert result["unchanged"], result
+
+def test_resume_accepts_owner_rights_for_validated_trusted_owner_without_acl_repair(tmp_path):
+    media, root = fixture(tmp_path)
+    result = run(tmp_path, rf"""
+$c=Enter-SawInstall -InstallRoot {lit(root)} -BundleDir {lit(media)} -Options @{{noAdmin=$true;port=8443}}
+Set-SawInstallStage $c 'PostgreSQL'
+Set-SawInstallFailed $c 1
+Exit-SawInstall $c
+$target=Join-Path {lit(root)} 'venv\Lib\site-packages\alembic'
+$null=New-Item -ItemType Directory -Force $target
+$sentinel=Join-Path $target 'synthetic.txt'
+[IO.File]::WriteAllText($sentinel,'unchanged')
+$ownerRights=New-Object Security.Principal.SecurityIdentifier('S-1-3-4')
+$acl=Get-Acl -LiteralPath $target
+$rule=New-Object Security.AccessControl.FileSystemAccessRule($ownerRights,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+$acl.AddAccessRule($rule)
+Set-Acl -LiteralPath $target -AclObject $acl
+$before=(Get-Acl -LiteralPath $target).Sddl
+$present=@((Get-Acl -LiteralPath $target).GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]) |
+ Where-Object {{ $_.IdentityReference.Value -eq 'S-1-3-4' }}).Count -eq 1
+$accepted=$false; $mode=''; $prior=''; $d=$null
+try {{
+ $d=Enter-SawInstall -InstallRoot {lit(root)} -BundleDir {lit(media)} -Options @{{noAdmin=$true;port=8443}}
+ $mode=$d.Mode; $prior=$d.State.previous_status; $accepted=$true
+}} catch {{}} finally {{ if($d) {{ Exit-SawInstall $d }} }}
+@{{accepted=$accepted;mode=$mode;prior=$prior;explicit_owner_rights=$present;
+ unchanged=($before -ceq (Get-Acl -LiteralPath $target).Sddl -and [IO.File]::ReadAllText($sentinel) -ceq 'unchanged')}}|ConvertTo-Json -Compress
+""")
+    assert result["explicit_owner_rights"], result
+    assert result["accepted"], result
+    assert result["mode"] == "resume" and result["prior"] == "failed", result
+    assert result["unchanged"], result
+
+
+@pytest.mark.parametrize("relative,owner,principal,rights,accepted", [
+    ("app/synthetic.txt", "current", "S-1-5-11", "ReadAndExecute", False),
+    ("app/synthetic.txt", "S-1-5-11", "S-1-3-4", "FullControl", False),
+    ("app/synthetic.txt", "S-1-5-20", "S-1-3-4", "FullControl", False),
+    ("data/postgresql/synthetic.txt", "S-1-5-20", "S-1-3-4", "FullControl", True),
+    ("data/postgresql/synthetic.txt", "S-1-5-20", "S-1-3-4", "ReadAndExecute", False),
+    ("logs/postgresql/synthetic.txt", "S-1-5-20", "S-1-3-4", "Modify", True),
+    ("logs/postgresql/synthetic.txt", "S-1-5-20", "S-1-3-4", "FullControl", False),
+    ("app/synthetic.txt", "current", "S-1-5-20", "ReadAndExecute", False),
+    ("pgsql/synthetic.txt", "current", "S-1-5-20", "ReadAndExecute", True),
+])
+def test_owner_rights_keeps_owner_external_principal_and_service_scope_guards(
+        tmp_path, relative, owner, principal, rights, accepted):
+    media, root = fixture(tmp_path)
+    result = run(tmp_path, rf"""
+$root=Initialize-SawInstallRoot -InstallRoot {lit(root)} -BundleDir {lit(media)} -NoAdmin
+$script:target=Join-Path $root {lit(relative)}
+$null=New-Item -ItemType Directory -Force (Split-Path $script:target)
+[IO.File]::WriteAllText($script:target,'unchanged')
+$principal=New-Object Security.Principal.SecurityIdentifier({lit(principal)})
+$acl=Microsoft.PowerShell.Security\Get-Acl -LiteralPath $script:target
+$rule=New-Object Security.AccessControl.FileSystemAccessRule($principal,{lit(rights)},'Allow')
+$acl.AddAccessRule($rule)
+Set-Acl -LiteralPath $script:target -AclObject $acl
+$before=(Microsoft.PowerShell.Security\Get-Acl -LiteralPath $script:target).Sddl
+$script:owner={lit(owner)}
+function Get-Acl {{
+ [CmdletBinding()] param([string]$LiteralPath)
+ $result=Microsoft.PowerShell.Security\Get-Acl @PSBoundParameters
+ # A foreign service owner needs privilege to assign on disk. Supply that one
+ # native security descriptor in memory; never change the real fixture owner.
+ if($LiteralPath -eq $script:target -and $script:owner -ne 'current') {{
+  $result.SetOwner((New-Object Security.Principal.SecurityIdentifier($script:owner)))
+ }}
+ return $result
+}}
+$accepted=$false
+try {{ Assert-SawPrivateInstall $root; $accepted=$true }} catch {{}}
+@{{accepted=$accepted;
+ unchanged=($before -ceq (Microsoft.PowerShell.Security\Get-Acl -LiteralPath $script:target).Sddl -and
+ [IO.File]::ReadAllText($script:target) -ceq 'unchanged')}}|ConvertTo-Json -Compress
+""")
+    assert result["accepted"] is accepted, result
+    assert result["unchanged"], result

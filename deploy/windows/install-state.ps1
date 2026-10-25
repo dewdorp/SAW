@@ -105,10 +105,14 @@ function Assert-SawPrivateInstall([string]$Root) {
         $owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
         if ($owner -notin $trusted -and -not ($owner -eq 'S-1-5-20' -and $rel -match '^(data/postgresql|logs/postgresql)(/|$)')) { throw "Installation owner needs review: $path" }
         foreach ($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
-            if ($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.Value -in $trusted) { continue }
+            if ($ace.AccessControlType -ne 'Allow') { continue }
+            # OWNER RIGHTS refers to the already validated actual owner.
+            $effectiveSid=$ace.IdentityReference.Value
+            if ($effectiveSid -eq 'S-1-3-4') { $effectiveSid=$owner }
+            if ($effectiveSid -in $trusted) { continue }
             $rel=$path.Substring($Root.Length).TrimStart('\').Replace('\','/').ToLowerInvariant()
             # Existing PostgreSQL service access is scoped; no access to secrets or application data.
-            if ($ace.IdentityReference.Value -eq 'S-1-5-20' -and (
+            if ($effectiveSid -eq 'S-1-5-20' -and (
                 ($rel -in @('','data','logs','venv','opensearch-2.19.6','opensearch-2.19.6/jdk') -and [int]$ace.FileSystemRights -eq 0x100020 -and $ace.InheritanceFlags -eq 'None') -or
                 ($rel -match '^(pgsql|venv/scripts|opensearch-2.19.6/jdk/bin)(/|$)' -and [int]$ace.FileSystemRights -eq 0x1200a9) -or
                 ($rel -match '^data/postgresql(/|$)' -and [int]$ace.FileSystemRights -eq 0x1f01ff) -or
