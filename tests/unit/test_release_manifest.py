@@ -358,3 +358,33 @@ def test_inspection_contract_requires_diagnostics_and_native_checker():
         _required(rows,{"updater_inspection":1})
     rows.extend({"path":p} for p in INSPECTION_REQUIRED.values())
     assert set(INSPECTION_REQUIRED.values())<=set(_required(rows,{"updater_inspection":1}).values())
+
+@pytest.mark.parametrize("missing", [None, "docs/samples/security-csv/ndr-normal.csv", "docs/images/security-csv-20261025/csv-readiness.png"])
+def test_security_csv_public_media_copies_exact_bytes_and_rejects_missing_inputs(tmp_path, monkeypatch, missing):
+    from saw.devtools import build_release
+    public_csv = (
+        "docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md",
+        *(f"docs/samples/security-csv/{name}.csv" for name in (
+            "fw-mixed-devices", "ndr-potential-chain", "ndr-normal", "ndr-label-only", "ndr-missing-response")),
+        *(f"docs/images/security-csv-20261025/{name}.png" for name in (
+            "csv-upload", "csv-fw-complete", "csv-ndr-complete", "csv-readiness", "csv-ndr-fields", "csv-scenarios", "csv-old-run")),
+    )
+    source, out = tmp_path / "source", tmp_path / "out"
+    for rel in set(build_release.PUBLIC_DOCS) | set(public_csv):
+        path = source / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"public synthetic fixture\x00\xff\r\n" + rel.encode("utf-8"))
+    unlisted = source / "docs/samples/security-csv/unapproved-original.csv"
+    unlisted.write_bytes(b"synthetic private input must not ship")
+    # This guide is decoded by the root entry-point generator.
+    (source / "docs/INSTALL-RECOVERY-2026-10-18.md").write_text("# synthetic guide", encoding="utf-8")
+    monkeypatch.setattr(build_release, "ROOT", source)
+    if missing:
+        (source / missing).unlink()
+        with pytest.raises(BundleError, match="public guide missing"):
+            build_release.copy_public_guides(out)
+    else:
+        build_release.copy_public_guides(out)
+        for rel in public_csv:
+            assert (out / "app" / rel).read_bytes() == (source / rel).read_bytes()
+        assert not (out / "app/docs/samples/security-csv/unapproved-original.csv").exists()

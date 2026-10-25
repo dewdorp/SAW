@@ -341,3 +341,20 @@ def test_legacy_pit_serializes_boolean_using_real_client():
     assert captured[1][1] == "/sawtest-events/_search/point_in_time"
     assert backend._dirty is False
     assert reader.count("inv") == 2
+
+
+def test_new_generation_declares_security_csv_typed_mapping(osenv):
+    store, client, heads, ref, kw = osenv
+    store.create_target(ref, **kw)
+    mapping = client.targets[ref.storage_targets[0]]['mappings']
+    assert mapping['properties']['ext']['properties']['security_csv']['type'] == 'object'
+
+
+def test_existing_owned_generation_keeps_its_actual_security_csv_mapping(osenv):
+    store, client, heads, ref, kw = osenv
+    store.create_target(ref, **kw)
+    mapping = client.targets[ref.storage_targets[0]]['mappings']
+    mapping['properties']['ext']['properties']['security_csv'] = {'type': 'flat_object'}
+    original = copy.deepcopy(client.targets[ref.storage_targets[0]])
+    store.create_target(ref, **kw)
+    assert client.targets[ref.storage_targets[0]] == original

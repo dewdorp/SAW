@@ -76,6 +76,11 @@ export function UploadModal({ kind: k0, invId, initialFiles, onClose }: { kind?:
             <label>수집 손실 상태 <select className="input" value={loss} onChange={e => setLoss(e.target.value)}><option value="unknown">미확인</option><option value="known">손실 확인됨</option></select></label>
             {!profile && <p className="small muted">프로필을 선택하지 않으면 계측 의미는 미확인입니다. 장비·자료 의미 탭에서 새 버전을 설정할 수 있습니다.</p>}
           </div></fieldset>}
+          <div className="small muted col" style={{ gap: 6 }} aria-label="반복 CSV 업로드 안내">
+            <p>같은 형식의 CSV를 계속 추가할 수 있습니다. 자동 감지는 FW 16개·NDR 19개 필수 헤더 조합을 인식하며 UTF-8·CP949를 처리합니다. 필수 헤더 이름을 유지하면 열 순서 변경과 추가 열도 최대 199열까지 허용합니다. 필수·추가 열 모두 빈 이름·공백뿐인 이름·점(.)이 포함된 이름은 지원하지 않습니다.</p>
+            <p>예: FW는 탐지시간·장비IP·TCP플래그·세션시간, NDR은 탐지시간·장비IP·요청헤더·응답값·공격명 등이 있는 형식입니다. HTTP 요청행과 메서드·경로 요약을 구분하며, 요약 표기는 실제 패킷·HTTP 버전의 증명이 아닙니다. 장비IP·그룹명만으로 내부 장비나 동일 자산을 확인할 수 없습니다. 여러 장비가 섞인 내보내기는 장비별로 나눈 뒤 장비·자료 의미에서 프로필의 방향 카운터·누적/차분·시간 단위와 수집 범위를 확인하세요.</p>
+            <p>업로드 작업 완료 후 분석 실행 이력에서 CSV 자료 준비도와 시나리오별 실행 결과를 확인하세요. 반복 업로드가 중복 기록을 자동 제거한다고 가정하지 마세요. 기존 증거는 재처리 기능과 처리 세대를 확인하고, 과거 실행은 저장된 당시 결과로 확인하세요. 공격명·허용·탐지·HTTP 200은 정오탐 정답이나 침해 성공을 확정하지 않습니다.</p>
+          </div>
           <div className={`dropzone ${over ? "over" : ""}`} onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={e => { e.preventDefault(); setOver(false); if (!busy) setFiles([...files, ...Array.from(e.dataTransfer.files)]); }}>
             파일을 끌어다 놓거나 <label className="btn sm">선택<input type="file" multiple hidden onChange={e => setFiles([...files, ...Array.from(e.target.files || [])])} /></label><div className="small muted">access.log, *.gz, *.zip, JSON Lines, CSV, Syslog, PCAP … (압축은 서버에서 안전하게 해제)</div>
           </div>

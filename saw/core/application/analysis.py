@@ -40,6 +40,7 @@ def all_detectors():
         WafObservation,
     )
     from saw.detectors.firewall_observation import FirewallObservation
+    from saw.detectors.csv_readiness import CsvReadiness
     from saw.detectors.ndr_policy import NdrPolicy
     from saw.detectors.network import NETWORK_DETECTORS
     from saw.detectors.pcap_forensics import PCAP_DETECTORS
@@ -48,7 +49,7 @@ def all_detectors():
     from saw.detectors.temporal_behavior import TemporalBehavior
     from saw.detectors.web import WEB_DETECTORS
 
-    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior(), FirewallObservation(), WafObservation(), IpsObservation(), DdosObservation(), NdrObservation()]
+    return WEB_DETECTORS + NETWORK_DETECTORS + PCAP_DETECTORS + ANOMALY_DETECTORS + [SignatureMatch(), NdrPolicy(), PeerBehavior(), TemporalBehavior(), CsvReadiness(), FirewallObservation(), WafObservation(), IpsObservation(), DdosObservation(), NdrObservation()]
 
 
 def _flow_roles(finding: Finding) -> dict[str, list[str]]:
@@ -64,21 +65,26 @@ def _flow_roles(finding: Finding) -> dict[str, list[str]]:
     return roles
 
 
-def _flows(s: Session, inv_id: str) -> list[FindingDraft]:
+def _flows(s: Session, inv_id: str, *, report: dict | None = None) -> list[FindingDraft]:
     """Named attack flows over the findings of this run (and the reviewed ones that were kept)."""
     from saw.core.application.briefing import _succeeded
     from saw.detectors import scenarios
 
+    retained = [f for f in s.scalars(select(Finding).where(Finding.investigation_id == inv_id))
+                if f.detector_id != scenarios.DETECTOR_ID and f.status not in ("false_positive", "duplicate", "benign")]
     rows = [{"id": f.id, "display_id": f.display_id, "title": f.title, "category": f.category, "stage": f.stage,
              "risk_level": f.risk_level, "success": _succeeded(f), "entities": f.entities or [],
              "entity_roles": _flow_roles(f),
              "time_start": f.time_start, "time_end": f.time_end}
-            for f in s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars()
-            if f.detector_id != scenarios.DETECTOR_ID and f.status not in ("false_positive", "duplicate", "benign")]
+            for f in retained]
     from saw.detection.derived_access import source_ids
 
     es = container.get().events
     drafts = scenarios.match(rows)
+    if report is not None:
+        report.update(scenarios.execution_report(rows, drafts))
+        report["source_investigation_ids"] = sorted({
+            source for finding in retained for source in source_ids(finding)})
     for d in drafts:  # evidence: what this address did, whichever side of the connection it was on
         ip = d.entities[0][3:]
         side = "src_ip" if es.count(inv_id, [Filter(field="src_ip", value=ip)]) else "dst_ip"
@@ -247,6 +253,8 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
         if check_cancelled(force=True):
             raise Cancelled()
         report = ctx.params.get("execution_reports", {}).get(det.id) or {}
+        if det.id == "csv.readiness":
+            input_count = report.get("input_records", input_count)
         result_status = {"partial": "partial", "insufficient_data": "insufficient_data", "failed": "failed",
                          "disabled": "not_applicable", "not_applicable": "not_applicable", "cancelled": "cancelled"}.get(report.get("status"), "complete")
         authorize(s, actor, inv_id, runtime_pin, writing=True)
@@ -288,17 +296,19 @@ def run_detectors(s: Session, inv_id: str, progress=None, *, analysis_run=None) 
     # Retire unsupported untouched findings before they can become evidence for a fresh flow.
     _drop_unsupported(s, inv_id, settled, {f.id for f in out})
     try:
-        flow_drafts = _flows(s, inv_id)
+        flow_report = {}
+        flow_drafts = _flows(s, inv_id, report=flow_report)
         out += [_finding_from_draft(s, inv_id, d) for d in flow_drafts]
-        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, "1", "complete",
-                           match_count=len(flow_drafts), detail={"match_unit": "flow"})
+        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, scenarios.VERSION, "complete",
+                           input_count=flow_report["counts"]["input_findings"],
+                           match_count=len(flow_drafts), detail=flow_report)
         settled.add(scenarios.DETECTOR_ID)
         s.flush()
     except Exception as e:  # noqa: BLE001 - flows are a reading aid: their failure must not cost the findings
         import logging
 
         logging.getLogger("saw.detectors").warning("attack flows failed (%s)", type(e).__name__)
-        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, "1", "failed",
+        run_history.record(s, analysis_run, scenarios.DETECTOR_ID, scenarios.VERSION, "failed",
                            detail={"error_type": type(e).__name__})
     _drop_unsupported(s, inv_id, settled, {f.id for f in out})
     run_history.capture_findings(s, analysis_run, out)

@@ -27,7 +27,7 @@ _TITLES = {"waf": "WAF 요청·룰 적중 관측", "ips": "IPS 패턴·후속 �
            "ddos": "DDoS 구간별 단위 관측", "ndr": "NDR 수집 범위·통신 관측",
            "fw": "방화벽 세션 관측", "sigma": "선택 규칙 평가"}
 _SOURCES = {"waf": ["waf", "web", "zeek_http", "custom"], "ips": ["ips", "suricata", "custom", "connection"],
-            "ddos": ["ddos", "custom", "connection"], "ndr": ["ndr", "zeek_conn", "zeek_dns", "zeek_http",
+            "ddos": ["ddos", "custom", "connection"], "ndr": ["ndr", "web", "zeek_conn", "zeek_dns", "zeek_http",
                  "zeek_ssl", "suricata", "connection", "custom"], "fw": ["connection", "firewall", "zeek_conn"],
             "sigma": ["custom", "web", "waf", "zeek_conn", "suricata"]}
 _LABELS = {"enabled": "사용", "window_seconds": "관측 창", "min_requests": "최소 요청 수",

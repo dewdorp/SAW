@@ -4,15 +4,16 @@ Strength: strong = same entity (IP/domain/session/account) seen in ≥2 source f
 weak = only the same asset/host and time proximity. Results feed Timeline/Story; nothing is auto-concluded.
 """
 from __future__ import annotations
-from saw.detection.derived_access import source_ids
 
 from datetime import datetime
+from ipaddress import ip_address
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from saw import container
 from saw.core.schemas.query import Filter, GroupMetric
+from saw.detection.derived_access import source_ids
 from saw.storage.models import Correlation, Finding, Investigation
 
 FAMILY = {"web": "web", "waf": "waf", "zeek_conn": "network", "zeek_dns": "network", "zeek_ssl": "network",
@@ -27,6 +28,19 @@ def _ep(ts) -> float | None:
     if isinstance(ts, datetime):
         return ts.timestamp()
     return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+
+
+def _valid_ip(value) -> bool:
+    try:
+        ip_address(str(value))
+        return True
+    except ValueError:
+        return False
+
+
+def _identity_entities(finding) -> set[str]:
+    return {value for value in finding.entities
+            if value.startswith("domain:") or (value.startswith("ip:") and _valid_ip(value[3:]))}
 
 
 def _skew(s: Session, inv_id: str) -> dict[str, float]:
@@ -46,6 +60,8 @@ def run_correlation(s: Session, inv_id: str) -> list[Correlation]:
                            [GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")], size=20000)
         for r in rows:
             ip, ds = r["key"][field], r["key"]["data_source"]
+            if not _valid_ip(ip):
+                continue
             fam = FAMILY.get(ds, ds)
             d = per_ip.setdefault(ip, {}).setdefault(fam, {"count": 0, "first": None, "last": None, "sources": set(), "as": set()})
             d["count"] += r["count"]
@@ -83,8 +99,7 @@ def run_correlation(s: Session, inv_id: str) -> list[Correlation]:
         for b in fs[i + 1:]:
             if fam_of[a.id] == fam_of[b.id]:
                 continue
-            shared = sorted(set(x for x in a.entities if x.startswith(("ip:", "domain:"))) &
-                            set(x for x in b.entities if x.startswith(("ip:", "domain:"))))
+            shared = sorted(_identity_entities(a) & _identity_entities(b))
             ta, tb = _ep(a.time_start), _ep(b.time_start)
             if not shared or ta is None or tb is None or abs(tb - ta) > WINDOW_SEC:
                 continue

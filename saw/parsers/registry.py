@@ -10,6 +10,7 @@ from saw.core.security.masking import mask_text
 from saw.parsers.base import RAW_MAX, BaseParser, Failed, Parsed, RawLine
 from saw.parsers.ndr import NdrMetaCsvParser
 from saw.parsers.network import SuricataEveParser, ZeekJsonParser, ZeekTsvParser
+from saw.parsers.security_csv import KoFirewallCsvParser, KoNdrCsvParser
 from saw.parsers.structured import (
     CloudflareParser,
     CsvParser,
@@ -23,7 +24,7 @@ from saw.parsers.web import ApacheParser, IISParser, NginxParser
 
 
 def builtin_parsers() -> list[BaseParser]:
-    return [NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
+    return [KoFirewallCsvParser(), KoNdrCsvParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
             SuricataEveParser(), CloudflareParser(), GenericJsonWafParser(),
             GenericWafParser(), JsonLinesParser(), SyslogParser(), CsvParser(), KeyValueParser()]
 

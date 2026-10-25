@@ -2,6 +2,7 @@ import {ReportExportDialog} from "../../components/reports/ReportExportDialog";
 import {ReportVersionsPanel} from "../../components/reports/ReportVersionsPanel";
 import {eligibleRun} from "../../components/reports/types";
 import { DeviceObservationResults } from "./DeviceObservationResults";
+import { CsvScenarioResults } from "./CsvScenarioResults";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -86,6 +87,7 @@ export function AnalysisHistoryTab({ inv }: { inv: string }) {
           <details><summary>품질·계산 한도·적용 기준·미실행 사유</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify({ detail: execution.detail, effective_config: execution.effective_config }, null, 2)}</pre></details>
         </section>)}
         {executions.filter((item:any)=>["waf.observation","ips.observation","ddos.observation","ndr.observation"].includes(item.detector_id)).map((execution:any)=><DeviceObservationResults key={execution.detector_id} execution={execution} status={STATUS[execution.status]||execution.status} onRaw={raw}/>)}
+        <CsvScenarioResults executions={executions} onSourceContext={() => ctx.set({ tab: "source-context" })} onFindings={() => ctx.set({ tab: "findings", findingId: null })} />
         {!!notApplicable && <button className="btn sm" aria-expanded={showNotApplicable} onClick={() => setShowNotApplicable(!showNotApplicable)}>{showNotApplicable ? `적용 불가 탐지기 ${notApplicable}개 숨기기` : `적용 불가 탐지기 ${notApplicable}개 보기`}</button>}
         <table className="t"><caption>탐지기 실행 상태 — 미실행·실패·자료 부족은 0건으로 해석하지 않습니다</caption><thead><tr><th>탐지기</th><th>버전</th><th>상태</th><th>입력</th><th>후보</th></tr></thead><tbody>{visibleExecutions.map((execution: any) => <tr key={execution.detector_id}><td>{execution.detector_id}</td><td>{execution.detector_version || "미기록"}</td><td>{STATUS[execution.status] || execution.status}</td><td>{hasCounts(execution.status) ? count(execution.input_count) : "미확인"}</td><td>{hasCounts(execution.status) ? count(execution.match_count) : "미확인"}</td></tr>)}</tbody></table>
         {visibleExecutions.filter((item: any) => !["fw.observation","waf.observation","ips.observation","ddos.observation","ndr.observation"].includes(item.detector_id)).map((execution: any) => <details key={execution.detector_id} className="panel pb"><summary>{execution.detector_id} · {STATUS[execution.status] || execution.status} · 실행 근거</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify({ detail: execution.detail, effective_config: execution.effective_config }, null, 2)}</pre></details>)}        {!!run.findings?.length && <details><summary>이 실행에 고정된 탐지 스냅샷 {run.findings.length}건</summary>{run.findings.map((f: any) => <pre key={f.id} style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(f, null, 2)}</pre>)}</details>}

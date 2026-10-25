@@ -110,3 +110,14 @@ it("creates a new investigation with an organization while keeping unconfigured 
   expect(api.find("POST", "/investigations")[0].body.org_unit_id).toBe("org-a");
   expect(api.find("POST", "/investigations/new1/evidence")[0].body).not.toHaveProperty("source_context");
 });
+
+it("shows recurring CSV guidance before upload while keeping context confirmation explicit", () => {
+  routes(); renderUI(ui());
+  expect(screen.getByText(/FW 16개·NDR 19개 필수 헤더/)).toBeTruthy();
+  expect(screen.getByText(/UTF-8·CP949/)).toBeTruthy();
+  expect(screen.getByText(/열 순서 변경과 추가 열/)).toBeTruthy();
+  expect(screen.getByText(/최대 199열/)).toBeTruthy();
+  expect(screen.getByText(/요약 표기는 실제 패킷·HTTP 버전의 증명이 아닙니다/)).toBeTruthy();
+  expect(screen.getByText(/장비IP·그룹명만으로/)).toBeTruthy();
+  expect(screen.getByText(/분석 실행 이력에서 CSV 자료 준비도/)).toBeTruthy();
+});

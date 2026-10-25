@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from saw.core.schemas.query import AggRequest, Filter, GroupMetric
+from saw.parsers.registry import parse_text
 from saw.storage.generations import (
     GenerationRef,
     GenerationStore,
@@ -16,6 +17,8 @@ from saw.storage.generations import (
 )
 from saw.storage.opensearch_store import OpenSearchEventStore, index_template
 from tests.unit.test_event_generation_writers import digest, event, expected
+from tests.unit.test_security_csv import NDR, document
+from tests.unit.test_security_csv import row as security_row
 
 
 def test_extension_template_preserves_known_typed_namespaces():
@@ -43,13 +46,21 @@ def test_extension_template_only_flattens_unknown_namespace_objects():
 
 
 @pytest.mark.skipif(not os.environ.get('SAW_TEST_OPENSEARCH_URL'), reason='dedicated native OpenSearch URL absent')
-def test_native_mixed_vendor_roundtrip_queries_and_typed_retained_statistics():
+@pytest.mark.parametrize("combined_first", [False, True])
+def test_native_mixed_vendor_roundtrip_queries_and_typed_retained_statistics(combined_first):
     backend = OpenSearchEventStore(os.environ['SAW_TEST_OPENSEARCH_URL'], prefix='sawtest' + uuid.uuid4().hex)
     heads = {}
     store = GenerationStore(backend, resolve=lambda inv, generation_id=None: heads.get(inv),
                             check_read=lambda ref: None, open_raw=lambda bucket, key: io.BytesIO(b'raw'),
                             cursor_key=b'v' * 32)
+    source_only = parse_text(document([*NDR, "source_columns"],
+                                     security_row(source_columns="source-only")))["events"][0]["ext"]["security_csv"]
+    combined = parse_text(document([*NDR, "source_columns", "csv_format"],
+                                  security_row(source_columns="combined",
+                                               csv_format="recorded-source-format")))["events"][0]["ext"]["security_csv"]
+    security_extensions = [combined, source_only] if combined_first else [source_only, combined]
     rows = [event(n, ext={
+        'security_csv': security_extensions[n],
         'vendor_web': {'custom_fact': ['retained' if n == 0 else 'other', 7 + n],
                        'nested': {'unchanged': [None, True, 1.25]}},
         'observation': {'context': {'network': 'corp', 'resolved': True}, 'duration_seconds': 10 + n},
@@ -74,6 +85,14 @@ def test_native_mixed_vendor_roundtrip_queries_and_typed_retained_statistics():
     for value in ('retained', 7):
         assert old.count('inv', [Filter(field='ext.vendor_web.custom_fact', value=value)]) == 1
     assert old.count('inv', [Filter(field='ext.vendor_web', value='retained')]) == 1
+    assert old.count('inv', [Filter(field='ext.security_csv.csv_format', value='ndr')]) == 2
+    assert old.aggregate('inv', [], AggRequest(type='terms', field='ext.security_csv.csv_format'))['buckets'] == [
+        {'key': 'ndr', 'count': 2}]
+    for n in range(2):
+        original = old.get('inv', rows[n]['event_id'])['ext']['security_csv']
+        assert original['그룹명'] == '가상그룹'
+        assert original['장비IP'] == '192.0.2.10'
+        assert original['source_columns'] == security_extensions[n]['source_columns']
     scoped = [Filter(field='ext.observation.context.network', value='corp')]
     assert old.aggregate('inv', scoped, AggRequest(type='stats', field='ext.observation.duration_seconds'))['avg'] == 10.5
     assert old.aggregate('inv', scoped, AggRequest(type='stats', field='ext.device_observation.metrics.bytes'))['sum'] == 201
@@ -86,6 +105,14 @@ def test_native_mixed_vendor_roundtrip_queries_and_typed_retained_statistics():
     assert sum(b['count'] for b in old.histogram_metrics('inv', scoped, 3600, [])['buckets']) == 2
     mapping = backend.client.indices.get_mapping(index=old_ref.storage_targets[0])[old_ref.storage_targets[0]]['mappings']
     fields = mapping['properties']
+    security_mapping = fields['ext']['properties']['security_csv']
+    assert security_mapping.get('type', 'object') == 'object'
+    assert isinstance(security_mapping.get('properties'), dict)
+    assert security_mapping['properties']['csv_format']['type'] == 'keyword'
+    source_mapping = security_mapping['properties']['source_columns']
+    assert source_mapping.get('type', 'object') == 'object'
+    assert isinstance(source_mapping.get('properties'), dict)
+    assert security_mapping['properties']['장비IP']['type'] == 'keyword'
     assert fields['ext']['properties']['vendor_web']['type'] == 'flat_object'
     assert fields['timestamp']['type'] == 'date'
     assert fields['ext']['properties']['observation']['properties']['duration_seconds']['type'] == 'long'
