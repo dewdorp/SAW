@@ -834,12 +834,26 @@ def _installed_runtime(root, bundle):
                 if info.is_dir():
                     continue
                 name = _manifest.safe_relative(info.filename)
-                destination = mapper(name)
+                target_script = (
+                    relative == "wheels/xlsxwriter-3.2.9-py3-none-any.whl"
+                    and name == "xlsxwriter-3.2.9.data/scripts/vba_extract.py")
+                destination = ("venv/Lib/site-packages/bin/vba_extract.py"
+                               if target_script else mapper(name))
                 if destination is None:
                     continue
                 path = root / destination
                 with stream.open(info) as content:
-                    wanted = hashlib.file_digest(content, "sha256").hexdigest()
+                    if target_script:
+                        # pip 25.1.1 fix_script rewrites only the first line for --target.
+                        if content.readline(10) != b"#!python\n":
+                            raise UpdateError("Unsupported wheel installation layout")
+                        interpreter = os.fsencode(root / "venv/Scripts/python.exe")
+                        if any(char in interpreter for char in (b"\0", b"\r", b"\n")):
+                            raise UpdateError("Unsupported wheel installation layout")
+                        digest = hashlib.sha256(b"#!" + interpreter + os.linesep.encode("ascii"))
+                        wanted = hashlib.file_digest(content, lambda digest=digest: digest).hexdigest()
+                    else:
+                        wanted = hashlib.file_digest(content, "sha256").hexdigest()
                 if not path.is_file() or _manifest.digest(path) != wanted:
                     raise UpdateError("Installed runtime or dependency differs from the pinned media",
                                       code="runtime_integrity_failed", diagnostics={"location": destination, "expected": "pinned runtime file", "actual": "missing or changed"})

@@ -632,3 +632,95 @@ def test_missing_application_does_not_bypass_corrupt_snapshot(installation):
         mod.restore(root, recovery, confirm=True)
     assert not (root / 'app').exists()
     assert root.is_dir()
+
+
+def xlsxwriter_script(installation, *, member=None, package=None, source=None):
+    """Represent the pinned wheel and pip --target's rewritten script, never execute it."""
+    import os
+    root, bundle, _, _ = installation
+    member = member or "xlsxwriter-3.2.9.data/scripts/vba_extract.py"
+    package = package or "xlsxwriter-3.2.9-py3-none-any.whl"
+    source = source if source is not None else b'#!python\n"""Synthetic wheel script."""\nprint("fixture only")\n'
+    target = bundle / "wheels" / package
+    target.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(target, "w") as stream:
+        stream.writestr(member, source)
+    installed = root / "venv/Lib/site-packages/bin/vba_extract.py"
+    write(root, installed.relative_to(root),
+          b"#!" + os.fsencode(root / "venv/Scripts/python.exe") + os.linesep.encode("ascii")
+          + source.partition(b"\n")[2])
+    return installed
+
+
+@pytest.mark.parametrize("root_name", [None, "installed space-\uac00"])
+def test_pinned_xlsxwriter_target_script_is_verified_without_execution_or_changes(installation, root_name):
+    root, bundle, baseline, recovery = installation
+    if root_name:
+        moved = root.with_name(root_name)
+        root.rename(moved)
+        root = moved
+        installation = root, bundle, baseline, recovery
+    xlsxwriter_script(installation)
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+              for parent in (root, bundle) for p in parent.rglob("*") if p.is_file()}
+    updater()._installed_runtime(root, bundle)
+    assert {p: (p.read_bytes(), p.stat().st_mtime_ns)
+            for parent in (root, bundle) for p in parent.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize("case", ["body", "foreign_interpreter", "unexpanded_shebang", "line_ending",
+                                 "missing", "wrong_scripts_directory", "extra_script"])
+def test_xlsxwriter_target_script_requires_exact_body_interpreter_and_location(installation, case):
+    root, bundle, _, _ = installation
+    installed = xlsxwriter_script(installation)
+    original = installed.read_bytes()
+    if case == "body":
+        installed.write_bytes(original + b"# changed\n")
+    elif case == "foreign_interpreter":
+        installed.write_bytes(b"#!C:\\foreign\\python.exe\r\n" + original.partition(b"\n")[2])
+    elif case == "unexpanded_shebang":
+        installed.write_bytes(b"#!python\n" + original.partition(b"\n")[2])
+    elif case == "line_ending":
+        import os
+        wrong = b"\n" if os.linesep == "\r\n" else b"\r\n"
+        installed.write_bytes(original.partition(b"\n")[0].rstrip(b"\r") + wrong
+                              + original.partition(b"\n")[2])
+    elif case == "missing":
+        installed.unlink()
+    elif case == "wrong_scripts_directory":
+        write(root, "venv/Scripts/vba_extract.py", original)
+        installed.unlink()
+    else:
+        write(root, "venv/Lib/site-packages/bin/unapproved.py", b"# unexpected script\n")
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    with pytest.raises(updater().UpdateError, match="differs from the pinned media|Unexpected installed"):
+        updater()._installed_runtime(root, bundle)
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize(("member", "package", "source"), [
+    ("xlsxwriter-3.2.9.data/scripts/other.py", None, None),
+    ("xlsxwriter-3.2.9.data/purelib/vba_extract.py", None, None),
+    (None, "unapproved-1.0-py3-none-any.whl", None),
+    (None, None, b"#!/usr/bin/python\n# fixture\n"),
+    (None, None, b"#!python -E\n# fixture\n"),
+    (None, None, b"#!python\r\n# fixture\n"),
+    (None, None, b"#!python"),
+])
+def test_other_wheel_data_layouts_and_source_shebangs_remain_unsupported(installation, member, package, source):
+    root, bundle, _, _ = installation
+    xlsxwriter_script(installation, member=member, package=package, source=source)
+    with pytest.raises(updater().UpdateError, match="Unsupported wheel installation layout"):
+        updater()._installed_runtime(root, bundle)
+
+
+@pytest.mark.parametrize("member", ["../escaped.py", "/escaped.py",
+    "xlsxwriter-3.2.9.data/scripts/../../../escaped.py",
+    "xlsxwriter-3.2.9.data/scripts/..\\escaped.py"])
+def test_wheel_script_archive_paths_cannot_escape_installation(installation, member):
+    root, bundle, _, _ = installation
+    xlsxwriter_script(installation, member=member)
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError):
+        updater()._installed_runtime(root, bundle)
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
