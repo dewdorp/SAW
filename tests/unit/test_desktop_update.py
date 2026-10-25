@@ -648,3 +648,74 @@ def test_postgresql_main_with_additional_storage_options_is_not_owned(tmp_path, 
     image = root / 'pgsql/bin/postgres.exe'
     command = subprocess.list2cmdline([str(image), '-D', str(root / 'data/postgresql'), *extra])
     assert desktop().WindowsController()._classify(root, str(image), command) is None
+
+
+@pytest.fixture
+def signal_exit_child():
+    """Own a real child that exits normally only after its stdin receives one byte."""
+    import subprocess
+    import sys
+    if __import__('os').name != 'nt':
+        pytest.skip('Windows retained process handles')
+    process = subprocess.Popen(
+        [sys.executable, '-B', '-c',
+         'import sys; print("READY", flush=True); sys.stdin.buffer.read(1)'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        assert process.stdout.readline().strip() == b'READY'
+        yield process
+    finally:
+        if process.poll() is None:
+            process.stdin.write(b'x')
+            process.stdin.flush()
+        process.wait(timeout=10)
+        process.stdin.close()
+        process.stdout.close()
+
+
+def test_native_process_exit_between_alive_check_and_terminate_is_already_stopped(signal_exit_child):
+    import ctypes
+    import sys
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable))
+    kernel = lease.kernel
+    observed = []
+
+    class ExitBeforeTerminate:
+        def __getattr__(self, name):
+            return getattr(kernel, name)
+
+        def TerminateProcess(self, handle, exit_code):
+            assert handle == lease.handle
+            assert kernel.WaitForSingleObject(handle, 0) == 258
+            process.stdin.write(b'x')
+            process.stdin.flush()
+            assert process.wait(timeout=10) == 0
+            assert kernel.WaitForSingleObject(handle, 0) == 0
+            result = kernel.TerminateProcess(handle, exit_code)
+            error = ctypes.get_last_error()
+            observed.append((result, error))
+            assert result == 0 and error == 5
+            return result
+
+    lease.kernel = ExitBeforeTerminate()
+    try:
+        lease.stop()
+        assert process.returncode == 0
+        assert kernel.WaitForSingleObject(lease.handle, 0) == 0
+        assert observed == [(0, 5)]
+    finally:
+        lease.close()
+
+
+def test_native_process_stop_without_terminate_rights_still_fails_while_alive(signal_exit_child):
+    import sys
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable), terminate=False)
+    try:
+        with pytest.raises(desktop().DesktopError, match='stop_failed'):
+            lease.stop()
+        assert process.poll() is None
+        assert lease.kernel.WaitForSingleObject(lease.handle, 0) == 258
+    finally:
+        lease.close()

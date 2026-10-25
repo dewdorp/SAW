@@ -671,6 +671,8 @@ class ProcessLease:
         if self.kernel.WaitForSingleObject(self.handle, 0) == 0:
             return
         if not self.kernel.TerminateProcess(self.handle, 1):
+            if self.kernel.WaitForSingleObject(self.handle, 0) == 0:
+                return
             raise DesktopError('stop_failed')
         if self.kernel.WaitForSingleObject(self.handle, 30000) != 0:
             raise DesktopError('stop_failed')

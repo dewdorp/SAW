@@ -1,3 +1,16 @@
+## 2026-10-26 최종 전체 r5 통과 — 새 r3 매체·a3 인수 대기
+
+- **최종 전체 서버 r5 실제 PASS: 세션61603·PID20272·exit0, 2850통과·14건너뜀·실패0·오류0·기존경고2(총2864건).** pytest 로그2416.29초·JUnit2416.266초·실행기2437.86초다. 최종 xlsxwriter/ProcessLease 제품·시험4파일을 포함한 675소스의 실행 전후 변경목록은[]이다. 근거: `.qa/affiliate-p1-20261020/p5-csv-backend-full-r5-gate.json`/log/XML/source-before. 이전 r3/r4·선별 결과와 합산하지 않는다.
+- 14건너뜀은 r4와 같은 범위다: 전용 native OpenSearch 조건3·root native harness 조건1·명시적 PostgreSQL 바이너리3·시험DB URL1·실제PG 조건4·POSIX 권한비트1·Windows symlink1. 기존경고2는 Starlette/httpx deprecation과 record_property/JUnit xunit2 비호환 경고다. 별도 native12통과가 이14건 전체의 실행 성공을 뜻하지 않는다.
+- UI183개 현재 지문은 r5에서도 불변이다. `.qa/affiliate-p1-20261020/csv-ui-freeze-r5-20261026.json`으로 확인했고, 같은 정확 UI 소스의 기존359통과/52파일·TypeScript exit0·Vite exit0(20.76초)를 유지한다. UI 시험을 이번에 다시 실행한 결과는 아니다. 제품·시험·UI·공개 안내/13자산은 그대로이며 이번 갱신은 현재 상태4문서만 다룬다.
+- **xlsxwriter 검증 수정 완료:** 고정 XlsxWriter3.2.9 wheel의 vba_extract.py 한 파일만 정상 pip `--target` 위치로 인정하고, 현재 설치의 Python shebang과 원본 전체 본문 hash를 확인한다. 다른 `.data` 항목·본문 변경·외부 Python 경로·누락은 계속 거부한다. 최종 제품 지문접두492999…에서 신규20통과다. 관련216통과는 초기lambda 구성으로 구분한다. 지정 범위 독립 검토에서 중요 지적 없음. 근거: `.qa/affiliate-p1-20261020/csv-xlsxwriter-target-fix-20261026.md` 및 같은 prefix의 independent-review/pins 기록.
+- **ProcessLease 종료 경쟁 상태 수정 완료:** 같은 핸들의 첫 생존 확인 뒤 자식이 자연 종료하면 실제 TerminateProcess가 FALSE/5를 반환하는 독립 결함을 native RED로 재현했다. 실패 직후 같은 핸들의 Wait0이 정확히 종료 상태일 때만 반환하는 제품2줄 보완을 적용했다. 살아 있는 권한 부족 프로세스는 여전히 실패하고 이미지·생성시각·lease·tracking 경계는 유지한다. 이 결함을 a2 첫stop 실패의 원인으로 확정하지 않는다.
+- ProcessLease native RED1실패/1통과 → 핸들·이미지·종료·tracking 범위6통과(0.65초), 마지막 시험 EOF LF 정리 후 native2통과(0.19초)다. 단일 desktop 파일70통과(209.60초)는 최종 제품과 같고 시험 EOF LF 보완 전 구성이다. 각 실행은 포함 관계가 있어 합산하지 않으며 전체 r5를 대신하지 않는다. 최종 제품 지문접두2fe13…/시험1a3ce…를 확인했고 독립 검토에서 중요 지적 없음. 근거: `.qa/affiliate-p1-20261020/csv-process-lease-race-fix-20261026.md`와 independent-review/pins 기록.
+- **a2 두번째 실제 정상stop은43.937초·PASS, 4개 포트 모두 닫힘이다.** 첫stop30.375초·FAIL(DesktopError)과 원래 a2 전체FAIL은 보존한다. 첫stop 실패의 직접 원인은 아직 미확정이다. 실제 부재를 확인한 saw PID의 process_missing/87은 예상 진단이며 제품 결함으로 분류하지 않는다. 운영/개발 프로세스를 강제 종료하지 않았다.
+- QA common import 실패는 별개다. a2 예상 PostgreSQL 차단 실패82.34초 뒤 fresh-resume는PASS206.81초였으나 fresh-seed는0.06초에 ModuleNotFoundError(common)로 실패했다. 제품 `_pth`를 바꾸지 않고 QA fixture의 인접 common 경로를 명시했다. 실제 설치 Python에서 r2 RED(exit3)→r3 GREEN(exit0)을 확인했지만 이는 import 판독이며 a3 전체 인수 결과가 아니다. 영수증: `.qa/affiliate-p1-20261020/embedded-fixture-import-red-green-20261026.json`.
+- **다음은 최종8파일 commit/push → 새 r3 매체 build/ZIP/독립 해제 → a3 신규 설치·재개·0014업데이트·실패 처리·전체복구·설치 CSV smoke다. 이 단계들은 아직 확정 대기이며 소스 r5 PASS를 매체 인수/게시 성공으로 확대하지 않는다.** 기존 r2는 manifest 접두dd116…/ZIP1,448,367,241바이트·SHA-256접두4b827…의 포장·독립 해제 기록이다. a1/a2 매체·실패·로그는 보존하며 PR/릴리스도 미게시다. QA 하네스·assembler·문안 준비는 실제 인수 결과가 아니다.
+- 100만건 QA900초 job_wait_timeout 성능인수NOT_PASS(제품 범위분석120초와 별도), LTSC17763/물리16GB/관리자SCM/재부팅/운영 인수 미검증, History503/권한metadata4건 직접원인 미확정은 유지한다. 이번 릴리즈 검증에서는 모델가중치를 포함하지 않았으며 추론/SFT/품질향상을 실행·검증하지 않았다. 아래는 당시 이력이며 최신 상태는 이 절을 따른다.
+
 ## 2026-10-26 OWNER RIGHTS 수정 후 전체 r4 통과 — 새 a2 인수 대기
 
 - a1은 source4a29319·manifest 지문접두58980…의 매체로 실행했다. `fresh-blocked-postgres`는 계획한 포트 차단에 따른 예상실패(exit1·102.26초)였으나, 다음 `fresh-resume`는 예기치 않은 실패(exit1·5.47초)로 끝났다. a1 패키지·설치 루트·로그·실패 결과를 보존하며 게시하지 않았다.
