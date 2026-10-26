@@ -10,7 +10,7 @@ import pytest
 _spec = importlib.util.spec_from_file_location('_desktop_cold_fixture', Path(__file__).with_name('test_offline_update.py'))
 _fixture = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_fixture)
-installation, updater, write = _fixture.installation, _fixture.updater, _fixture.write
+installation, write = _fixture.installation, _fixture.write
 
 
 def desktop():
@@ -18,6 +18,12 @@ def desktop():
         return importlib.import_module('saw.devtools.desktop_update')
     except ModuleNotFoundError:
         pytest.fail('The desktop update orchestrator is missing')
+
+
+def updater():
+    # Standalone media may load its backend without the canonical module name.
+    # Inject faults into the exact backend the controller actually executes.
+    return desktop().backend
 
 
 class ControlledLifecycle:
@@ -719,3 +725,168 @@ def test_native_process_stop_without_terminate_rights_still_fails_while_alive(si
         assert lease.kernel.WaitForSingleObject(lease.handle, 0) == 258
     finally:
         lease.close()
+
+
+def test_native_denied_terminate_waits_for_same_handle_natural_exit(signal_exit_child):
+    import ctypes
+    import sys
+    import threading
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable), terminate=False)
+    kernel = lease.kernel
+    observed = []
+    timer = None
+
+    def exit_normally():
+        process.stdin.write(b'x')
+        process.stdin.flush()
+
+    class PendingNaturalExit:
+        def __getattr__(self, name):
+            return getattr(kernel, name)
+
+        def TerminateProcess(self, handle, exit_code):
+            nonlocal timer
+            assert handle == lease.handle
+            assert kernel.WaitForSingleObject(handle, 0) == 258
+            result = kernel.TerminateProcess(handle, exit_code)
+            error = ctypes.get_last_error()
+            observed.append((result, error))
+            assert result == 0 and error == 5
+            # The real denied call overlaps a separately completing natural exit.
+            # Neither native return values nor the wait budget are simulated.
+            timer = threading.Timer(0.5, exit_normally)
+            timer.start()
+            ctypes.set_last_error(error)
+            return result
+
+    lease.kernel = PendingNaturalExit()
+    try:
+        lease.stop()
+        assert observed == [(0, 5)]
+        assert kernel.WaitForSingleObject(lease.handle, 0) == 0
+        assert process.wait(timeout=10) == 0
+    finally:
+        if timer is not None:
+            timer.join(timeout=10)
+            assert not timer.is_alive()
+        lease.close()
+
+
+def test_inspect_uses_previous_runtime_profile_for_approved_dependency_transition(
+        desktop_installation, monkeypatch):
+    root, bundle, baseline, recovery, _ = desktop_installation
+    backend = updater()
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(bundle, 'app/deploy/windows/requirements.txt', 'synthetic approved addition')
+    _fixture.seal(bundle, backend.PINS)
+    before = backend._inventory(root)
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def transition(old, candidate):
+        assert old == previous
+        assert backend._runtime_rows(old) != backend._runtime_rows(candidate)
+        events.append('transition')
+        return {'kind': 'xlsxwriter-3.2.9', 'added_wheels': []}
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert target == root and media == bundle
+        assert profile == previous
+        events.append('runtime')
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_runtime_transition', transition, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    control = ControlledLifecycle()
+    result = run_case(desktop_installation, control=control)
+    assert result['status'] == 'ready'
+    assert events == ['transition', 'runtime']
+    assert control.events == []
+    assert backend._inventory(root) == before
+    assert not recovery.exists()
+
+
+def test_start_verification_uses_installed_runtime_profile(desktop_installation, monkeypatch):
+    root, bundle, baseline, _, _ = desktop_installation
+    backend = updater()
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(bundle, 'app/deploy/windows/requirements.txt', 'synthetic approved addition')
+    _fixture.seal(bundle, backend.PINS)
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def transition(old, candidate):
+        assert old == previous
+        events.append('transition')
+        return {'kind': 'xlsxwriter-3.2.9', 'added_wheels': []}
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert profile == previous
+        events.append('runtime')
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_runtime_transition', transition, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    cfg = desktop()._verify_source(root, bundle, baseline, 'start')
+    assert cfg['port'] == 58101
+    assert events == ['transition', 'runtime']
+
+
+def test_restore_selects_verified_snapshot_profile_before_and_after_replacement(
+        desktop_installation, monkeypatch):
+    root, bundle, baseline, recovery, state = desktop_installation
+    backend = updater()
+    backend.apply(root, bundle, recovery, baseline)
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(root, 'data/objects/later-record', 'synthetic retained record')
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def recovery_profile(selected, media, baseline_dir=None):
+        assert selected == recovery and media == bundle
+        events.append('profile')
+        return previous
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert profile == previous
+        events.append(('runtime', kwargs.get('allow_pending_addition', False)))
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_recovery_runtime_profile', recovery_profile, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    result = desktop().run('restore', root, bundle, state, recovery_point=recovery,
+                           maintenance_confirmed=True, confirm=True, controller=ControlledLifecycle())
+    assert result['status'] == 'completed'
+    assert events == ['profile', ('runtime', True), 'profile', ('runtime', False)]
+    assert (root / 'app/saw/main.py').read_text() == 'old app'
+    assert not (root / 'data/objects/later-record').exists()
+    assert (Path(result['retained_installation']) / 'data/objects/later-record').is_file()
+
+
+def test_legacy_restore_retains_explicit_baseline_for_manifestless_snapshot(desktop_installation):
+    root, bundle, baseline, recovery, _ = desktop_installation
+    backend = updater()
+    backend.apply(root, bundle, recovery, baseline)
+    assert not (recovery / 'installation/installed-release-manifest.json').exists()
+    receipt = json.loads((recovery / 'recovery-point.json').read_text())
+    receipt.pop('runtime_profile', None)
+    backend._json(recovery / 'recovery-point.json', receipt)
+    assert (root / 'installed-release-manifest.json').is_file()
+    result = run_case(desktop_installation, 'restore', maintenance_confirmed=True, confirm=True)
+    assert result['status'] == 'completed'
+    assert (root / 'app/saw/main.py').read_text() == 'old app'
+
+
+def test_dependency_marker_is_required_before_desktop_stops_installation(
+        desktop_installation, monkeypatch):
+    backend = updater()
+    root, _, _, recovery, _ = desktop_installation
+    assert not (root / 'venv/.saw-python-runtime.json').exists()
+    monkeypatch.setattr(backend, '_runtime_transition', lambda old, candidate: {
+        'kind': 'xlsxwriter-3.2.9', 'added_wheels': ['wheels/xlsxwriter-3.2.9-py3-none-any.whl']})
+    control = ControlledLifecycle()
+    result = run_case(desktop_installation, 'apply', control, maintenance_confirmed=True)
+    assert result['status'] == 'failed'
+    assert control.events == []
+    assert not recovery.exists()

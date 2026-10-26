@@ -254,11 +254,12 @@ def _verify_source(root, bundle, baseline_dir, action, *, verified_application_c
     candidate = _read_json(bundle / 'release-manifest.json', 8 * 1024 * 1024)
     if any(candidate.get('metadata', {}).get(key) != value for key, value in backend.PINS.items()):
         raise DesktopError('runtime_upgrade_unsupported')
-    if previous is not None and backend._runtime_rows(previous) != backend._runtime_rows(candidate):
-        raise DesktopError('runtime_upgrade_unsupported')
     if previous is not None:
+        backend._runtime_transition(previous, candidate)
         backend._installed_source(root, previous)
-    backend._installed_runtime(root, bundle)
+        backend._installed_runtime(root, bundle, profile=previous)
+    else:
+        backend._installed_runtime(root, bundle)
     if action in ('inspect', 'apply'):
         backend._migration_chain(bundle, previous, candidate)
     _, cfg = backend._config(root, verified_application_config=verified_application_config)
@@ -473,9 +474,15 @@ def _inspect_all(state, root, bundle, baseline, recovery, action, control, ident
                 candidate = _read_json(bundle / 'release-manifest.json', 8 * 1024 * 1024)
                 if any(candidate.get('metadata', {}).get(k) != v for k, v in backend.PINS.items()):
                     raise DesktopError('runtime_upgrade_unsupported')
-                if action != 'restore' and backend._runtime_rows(previous) != backend._runtime_rows(candidate):
-                    raise DesktopError('runtime_upgrade_unsupported')
-                backend._installed_runtime(root, bundle)
+                if action == 'restore':
+                    profile = backend._recovery_runtime_profile(recovery, bundle, baseline)
+                    pending_addition = (not already_restored and
+                        previous.get('target_manifest_sha256') == backend._manifest.digest(bundle / 'release-manifest.json'))
+                    backend._installed_runtime(root, bundle, profile=profile,
+                                               allow_pending_addition=pending_addition)
+                else:
+                    backend._runtime_transition(previous, candidate)
+                    backend._installed_runtime(root, bundle, profile=previous)
                 if action in ('inspect', 'apply'):
                     try:
                         backend._migration_chain(bundle, previous, candidate)
@@ -558,7 +565,7 @@ def run(action, install_root, bundle_dir, state_dir, *, baseline_dir=None, recov
                     raise DesktopError('unexpected_backend_result')
                 state.value['retained_installation'] = result['retained_installation']
                 resumed_restore = True
-            if os.path.lexists(root / 'installed-release-manifest.json'):
+            if action != 'restore' and os.path.lexists(root / 'installed-release-manifest.json'):
                 baseline = None
             report, cfg, mode, host = _inspect_all(state, root, bundle, baseline, recovery, action, control, identity, already_restored=resumed_restore)
             if state.value.get('requires_admin'):
@@ -598,7 +605,8 @@ def run(action, install_root, bundle_dir, state_dir, *, baseline_dir=None, recov
                     if action == 'restore':
                         # The core checked the complete snapshot and its ACLs before replacement.
                         _static_access(root)
-                        backend._installed_runtime(root, bundle)
+                        profile = backend._recovery_runtime_profile(recovery, bundle, baseline)
+                        backend._installed_runtime(root, bundle, profile=profile)
                         _, cfg = backend._config(root)
                     else:
                         cfg = _verify_source(root, bundle, None, 'start')
@@ -671,7 +679,9 @@ class ProcessLease:
         if self.kernel.WaitForSingleObject(self.handle, 0) == 0:
             return
         if not self.kernel.TerminateProcess(self.handle, 1):
-            if self.kernel.WaitForSingleObject(self.handle, 0) == 0:
+            # A process already exiting can deny termination before its handle signals.
+            # Keep the same retained object and the existing bounded exit wait.
+            if self.kernel.WaitForSingleObject(self.handle, 30000) == 0:
                 return
             raise DesktopError('stop_failed')
         if self.kernel.WaitForSingleObject(self.handle, 30000) != 0:

@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from functools import wraps
 import base64
 import ctypes
+import csv
+import io
 import importlib.util
 import json
 import os
@@ -777,6 +779,159 @@ def _runtime_rows(document):
     return sorted([row for row in document["files"] if row["path"].split("/")[0] in RUNTIME_DIRS
                    or row["path"] == "app/deploy/windows/requirements.txt"], key=lambda row: row["path"])
 
+# One reviewed additive dependency transition; every other runtime change stays closed.
+_XLSXWRITER_UPGRADE = {
+    "old_requirements": {"path": "app/deploy/windows/requirements.txt", "bytes": 1421,
+        "sha256": "ce97ae90f25093ba9f574d41ede60457d8cbd3a2287cd48cdb035d2be15b5f1f"},
+    "new_requirements": {"path": "app/deploy/windows/requirements.txt", "bytes": 1440,
+        "sha256": "bf75190bc504caaffca54e3a164d4c20d63ebcbc8d50d9a17647893861149c38"},
+    "wheel": {"path": "wheels/xlsxwriter-3.2.9-py3-none-any.whl", "bytes": 175315,
+        "sha256": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3"},
+}
+
+
+def _runtime_transition(previous, candidate):
+    if any(document.get("metadata", {}).get(key) != value
+           for document in (previous, candidate) for key, value in PINS.items()):
+        raise UpdateError("Unsupported runtime pins", code="runtime_upgrade_unsupported")
+    old_rows, new_rows = _runtime_rows(previous), _runtime_rows(candidate)
+    old = {row["path"]: row for row in old_rows}
+    new = {row["path"]: row for row in new_rows}
+    if len(old) != len(old_rows) or len(new) != len(new_rows):
+        raise UpdateError("Duplicate runtime paths", code="runtime_upgrade_unsupported")
+    if old == new:
+        return {"kind": "unchanged", "added_wheels": []}
+    approved = _XLSXWRITER_UPGRADE
+    requirement, wheel = approved["old_requirements"]["path"], approved["wheel"]["path"]
+    if (old.get(requirement) != approved["old_requirements"] or
+            new.get(requirement) != approved["new_requirements"] or
+            new.get(wheel) != approved["wheel"] or set(new) - set(old) != {wheel} or
+            set(old) - set(new) or any(old[path] != new[path] for path in old if path != requirement)):
+        raise UpdateError("Runtime or dependency changes require a separate upgrade", code="runtime_upgrade_unsupported")
+    return {"kind": "xlsxwriter-3.2.9", "added_wheels": [wheel]}
+
+
+def _runtime_marker(root, bundle, profile, *, logical_root=None, required=False, allow_pending_addition=False):
+    path = root / "venv/.saw-python-runtime.json"
+    if not path.exists() and not required:
+        return None
+    _path(path, existing=False)
+    if not path.is_file() or path.stat().st_nlink != 1 or path.stat().st_size > 16384:
+        raise UpdateError("Invalid Python ownership marker", code="runtime_integrity_failed")
+    try:
+        marker = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (ValueError, OSError):
+        raise UpdateError("Invalid Python ownership marker", code="runtime_integrity_failed") from None
+    rows = {row["path"]: row for row in profile["files"]}
+    expected = {"schema": "saw.python-runtime/1", "install_root": str(logical_root or root),
+        "python": "3.12.10", "architecture": "amd64", "state": "ready",
+        "archive_sha256": rows["python/python-3.12.10-embed-amd64.zip"]["sha256"],
+        "bootstrap_sha256": rows["bootstrap/pip-25.1.1-py3-none-any.whl"]["sha256"],
+        "requirements_sha256": rows["app/deploy/windows/requirements.txt"]["sha256"]}
+    if allow_pending_addition:
+        candidate = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
+        if _runtime_transition(profile, candidate)["added_wheels"]:
+            if marker.get("requirements_sha256") == _XLSXWRITER_UPGRADE["new_requirements"]["sha256"]:
+                expected["requirements_sha256"] = marker["requirements_sha256"]
+    if marker != expected:
+        raise UpdateError("Python ownership marker differs from its verified profile", code="runtime_integrity_failed")
+    return marker
+
+
+def _dependency_files(bundle, logical_root):
+    """Map only the byte-pinned pure-Python wheel; never import or execute it."""
+    row = _XLSXWRITER_UPGRADE["wheel"]
+    package = _path(bundle / row["path"], existing=False)
+    if package.stat().st_size != row["bytes"] or _manifest.digest(package) != row["sha256"]:
+        raise UpdateError("Approved additive wheel changed", code="runtime_integrity_failed")
+    files = {}
+    with zipfile.ZipFile(package) as archive:
+        for entry in archive.infolist():
+            if entry.is_dir():
+                continue
+            name = _manifest.safe_relative(entry.filename)
+            if stat.S_ISLNK(entry.external_attr >> 16):
+                raise UpdateError("Unsupported additive wheel member")
+            data = archive.read(entry)
+            if name == "xlsxwriter-3.2.9.data/scripts/vba_extract.py":
+                if not data.startswith(b"#!python\n"):
+                    raise UpdateError("Unsupported wheel installation layout")
+                interpreter = os.fsencode(logical_root / "venv/Scripts/python.exe")
+                if any(char in interpreter for char in (b"\0", b"\r", b"\n")):
+                    raise UpdateError("Unsupported wheel installation layout")
+                name = "bin/vba_extract.py"
+                data = b"#!" + interpreter + os.linesep.encode("ascii") + data.partition(b"\n")[2]
+            elif not name.startswith(("xlsxwriter/", "xlsxwriter-3.2.9.dist-info/")):
+                raise UpdateError("Unsupported additive wheel member")
+            destination = "venv/Lib/site-packages/" + name
+            if destination in files:
+                raise UpdateError("Duplicate additive wheel destination")
+            files[destination] = data
+    if not all(name in files for name in ("venv/Lib/site-packages/xlsxwriter/__init__.py",
+            "venv/Lib/site-packages/bin/vba_extract.py", "venv/Lib/site-packages/xlsxwriter-3.2.9.dist-info/RECORD")):
+        raise UpdateError("Incomplete additive wheel")
+    # RECORD describes installed destinations and the rewritten script, not wheel .data paths.
+    record = "venv/Lib/site-packages/xlsxwriter-3.2.9.dist-info/RECORD"
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    for relative, data in sorted(files.items()):
+        if relative != record:
+            digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
+            writer.writerow((relative.removeprefix("venv/Lib/site-packages/"), "sha256=" + digest, len(data)))
+    writer.writerow((record.removeprefix("venv/Lib/site-packages/"), "", ""))
+    files[record] = output.getvalue().encode("utf-8")
+    return files
+
+
+def _stage_dependency(root, bundle, profile, recovery):
+    candidate = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
+    if not _runtime_transition(profile, candidate)["added_wheels"]:
+        return None
+    marker = _runtime_marker(root, bundle, profile, required=True)
+    files = _dependency_files(bundle, root)
+    stage = recovery / "new-dependency"
+    for relative in files:
+        _windows_path_limit(root / relative, directory=False)
+        _windows_path_limit(stage / relative, directory=False)
+        if os.path.lexists(root / relative):
+            raise UpdateError("Additive dependency destination already exists")
+    _private_directory(stage)
+    for relative, data in files.items():
+        target = stage / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "xb", opener=_private_file_fd) as stream:
+            stream.write(data)
+    if {p.relative_to(stage).as_posix(): p.read_bytes() for p in _tree_paths(stage) if p.is_file()} != files:
+        raise UpdateError("Staged dependency changed")
+    marker = dict(marker, requirements_sha256=_XLSXWRITER_UPGRADE["new_requirements"]["sha256"])
+    return {"stage": stage, "files": files, "marker": marker}
+
+
+def _publish_dependency(root, staged):
+    if staged is None:
+        return
+    for relative, data in staged["files"].items():
+        source, destination = staged["stage"] / relative, root / relative
+        _path(source, existing=False)
+        _path(destination, existing=False)
+        if os.path.lexists(destination) or source.read_bytes() != data:
+            raise UpdateError("Additive dependency changed before publication")
+    policy = _acl(root / "venv/Lib/site-packages/pip/__init__.py")
+    for relative in staged["files"]:
+        source, destination = staged["stage"] / relative, root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _set_acl(source, policy)
+        if _acl(source) != policy:
+            raise UpdateError("Additive dependency access policy changed")
+    for relative in staged["files"]:
+        source, destination = staged["stage"] / relative, root / relative
+        if os.path.lexists(destination) or source.read_bytes() != staged["files"][relative]:
+            raise UpdateError("Additive dependency changed before atomic publication")
+        # Recovery is on the installation volume. Never expose a partially copied live file.
+        os.rename(source, destination)
+    _json(root / "venv/.saw-python-runtime.json", staged["marker"])
+
+
 def _installed_source(root, baseline):
     expected = {}
     for row in baseline["files"]:
@@ -825,8 +980,23 @@ def _installed_service_wrappers(root, bundle):
         if not path.is_file() or path.stat().st_size != size or _manifest.digest(path) != wanted:
             raise UpdateError("Installed service executable is missing or differs from pinned WinSW")
 
-def _installed_runtime(root, bundle):
+def _installed_runtime(root, bundle, profile=None, *, logical_root=None, allow_pending_addition=False):
     _installed_service_wrappers(root, bundle)
+    logical_root = logical_root or root
+    selected = None
+    optional = {}
+    if profile is not None:
+        candidate = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
+        transition = _runtime_transition(profile, candidate)
+        selected = {row["path"] for row in _runtime_rows(profile)}
+        if allow_pending_addition and transition["added_wheels"]:
+            optional = _dependency_files(bundle, logical_root)
+    marker_profile = profile or json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
+    marker_rows = {row["path"]: row for row in _runtime_rows(marker_profile)}
+    required_marker = (marker_rows.get(_XLSXWRITER_UPGRADE["wheel"]["path"]) == _XLSXWRITER_UPGRADE["wheel"]
+                       or bool(profile is not None and transition["added_wheels"]))
+    _runtime_marker(root, bundle, marker_profile, logical_root=logical_root, required=required_marker,
+                    allow_pending_addition=allow_pending_addition)
     expected = set()
     def archive(relative, mapper):
         with zipfile.ZipFile(bundle / relative) as stream:
@@ -847,7 +1017,7 @@ def _installed_runtime(root, bundle):
                         # pip 25.1.1 fix_script rewrites only the first line for --target.
                         if content.readline(10) != b"#!python\n":
                             raise UpdateError("Unsupported wheel installation layout")
-                        interpreter = os.fsencode(root / "venv/Scripts/python.exe")
+                        interpreter = os.fsencode(logical_root / "venv/Scripts/python.exe")
                         if any(char in interpreter for char in (b"\0", b"\r", b"\n")):
                             raise UpdateError("Unsupported wheel installation layout")
                         digest = hashlib.sha256(b"#!" + interpreter + os.linesep.encode("ascii"))
@@ -887,12 +1057,18 @@ def _installed_runtime(root, bundle):
     wheels = bundle / "wheels"
     for package in (_tree_paths(wheels)[1:] if wheels.exists() else []):
         if package.parent == wheels and package.is_file() and package.suffix.lower() == ".whl":
-            archive(package.relative_to(bundle).as_posix(), wheel)
+            relative = package.relative_to(bundle).as_posix()
+            if selected is None or relative in selected:
+                archive(relative, wheel)
     for folder in ("venv/Scripts", "venv/Lib/site-packages", "pgsql", "opensearch-2.19.6"):
         for path in _tree_paths(root / folder):
             if not path.is_file():
                 continue
             relative = path.relative_to(root).as_posix()
+            if relative in optional:
+                if path.read_bytes() != optional[relative]:
+                    raise UpdateError("Partial additive dependency differs from pinned media", code="runtime_integrity_failed")
+                continue
             if relative in expected or "__pycache__" in path.parts:
                 continue
             if relative == "venv/Scripts/python312._pth":
@@ -1006,12 +1182,13 @@ def plan(install_root, bundle_dir, baseline_dir=None):
     previous = _baseline(root, baseline_dir)
     if any(next_release.get("metadata", {}).get(key) != value for key, value in PINS.items()):
         raise UpdateError("Unsupported runtime pins")
-    if _runtime_rows(previous) != _runtime_rows(next_release):
-        raise UpdateError("Runtime or dependency changes require a separate upgrade")
+    transition = _runtime_transition(previous, next_release)
     _migration_chain(bundle, previous, next_release)
     _tree_paths(root)
     _installed_source(root, previous)
-    _installed_runtime(root, bundle)
+    _installed_runtime(root, bundle, profile=previous) if transition["added_wheels"] else _installed_runtime(root, bundle)
+    if transition["added_wheels"]:
+        _runtime_marker(root, bundle, previous, required=True)
     _, cfg = _config(root)
     _stopped(root, cfg)
     rows = _inventory(root)
@@ -1022,14 +1199,16 @@ def plan(install_root, bundle_dir, baseline_dir=None):
     _preflight_copy(bundle / "app", root / "app")
     size = sum(row.get("bytes", 0) for row in rows)
     app_size = sum(row["bytes"] for row in next_release["files"] if row["path"].startswith("app/"))
-    needed = size + app_size + sum(row.get("bytes", 0) for row in rows if row["path"].startswith("app/var/")) + 64 * 1024 * 1024
+    dependency_bytes = (2 * sum(map(len, _dependency_files(bundle, root).values())) + 16384
+                        if transition["added_wheels"] else 0)
+    needed = size + app_size + dependency_bytes + sum(row.get("bytes", 0) for row in rows if row["path"].startswith("app/var/")) + 64 * 1024 * 1024
     if shutil.disk_usage(root.parent).free < needed:
         raise UpdateError("Insufficient free space for a complete recovery point and staged application")
     return {"status": "ready_stopped", "install_root": str(root), "snapshot_bytes": size,
             "required_free_bytes": needed, "free_bytes": shutil.disk_usage(root.parent).free,
             "target_manifest_sha256": _manifest.digest(bundle / "release-manifest.json")}
 
-def _write_cold_snapshot(root, recovery, cfg, before, *, target_manifest_sha256=""):
+def _write_cold_snapshot(root, recovery, cfg, before, *, target_manifest_sha256="", runtime_profile=None):
     snapshot = recovery / "installation"
     _copy_tree(root, snapshot)
     _stopped(root, cfg)
@@ -1038,6 +1217,8 @@ def _write_cold_snapshot(root, recovery, cfg, before, *, target_manifest_sha256=
     receipt = {"schema": "saw.cold-recovery/1", "created_at": datetime.now(UTC).isoformat(),
                "install_root": str(root), "files": before,
                "target_manifest_sha256": target_manifest_sha256}
+    if runtime_profile is not None:
+        receipt["runtime_profile"] = runtime_profile
     _json(recovery / "recovery-point.json", receipt)
 
 
@@ -1061,7 +1242,8 @@ def backup(install_root, recovery_point):
         _preflight_rows(root.with_name(prefix + "0" * 12), before)
     _preflight_json(recovery / "recovery-point.json")
     _private_directory(recovery)
-    _write_cold_snapshot(root, recovery, cfg, before)
+    profile = _baseline(root, None) if (root / "installed-release-manifest.json").exists() else None
+    _write_cold_snapshot(root, recovery, cfg, before, runtime_profile=profile)
     return {"status": "backup_complete_stopped", "install_root": str(root),
             "recovery_point": str(recovery), "snapshot_bytes": size,
             "next_step": "Start the installation separately. Restore this entire point if recovery is required."}
@@ -1092,9 +1274,11 @@ def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
     for name in ("saw-ctl.ps1", "installed-release-manifest.json", ".saw-u-" + "0" * 12):
         _windows_path_limit(root / name, directory=False)
     _private_directory(recovery)
+    previous = _baseline(root, baseline_dir)
     _write_cold_snapshot(root, recovery, cfg, before,
-                         target_manifest_sha256=result["target_manifest_sha256"])
+                         target_manifest_sha256=result["target_manifest_sha256"], runtime_profile=previous)
     _stage_public_app(bundle / "app", stage, root / "app")
+    dependency = _stage_dependency(root, bundle, previous, recovery)
     _copy_file(root / "app/.env", stage / ".env")
     if (root / "app/var").exists():
         _copy_tree(root / "app/var", stage / "var")
@@ -1104,6 +1288,10 @@ def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
     _stopped(root, cfg)
     if _inventory(root) != before:
         raise UpdateError("Installation changed before application switch")
+    _publish_dependency(root, dependency)
+    if dependency is not None:
+        _installed_runtime(root, bundle)
+        _access_gate(root)
     old_app = recovery / "previous-app"
     os.rename(root / "app", old_app)
     try:
@@ -1120,6 +1308,31 @@ def apply(install_root, bundle_dir, recovery_point, baseline_dir=None):
                   next_step="Start the installation to migrate. Restore the complete recovery point if acceptance fails.")
     _json(recovery / "update-result.json", result)
     return result
+
+def _recovery_runtime_profile(recovery, bundle, baseline_dir=None):
+    receipt_value = _restore_document(_path(recovery) / "recovery-point.json")
+    root = _path(receipt_value.get("install_root", ""), existing=False)
+    receipt, _ = _verified_restore_receipt(root, recovery)
+    snapshot = recovery / "installation"
+    recorded = receipt.get("runtime_profile")
+    if (snapshot / "installed-release-manifest.json").is_file():
+        profile = _baseline(snapshot, None)
+        if recorded is not None and recorded != profile:
+            raise UpdateError("Recovery runtime identities disagree", code="snapshot_verification_failed")
+    elif recorded is not None:
+        profile = recorded
+    elif baseline_dir is not None:
+        profile = _baseline(snapshot, baseline_dir)
+    else:
+        raise UpdateError("Legacy recovery requires its verified original BaselineBundleDir")
+    _tree_paths(bundle)
+    _manifest.verify(bundle)
+    candidate = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8-sig"))
+    _runtime_transition(profile, candidate)
+    _installed_source(snapshot, profile)
+    _installed_runtime(snapshot, bundle, profile=profile, logical_root=root)
+    return profile
+
 
 def _restore_document(path):
     _path(path, existing=False)

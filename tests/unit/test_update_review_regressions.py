@@ -59,6 +59,7 @@ def review_case(tmp_path, monkeypatch):
     monkeypatch.setattr(backend, "_json", lambda *args, **kwargs: None)
     monkeypatch.setattr(backend._manifest, "verify", lambda path: {"verified": True})
     monkeypatch.setattr(desktop, "_verify_snapshot", lambda *args: receipt)
+    monkeypatch.setattr(backend, "_recovery_runtime_profile", lambda *args, **kwargs: candidate)
     monkeypatch.setattr(backend, "_access_gate", lambda *args, **kwargs: {"checked": 1})
     monkeypatch.setattr(backend, "_tree_paths", lambda path: [path])
     for name in ("_preflight_rows", "_preflight_copy", "_preflight_json",
