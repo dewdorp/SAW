@@ -1039,6 +1039,8 @@ class WindowsController:
     def claim(self, root, cfg, mode):
         self.absent = {}
         self.tracking = {}
+        ancestry_proofs = {}
+        proof_leases = []
         try:
             if mode == 'service':
                 self._service_configuration(root, cfg)
@@ -1088,6 +1090,26 @@ class WindowsController:
                     else:
                         probe.close()
                         raise DesktopError('process_identity_unverified')
+            # Retain independently classified parents before following CIM parent IDs.
+            # A PID remains bound to this object for ancestry checks and later control.
+            owned_leases = {}
+            attempted_leases = set()
+            def retain_owned(pid, group):
+                if pid in attempted_leases:
+                    return
+                attempted_leases.add(pid)
+                row = by_pid[pid]
+                try:
+                    lease = (ProcessLease(pid, row['ExecutablePath'], terminate=False) if mode == 'service' else
+                             ProcessLease(pid, row['ExecutablePath']))
+                except DesktopError as error:
+                    if error.code == 'process_missing':
+                        return
+                    raise
+                self.leases.append((pid, int(row['ParentProcessId']), group, lease))
+                owned_leases[pid] = lease
+            for pid, group in groups.items():
+                retain_owned(pid, group)
             # Console hosts are accepted only as direct children of independently
             # identified processes, never as a generally owned executable.
             console_parents = {}
@@ -1096,13 +1118,31 @@ class WindowsController:
                 changed = False
                 for row in records:
                     pid, parent = int(row['ProcessId']), int(row['ParentProcessId'])
-                    if parent in groups and pid not in groups:
+                    if parent in groups and pid not in groups and pid not in ancestry_proofs:
                         group = self._classify(root, row.get('ExecutablePath') or '', row.get('CommandLine') or '')
                         if (group is None and parent not in console_parents and
                                 self._is_console_host(row.get('ExecutablePath') or '', row.get('CommandLine') or '')):
                             group = groups[parent]
                             console_parents[pid] = parent
                         if group != groups[parent]:
+                            # CIM preserves an exited creator's PID. If Windows reused it,
+                            # an older external process is not a child of this retained
+                            # owned process. Never grant termination rights to that process.
+                            image = row.get('ExecutablePath') or ''
+                            parent_lease = owned_leases.get(parent)
+                            if (mode == 'noadmin' and group is None and parent not in console_parents
+                                    and parent_lease is not None and self._outside_image(root, image)):
+                                try:
+                                    proof = ProcessLease(pid, image, terminate=False)
+                                except DesktopError:
+                                    raise DesktopError('process_identity_unverified') from None
+                                proof_leases.append(proof)
+                                if (type(proof.created_at) is int and type(parent_lease.created_at) is int
+                                        and 0 < proof.created_at < parent_lease.created_at
+                                        and proof.kernel.WaitForSingleObject(proof.handle, 0) == 258
+                                        and parent_lease.kernel.WaitForSingleObject(parent_lease.handle, 0) == 258):
+                                    ancestry_proofs[pid] = (parent, image, proof, parent_lease)
+                                    continue
                             raise DesktopError('process_identity_unverified')
                         groups[pid] = group
                         changed = True
@@ -1121,15 +1161,7 @@ class WindowsController:
                             raise DesktopError('process_identity_unverified')
                         postgres_parents[pid] = parent
             for pid, group in groups.items():
-                row = by_pid[pid]
-                try:
-                    lease = (ProcessLease(pid, row['ExecutablePath'], terminate=False) if mode == 'service' else
-                             ProcessLease(pid, row['ExecutablePath']))
-                except DesktopError as error:
-                    if error.code == 'process_missing':
-                        continue
-                    raise
-                self.leases.append((pid, int(row['ParentProcessId']), group, lease))
+                retain_owned(pid, group)
             leased = {pid: (group, lease) for pid, _, group, lease in self.leases}
             for pid, parent in {**console_parents, **postgres_parents}.items():
                 if pid not in leased:
@@ -1150,14 +1182,55 @@ class WindowsController:
                 elif (self._classify(root, row.get('ExecutablePath') or '', row.get('CommandLine') or '') != group or
                       (pid in postgres_parents and int(row.get('ParentProcessId', -1)) != postgres_parents[pid])):
                     raise DesktopError('process_identity_unverified')
+            for pid, (parent, image, proof, parent_lease) in ancestry_proofs.items():
+                child_row, parent_row = fresh.get(pid), fresh.get(parent)
+                if (child_row is None or parent_row is None
+                        or int(child_row.get('ParentProcessId', -1)) != parent
+                        or not self._outside_image(root, child_row.get('ExecutablePath') or '')
+                        or not self._same_process_image(child_row.get('ExecutablePath') or '', image)
+                        or not self._same_process_image(parent_row.get('ExecutablePath') or '', by_pid[parent]['ExecutablePath'])
+                        or self._classify(root, parent_row.get('ExecutablePath') or '', parent_row.get('CommandLine') or '') != groups[parent]
+                        or proof.kernel.WaitForSingleObject(proof.handle, 0) != 258
+                        or parent_lease.kernel.WaitForSingleObject(parent_lease.handle, 0) != 258):
+                    raise DesktopError('process_identity_unverified')
             yield self
         finally:
             for _, _, _, lease in self.leases:
                 lease.close()
             self.leases = []
+            for proof in proof_leases:
+                proof.close()
             for lease in self.services.values():
                 lease.close()
             self.services = {}
+
+    @staticmethod
+    def _fixed_local_image(value):
+        # Resolve neither UNC/device paths nor mapped network drives.
+        drive, tail = os.path.splitdrive(os.fspath(value))
+        if (re.fullmatch('[a-zA-Z]:', drive) is None or not tail.startswith(('\\', '/'))
+                or ':' in tail or os.name != 'nt'):
+            return False
+        try:
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
+            kernel.GetDriveTypeW.restype = ctypes.c_uint
+            return kernel.GetDriveTypeW(drive + '\\') == 3  # DRIVE_FIXED
+        except OSError:
+            return False
+
+    @staticmethod
+    def _same_process_image(value, expected):
+        return (WindowsController._fixed_local_image(value) and WindowsController._fixed_local_image(expected) and
+                os.path.normcase(os.path.realpath(value)) == os.path.normcase(os.path.realpath(expected)))
+
+    @staticmethod
+    def _outside_image(root, image):
+        if not WindowsController._fixed_local_image(image) or not WindowsController._fixed_local_image(root):
+            return False
+        canonical_root = Path(os.path.normcase(os.path.realpath(root)))
+        canonical_image = Path(os.path.normcase(os.path.realpath(image)))
+        return canonical_image != canonical_root and canonical_root not in canonical_image.parents
 
     @staticmethod
     def _same_windows_path(value, expected):

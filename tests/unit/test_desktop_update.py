@@ -618,7 +618,7 @@ def test_native_console_descendant_requires_retained_matching_parent(tmp_path, m
         child['CommandLine'] += ' foreign-command'
     opened = []
     class Lease:
-        def __init__(self, pid, expected):
+        def __init__(self, pid, expected, *, terminate=True):
             if change == 'missing_parent' and pid == 1234:
                 raise desktop().DesktopError('process_missing')
             self.created_at = (300 if change == 'reused_parent' else 100) if pid == 1234 else 200
@@ -890,3 +890,109 @@ def test_dependency_marker_is_required_before_desktop_stops_installation(
     assert result['status'] == 'failed'
     assert control.events == []
     assert not recovery.exists()
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows retained ancestry identities')
+@pytest.mark.parametrize('change', [
+    'none', 'equal_age', 'newer_child', 'inside_alias', 'child_access_denied',
+    'parent_access_denied', 'missing_child_metadata', 'changed_child_parent',
+    'changed_child_image', 'changed_parent_identity', 'child_exited', 'parent_exited',
+    'missing_fresh_child', 'missing_fresh_parent', 'parent_missing', 'child_missing',
+    'invalid_age', 'wait_failed', 'inside_alias_after_proof',
+])
+def test_older_external_process_with_stale_parent_id_is_not_owned(tmp_path, monkeypatch, change):
+    import os
+    import subprocess
+    from types import SimpleNamespace
+    module = desktop()
+    root = tmp_path / 'install'
+    root.mkdir()
+    image = root / 'pgsql/bin/postgres.exe'
+    external = tmp_path / 'outside/foreign.exe'
+    parent = {'ProcessId': 1234, 'ParentProcessId': 9, 'ExecutablePath': str(image),
+              'CommandLine': subprocess.list2cmdline([str(image), '-D', str(root / 'data/postgresql')])}
+    child = {'ProcessId': 4321, 'ParentProcessId': 1234, 'ExecutablePath': str(external),
+             'CommandLine': subprocess.list2cmdline([str(external), 'synthetic', 'arguments'])}
+    if change == 'missing_child_metadata':
+        child['ExecutablePath'] = None
+    if change in ('inside_alias', 'inside_alias_after_proof'):
+        original = os.path.realpath
+        monkeypatch.setattr(module.os.path, 'realpath',
+            lambda path: str(image) if str(path) == str(external) and (change == 'inside_alias' or count[0] > 1) else original(path))
+    opened, closed, attempts = [], [], []
+    class Lease:
+        def __init__(self, pid, expected, *, terminate=True):
+            attempts.append(pid)
+            if (change == 'parent_missing' and pid == 1234 or change == 'child_missing' and pid == 4321):
+                raise module.DesktopError('process_missing')
+            if (change == 'child_access_denied' and pid == 4321 or
+                    change == 'parent_access_denied' and pid == 1234):
+                raise module.DesktopError('process_identity_unverified')
+            self.pid = pid
+            self.handle = pid
+            self.created_at = 200 if pid == 1234 else 200 if change == 'equal_age' else 300 if change == 'newer_child' else 100
+            if change == 'invalid_age' and pid == 4321: self.created_at = True
+            signaled = (change == 'parent_exited' and pid == 1234 or change == 'child_exited' and pid == 4321)
+            self.kernel = SimpleNamespace(WaitForSingleObject=lambda *args: 0 if signaled else 0xffffffff if change == 'wait_failed' else 258)
+            opened.append((pid, terminate))
+        def stop(self):
+            pytest.fail('Claim must not terminate any process')
+        def close(self):
+            assert self.pid not in closed
+            closed.append(self.pid)
+    control = module.WindowsController()
+    count = [0]
+    def records():
+        count[0] += 1
+        fresh_parent, fresh_child = dict(parent), dict(child)
+        if count[0] > 1:
+            if change == 'changed_child_parent': fresh_child['ParentProcessId'] = 9876
+            if change == 'changed_child_image': fresh_child['ExecutablePath'] = str(tmp_path / 'changed.exe')
+            if change == 'changed_parent_identity': fresh_parent['ExecutablePath'] = str(tmp_path / 'changed.exe')
+            if change == 'missing_fresh_child': return [fresh_parent]
+            if change == 'missing_fresh_parent': return [fresh_child]
+        return [fresh_parent, fresh_child]
+    monkeypatch.setattr(control, '_processes', records)
+    monkeypatch.setattr(module, 'ProcessLease', Lease)
+    if change == 'none':
+        with control.claim(root, {}, 'noadmin'):
+            assert [(pid, group) for pid, _, group, _ in control.leases] == [(1234, 'postgresql')]
+            assert opened == [(1234, True), (4321, False)]
+            assert closed == []
+        assert closed == [1234, 4321]
+    else:
+        with pytest.raises(module.DesktopError, match='process_identity'):
+            with control.claim(root, {}, 'noadmin'):
+                pytest.fail('Unproven ancestry was skipped')
+        assert sorted(closed) == sorted(pid for pid, _ in opened)
+    assert all(not terminate for pid, terminate in opened if pid == 4321)
+    assert len(attempts) == len(set(attempts))
+    assert control.leases == []
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows image path boundaries')
+@pytest.mark.parametrize('image', [r'\\server\share\foreign.exe', r'\\?\C:\foreign.exe'])
+def test_external_proof_rejects_unc_and_device_paths_before_resolution(tmp_path, image):
+    from unittest.mock import patch
+    module = desktop()
+    root = tmp_path / 'install'
+    with patch.object(module.os.path, 'realpath', side_effect=AssertionError('Nonlocal path must not be resolved')):
+        assert module.WindowsController._outside_image(root, image) is False
+        assert module.WindowsController._same_process_image(image, root / 'pgsql/bin/postgres.exe') is False
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows fixed-volume boundary')
+def test_external_proof_rejects_mapped_network_drive_before_resolution(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    module = desktop()
+    calls = []
+    def drive_type(value):
+        calls.append(value)
+        return 4 if value.upper().startswith('Z:') else 3
+    api = SimpleNamespace(GetDriveTypeW=drive_type)
+    with patch.object(module.ctypes, 'WinDLL', return_value=api), \
+         patch.object(module.os.path, 'realpath', side_effect=AssertionError('Network path must not be resolved')):
+        assert module.WindowsController._outside_image(tmp_path / 'install', 'Z:/foreign.exe') is False
+        assert module.WindowsController._same_process_image('Z:/foreign.exe', tmp_path / 'install/pgsql/bin/postgres.exe') is False
+    assert calls == ['Z:\\', 'Z:\\']

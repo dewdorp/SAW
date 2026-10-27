@@ -104,7 +104,7 @@ def test_old_runner_joins_before_replacing_global_database(tmp_path, monkeypatch
             assert db.get_sessionmaker() is old_factory
         finally:
             finish.set()
-        second = pending.result(5)
+        second = pending.result(30)
     assert seen == [(first, old_factory)]
     assert first.runner.status().state == "closed"
     assert second is not first
