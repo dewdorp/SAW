@@ -172,8 +172,14 @@ def import_assets(body: CsvIn, ctx: AuthContext = Depends(require_perm("asset.wr
 
 @router.get("/assets/match")
 def match_asset(ip: str | None = None, host: str | None = None, path: str | None = None,
+                org_unit_id: str | None = None, network: str | None = None,
                 ctx: AuthContext = Depends(require_perm("knowledge.read")), s: Session = Depends(db, scope="function")):
-    a = asset_svc.match(asset_svc.all_assets(s), ip, host, path)
+    from saw.analyzers.ioc.observables import affiliate_local
+
+    internal = bool(ip) and affiliate_local(ip)
+    # An internal address only identifies an asset inside the affiliate (and network) that registered it.
+    pool = asset_svc._scope_assets(s, org_unit_id, network)[0] if internal else asset_svc.all_assets(s)
+    a = asset_svc.match(pool, ip, host, path)
     return asset_svc.to_dict(a) if a else None
 
 

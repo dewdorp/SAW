@@ -4,6 +4,7 @@ Queries are the structured SAW Query Model (never raw DSL). Every step records w
 """
 from __future__ import annotations
 
+import ipaddress
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -63,10 +64,31 @@ class HuntQuery(BaseModel):
     aggs: list[AggRequest] = Field(default_factory=list, max_length=5)
 
 
-def _scopes(s: Session, p: Principal, h: HuntSession) -> list[str]:
+MAX_GLOBAL_INVESTIGATIONS = 200
+
+
+def _scope_rows(s: Session, p: Principal, h: HuntSession) -> tuple[list[tuple[str, str | None, str]], bool]:
+    """(investigation id, affiliate id, affiliate label) rows and whether the global scope was truncated."""
     if h.scope == "investigation":
-        return [h.investigation_id] if h.investigation_id else []
-    return [i.id for i in list_for(s, p, 200)]
+        if not h.investigation_id:
+            return [], False
+        from saw.storage.models import Investigation
+
+        inv = s.get(Investigation, h.investigation_id)
+        return [(h.investigation_id, getattr(inv, "org_unit_id", None), getattr(inv, "org_unit", "") or "")], False
+    rows = list_for(s, p, MAX_GLOBAL_INVESTIGATIONS + 1)
+    return ([(i.id, i.org_unit_id, i.org_unit or "") for i in rows[:MAX_GLOBAL_INVESTIGATIONS]],
+            len(rows) > MAX_GLOBAL_INVESTIGATIONS)
+
+
+def _internal_address(value) -> bool:
+    from saw.analyzers.ioc.observables import affiliate_local
+
+    try:
+        ipaddress.ip_address(str(value))
+    except ValueError:
+        return False  # not an address (user agent, URI, ...): the same value means the same thing everywhere
+    return affiliate_local(str(value))
 
 
 def _check_budget(q: HuntQuery, h_steps: int) -> None:
@@ -87,6 +109,7 @@ def execute(s: Session, p: Principal, h: HuntSession, q: HuntQuery) -> dict:
     if q.sources:
         flt.append(Filter(field="data_source", op="in", value=q.sources))
     total, samples, aggs = 0, [], [dict() for _ in q.aggs]
+    truncated = False
     if h.scope == "connector":
         from saw.connectors import registry as creg
 
@@ -98,28 +121,38 @@ def execute(s: Session, p: Principal, h: HuntSession, q: HuntQuery) -> dict:
             aggs[i] = conn.aggregate(flt, a, q.time)
     else:
         es = container.get().events
+        # Internal (private) addresses are counted per affiliate: 10.0.0.5 in two affiliates is two hosts.
         merged: list[Counter] = [Counter() for _ in q.aggs]
-        for inv_id in _scopes(s, p, h):
+        labels: dict[tuple, str] = {}
+        rows, truncated = _scope_rows(s, p, h)
+        for inv_id, org_id, org_label in rows:
             n = es.count(inv_id, flt, q.time)
             if not n:
                 continue
             total += n
             if len(samples) < 20:
-                samples += es.search(inv_id, flt, q.time, limit=20 - len(samples))["events"]
+                for e in es.search(inv_id, flt, q.time, limit=20 - len(samples))["events"]:
+                    samples.append({**e, "org_unit": org_label})
             for i, a in enumerate(q.aggs):
                 r = es.aggregate(inv_id, flt, a, q.time)
                 if a.type == "terms":
                     for b in r["buckets"]:
-                        merged[i][b["key"]] += b["count"]
+                        key = (b["key"], org_id or f"unassigned:{inv_id}") if _internal_address(b["key"]) else (b["key"], None)
+                        labels[key] = (org_label or "미지정") if key[1] else ""
+                        merged[i][key] += b["count"]
                 else:
                     aggs[i] = r
         for i, a in enumerate(q.aggs):
             if a.type == "terms":
-                aggs[i] = {"buckets": [{"key": k, "count": v} for k, v in merged[i].most_common(a.size)]}
+                aggs[i] = {"buckets": [{"key": k[0], "count": v, "org_unit": labels[k],
+                                        "org_unit_id": None if not k[1] or str(k[1]).startswith("unassigned:") else k[1]}
+                                       for k, v in merged[i].most_common(a.size)]}
     masked = [mask_event(e)[0] for e in samples]
     return {"total": total, "aggs": [{"type": a.type, "field": a.field, **aggs[i]} for i, a in enumerate(q.aggs)],
-            "samples": [{k: e.get(k) for k in ("event_id", "investigation_id", "timestamp", "data_source", "src_ip", "dst_ip",
-                                                "method", "uri", "status_code", "user_agent", "ja4", "domain", "src_as_org")}
+            "scope_truncated": truncated, "max_investigations": MAX_GLOBAL_INVESTIGATIONS,
+            "samples": [{k: e.get(k) for k in ("event_id", "investigation_id", "org_unit", "timestamp", "data_source",
+                                                "src_ip", "dst_ip", "method", "uri", "status_code", "user_agent", "ja4",
+                                                "domain", "src_as_org")}
                         for e in masked]}
 
 
@@ -219,6 +252,27 @@ def to_dict(s: Session, h: HuntSession) -> dict:
                        "query": x.query, "result": x.result_summary, "pivots": x.pivots, "created_at": x.created_at} for x in steps]}
 
 
+def _observed_start(step) -> datetime:
+    """Earliest sampled event time, else the queried range start; creation time only when neither exists."""
+    stamps = []
+    for e in (step.result_summary or {}).get("samples", []):
+        try:
+            stamps.append(datetime.fromisoformat(str(e.get("timestamp")).replace("Z", "+00:00")))
+        except (TypeError, ValueError):
+            continue
+    stamps = [t if t.tzinfo else t.replace(tzinfo=timezone.utc) for t in stamps]
+    if stamps:
+        return min(stamps)
+    start = ((step.query or {}).get("time") or {}).get("start")
+    try:
+        parsed = datetime.fromisoformat(str(start).replace("Z", "+00:00")) if start else None
+    except ValueError:
+        parsed = None
+    if parsed:
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
+
+
 def hunt_finding(s: Session, p: Principal, hid: str, seq: int, title: str) -> str:
     """Analyst-authored Finding from a hunt step (evidence = that step's query)."""
     from saw.storage.models import Finding
@@ -246,7 +300,7 @@ def hunt_finding(s: Session, p: Principal, hid: str, seq: int, title: str) -> st
                          "confidence": "medium", "condition": "hunt confirmed hypothesis", "condition_met": True,
                          "rationale": h.hypothesis[:200], "attack_version": "analyst"}] if h.seed.get("technique_id") else [],
                 explanation_md=f"Hunting {h.display_id}: {h.hypothesis}", dedup_key=f"hunt:{hid}:{seq}",
-                time_start=datetime.now(timezone.utc))
+                time_start=_observed_start(st))
     s.add(f)
     audit.record(s, "hunt.finding", actor_id=p.user_id, actor_name=p.username, target_type="finding", target_id=f.id,
                  investigation_id=h.investigation_id)

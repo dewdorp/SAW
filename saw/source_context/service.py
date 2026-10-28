@@ -61,6 +61,11 @@ def record_org_assignment(s: Session, p: Principal, inv: Investigation, legacy_v
 def set_investigation_org(s: Session, p: Principal, inv_id: str, org_unit: str | None, org_unit_id: str | None):
     inv = investigations.require(s, p, "investigation.write", inv_id)
     label, org_id = resolve_org(s, org_unit or "", org_unit_id)
+    if inv.org_unit_id and org_id != inv.org_unit_id:
+        # One investigation holds one affiliate's data. Labelling an unassigned legacy investigation is allowed,
+        # but moving data that is already attributed to one affiliate onto another (or onto none) is not.
+        if s.scalar(select(Evidence.id).where(Evidence.investigation_id == inv.id).limit(1)) is not None:
+            raise ValueError("affiliate cannot change after evidence is added; create a new investigation")
     legacy_value = inv.org_unit
     # This affects future attachments only. Frozen evidence snapshots remain unchanged.
     inv.org_unit, inv.org_unit_id = label, org_id
@@ -70,7 +75,7 @@ def set_investigation_org(s: Session, p: Principal, inv_id: str, org_unit: str |
 
 
 def create_org(s: Session, p: Principal, body: OrgUnitInput | dict) -> OrgUnit:
-    _permission(p, "asset.write")
+    _permission(p, "org.manage")
     body = OrgUnitInput.model_validate(body)
     row = OrgUnit(display_name=body.display_name, created_by=p.user_id)
     s.add(row)
@@ -80,7 +85,8 @@ def create_org(s: Session, p: Principal, body: OrgUnitInput | dict) -> OrgUnit:
 
 
 def list_orgs(s: Session, p: Principal, *, after: str | None = None, limit: int = 100) -> list[OrgUnit]:
-    _permission(p, "investigation.read")
+    if not (can(p, "investigation.read") or can(p, "org.manage")):
+        raise investigations.Forbidden("investigation.read")
     q = select(OrgUnit).where(OrgUnit.state == "active").order_by(OrgUnit.id).limit(min(max(limit, 1), 200))
     if after:
         q = q.where(OrgUnit.id > after)

@@ -81,7 +81,10 @@ def test_context_is_pinned_and_target_does_not_override_observed_affiliation(sen
     assert frozen["sha256"] == hashlib.sha256(canonical.encode()).hexdigest()
     p2 = profile(senior, dev["id"], network="net-updated")
     assert p2["version"] == 2
-    assert senior.patch(f"/investigations/{inv['id']}", json={"org_unit_id": b["id"]}).status_code == 200
+    # One investigation holds one affiliate's data: once evidence exists the affiliate cannot be switched.
+    moved = senior.patch(f"/investigations/{inv['id']}", json={"org_unit_id": b["id"]})
+    assert moved.status_code == 400 and "affiliate cannot change" in moved.text
+    assert senior.get(f"/investigations/{inv['id']}").json()["org_unit_id"] == a["id"]
     assert senior.get(f"/source-context/evidence/{ev}/context").json() == frozen
     assert senior.post(f"/source-context/evidence/{ev}/context", json={"device_profile_version_id": p2["id"]}).status_code == 400
     with session_scope() as s:
@@ -123,7 +126,11 @@ def test_cross_investigation_and_admin_access_denied(senior, app):
     make_user("context-admin", ["admin"])
     admin = Api(app, "context-admin")
     assert admin.get(f"/source-context/investigations/{inv['id']}/devices").status_code == 403
-    assert admin.post("/source-context/org-units", json={"display_name": "Denied"}).status_code == 403
+    # Administrators register affiliates, but still cannot read any investigation's data.
+    created = admin.post("/source-context/org-units", json={"display_name": "Admin registered"})
+    assert created.status_code == 201
+    assert any(o["id"] == created.json()["id"] for o in admin.get("/source-context/org-units").json())
+    assert admin.get(f"/source-context/evidence/{ev}/context").status_code == 403
 
 
 def test_profile_and_snapshot_are_append_only(senior):

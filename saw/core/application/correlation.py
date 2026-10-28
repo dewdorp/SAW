@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from saw import container
+from saw.analyzers.ioc.observables import affiliate_local
 from saw.core.schemas.query import Filter, GroupMetric
 from saw.detection.derived_access import source_ids
 from saw.storage.models import Correlation, Finding, Investigation
@@ -86,10 +87,15 @@ def run_correlation(s: Session, inv_id: str) -> list[Correlation]:
         steps = [{"family": fam, "sources": sorted(v["sources"]), "role": sorted(v["as"]), "count": v["count"],
                   "first": datetime.fromtimestamp(v["first"]).astimezone().isoformat(),
                   "last": datetime.fromtimestamp(v["last"]).astimezone().isoformat()} for fam, v in spans]
-        c = Correlation(investigation_id=inv_id, kind="same_ip_cross_source", strength="strong" if gap_ok else "weak",
+        # An internal address seen by two sensors is not proven to be one host (NAT, DHCP, VPN, separate segments).
+        local = affiliate_local(ip)
+        c = Correlation(investigation_id=inv_id, kind="same_ip_cross_source",
+                        strength="strong" if gap_ok and not local else "weak",
                         entity_keys=[f"ip:{ip}"], steps=steps,
                         explanation=f"{ip} 가 {' → '.join(f for f, _ in spans)} 에서 관찰"
-                                    + ("" if gap_ok else f" (단계 간 간격 > {WINDOW_SEC // 3600}h, 약한 연결)"))
+                                    + ("" if gap_ok else f" (단계 간 간격 > {WINDOW_SEC // 3600}h, 약한 연결)")
+                                    + (" · 내부 주소는 NAT·DHCP·VPN·구간 맥락이 확인되지 않아 같은 장비로 단정하지 않음"
+                                       if local else ""))
         s.add(c)
         out.append(c)
     # 2) finding-level chains: findings from different families sharing an entity within the window
@@ -104,11 +110,15 @@ def run_correlation(s: Session, inv_id: str) -> list[Correlation]:
             if not shared or ta is None or tb is None or abs(tb - ta) > WINDOW_SEC:
                 continue
             first, second = (a, b) if ta <= tb else (b, a)
-            c = Correlation(investigation_id=inv_id, kind="finding_chain", strength="strong", entity_keys=shared,
+            only_local = all(key.startswith("ip:") and affiliate_local(key[3:]) for key in shared)
+            c = Correlation(investigation_id=inv_id, kind="finding_chain", strength="weak" if only_local else "strong",
+                            entity_keys=shared,
                             steps=[{"finding_id": x.id, "display_id": x.display_id, "title": x.title, "family": fam_of[x.id],
                                     "time": x.time_start.isoformat() if x.time_start else None,
                                     "_source_investigation_ids": sorted(source_ids(x))} for x in (first, second)],
-                            explanation=f"{first.display_id} → {second.display_id}: 공통 {', '.join(shared)}")
+                            explanation=f"{first.display_id} → {second.display_id}: 공통 {', '.join(shared)}"
+                                        + (" · 공통값이 내부 주소뿐이라 같은 장비·같은 행위자로 단정하지 않음"
+                                           if only_local else ""))
             s.add(c)
             out.append(c)
     s.flush()

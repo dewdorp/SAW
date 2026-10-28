@@ -22,6 +22,7 @@ _PERMISSIONS: dict[str, set[Role]] = {
     "knowledge.write": {Role.SOC_MANAGER, Role.SENIOR_ANALYST, Role.ANALYST},
     "knowledge.approve": {Role.SOC_MANAGER, Role.SENIOR_ANALYST},
     "asset.write": {Role.SOC_MANAGER, Role.SENIOR_ANALYST},
+    "org.manage": {Role.ADMIN, Role.SOC_MANAGER, Role.SENIOR_ANALYST},
     "detection.write": {Role.SOC_MANAGER, Role.SENIOR_ANALYST, Role.ANALYST},
     "detection.approve": {Role.SOC_MANAGER, Role.SENIOR_ANALYST},
     "parser.manage": {Role.SOC_MANAGER, Role.SENIOR_ANALYST, Role.ANALYST},

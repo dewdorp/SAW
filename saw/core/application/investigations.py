@@ -38,14 +38,53 @@ def require(s: Session, p: Principal, permission: str, inv_id: str) -> Investiga
     return lock_investigation(s, inv_id)
 
 
-def create(s: Session, p: Principal, title: str, org_unit: str = "", org_unit_id: str | None = None) -> Investigation:
+MAX_PERIOD_DAYS = 400
+
+
+def checked_period(start, end):
+    """Validate a declared investigation period; naive values are read in the configured timezone."""
+    if start is None and end is None:
+        return None, None
+    if start is None or end is None:
+        raise ValueError("investigation period needs both start and end")
+    from zoneinfo import ZoneInfo
+
+    from saw.config import get_settings
+
+    zone = ZoneInfo(get_settings().default_timezone)
+    start = start if start.tzinfo else start.replace(tzinfo=zone)
+    end = end if end.tzinfo else end.replace(tzinfo=zone)
+    if end < start:
+        raise ValueError("investigation period end is before its start")
+    if (end - start).days > MAX_PERIOD_DAYS:
+        raise ValueError(f"investigation period is limited to {MAX_PERIOD_DAYS} days")
+    return start, end
+
+
+def period_settings(settings: dict | None, start, end) -> dict:
+    """The declared scope lives in settings (time_start/time_end are derived from the data, not chosen)."""
+    out = {k: v for k, v in (settings or {}).items() if k != "period"}
+    if start is not None:
+        out["period"] = {"start": start.isoformat(), "end": end.isoformat()}
+    return out
+
+
+def declared_period(inv: Investigation) -> tuple[str | None, str | None]:
+    period = (inv.settings or {}).get("period") or {}
+    return period.get("start"), period.get("end")
+
+
+def create(s: Session, p: Principal, title: str, org_unit: str = "", org_unit_id: str | None = None,
+           period_start=None, period_end=None) -> Investigation:
     if not can(p, "investigation.create"):
         raise Forbidden("investigation.create")
     from saw.source_context.service import record_org_assignment, resolve_org
 
     label, org_id = resolve_org(s, org_unit, org_unit_id)
+    period_start, period_end = checked_period(period_start, period_end)
     inv = Investigation(display_id=next_display_id(s, "INV"), title=title.strip()[:256] or "Untitled",
-                        owner_id=p.user_id, org_unit=label, org_unit_id=org_id)
+                        owner_id=p.user_id, org_unit=label, org_unit_id=org_id,
+                        settings=period_settings({}, period_start, period_end))
     s.add(inv)
     s.flush()
     s.add(InvestigationMember(investigation_id=inv.id, user_id=p.user_id, access="owner"))

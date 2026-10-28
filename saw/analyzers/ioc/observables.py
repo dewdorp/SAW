@@ -85,6 +85,25 @@ def ip_scope(ip: str) -> str:
     return "external"
 
 
+_AFFILIATE_LOCAL = [ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+    "0.0.0.0/8", "fc00::/7", "fe80::/10", "::1/128")]
+
+
+@lru_cache(maxsize=65536)
+def affiliate_local(ip: str) -> bool:
+    """True when the address is re-used inside each organisation (RFC 1918, CGNAT, loopback, link-local, ULA).
+
+    Such an address names a different host in every affiliate (and over time with DHCP/NAT/VPN), so it must
+    never be merged across affiliates. Unparsable values are treated as local: never merge what is unknown.
+    """
+    try:
+        a = ipaddress.ip_address(str(ip).split("%")[0])
+    except ValueError:
+        return True
+    return any(a in n for n in _AFFILIATE_LOCAL if n.version == a.version)
+
+
 def valid_domain(d: str) -> bool:
     d = d.lower().rstrip(".")
     ext = _TLD(d)

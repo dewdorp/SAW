@@ -22,6 +22,7 @@ class TextIn(BaseModel):
 
 class IocIn(BaseModel):
     observables: list[str] = Field(min_length=1, max_length=200)
+    org_unit_id: str | None = Field(None, max_length=36)  # narrows internal (private) addresses to one affiliate
 
 
 class HttpIn(BaseModel):
@@ -51,7 +52,7 @@ def universal(body: TextIn, ctx: AuthContext = Depends(require_perm("analyze.run
 
 @router.post("/ioc")
 def ioc(body: IocIn, ctx: AuthContext = Depends(require_perm("analyze.run")), s: Session = Depends(db, scope="function")):
-    return {"items": svc.ioc(s, ctx.principal, body.observables)}
+    return {"items": svc.ioc(s, ctx.principal, body.observables, org_unit_id=body.org_unit_id)}
 
 
 @router.post("/ioc/external")

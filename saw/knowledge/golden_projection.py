@@ -374,6 +374,16 @@ def prepare_release_inputs(request, examples, profiles, *, cancelled, private_co
     return result
 
 
+def _token_scope(context, investigation_id):
+    """Identity scope for pseudonyms: the verified affiliate/network, else the single source investigation.
+
+    Rows without a verified affiliate must never share an address token with another investigation's rows.
+    """
+    if context.get("org_unit_id"):
+        return (context.get("org_unit_id"), context.get("network"))
+    return ("investigation", str(investigation_id or ""))
+
+
 class IdentityMapper:
     """Private mapping; exported values are injective within their typed identity scopes."""
     def __init__(self, seed, *, cancelled=lambda: False):
@@ -446,8 +456,8 @@ class IdentityMapper:
         result = project_event_v2(original)
         obs = result.get("ext", {}).get("observation", {})
         context = obs.get("context") or result.get("ext", {}).get("device_observation", {}).get("context", {})
-        scope = (context.get("org_unit_id"), context.get("network"))
         inv = original.get("investigation_id")
+        scope = _token_scope(context, inv)
         def transform(value, key=None):
             if isinstance(value, dict):
                 return {k: transform(v, k) for k, v in value.items()}
@@ -468,8 +478,8 @@ class IdentityMapper:
         return result
 
     def filters(self, filters, events):
-        contexts = sorted({canonical_bytes([((e.get("ext") or {}).get("observation") or {}).get("context", {}).get("org_unit_id"),
-            ((e.get("ext") or {}).get("observation") or {}).get("context", {}).get("network")]).decode() for e in events})
+        contexts = sorted({canonical_bytes(list(_token_scope(((e.get("ext") or {}).get("observation") or {}).get("context") or {},
+                                                             e.get("investigation_id")))).decode() for e in events})
         contexts = [tuple(json.loads(v)) for v in contexts]
         inv = events[0].get("investigation_id") if events else None
         allowed = EVENT_KEYS_V2 | {CTX + k for k in CONTEXT_KEYS} | {

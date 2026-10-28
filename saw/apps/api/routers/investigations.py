@@ -1,6 +1,8 @@
 from __future__ import annotations
 from saw.detection.derived_access import visible_findings
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -18,6 +20,10 @@ class InvIn(BaseModel):
     title: str = Field(min_length=1, max_length=256)
     org_unit: str = Field("", max_length=64)
     org_unit_id: str | None = Field(None, max_length=36)
+    # One affiliate + one declared period is the investigation unit. The UI requires both; the API keeps them
+    # optional so automation and earlier clients keep working, and the workbench flags a missing scope.
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 
 class MemberIn(BaseModel):
@@ -54,6 +60,7 @@ def inv_out(s: Session, i: Investigation) -> dict:
         "org_unit": i.org_unit, "org_unit_id": i.org_unit_id,
         "risk_level": risk_level, "risk_score": risk_score,
         "time_start": i.time_start, "time_end": i.time_end, "verdict": i.verdict,
+        "period_start": inv_svc.declared_period(i)[0], "period_end": inv_svc.declared_period(i)[1],
         "created_at": i.created_at, "closed_at": i.closed_at, "settings": i.settings,
         "evidence": [{"id": e.id, "kind": e.kind, "title": e.title, "status": e.status, "size": e.total_size,
                       "file_count": e.file_count, "context_snapshot_id": e.context_snapshot_id} for e in ev],
@@ -63,7 +70,8 @@ def inv_out(s: Session, i: Investigation) -> dict:
 
 @router.post("", status_code=201)
 def create(body: InvIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit, body.org_unit_id)
+    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit, body.org_unit_id,
+                       body.period_start, body.period_end)
     return inv_out(s, i)
 
 
@@ -83,6 +91,8 @@ class SettingsIn(BaseModel):
     org_unit: str | None = Field(None, max_length=64)
     org_unit_id: str | None = Field(None, max_length=36)
     clock_skew: dict[str, float] | None = None  # seconds per data_source (display/correlation only; raw unchanged)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 
 @router.patch("/{inv_id}")
@@ -96,6 +106,9 @@ def patch(inv_id: str, body: SettingsIn, ctx: AuthContext = Depends(auth), s: Se
         i = set_investigation_org(s, ctx.principal, inv_id, body.org_unit, body.org_unit_id)
     if body.title:
         i.title = body.title[:256]
+    if {"period_start", "period_end"} & body.model_fields_set:
+        start, end = inv_svc.checked_period(body.period_start, body.period_end)
+        i.settings = inv_svc.period_settings(i.settings, start, end)
     if body.clock_skew is not None:
         if any(abs(v) > 86400 for v in body.clock_skew.values()):
             raise ValueError("clock skew must be within ±1 day")

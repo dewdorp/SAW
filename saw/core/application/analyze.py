@@ -24,12 +24,13 @@ def _audit(s: Session, p: Principal, kind: str, text: str) -> None:
                  detail={"sha256": hashlib.sha256(text.encode()).hexdigest(), "size": len(text)})
 
 
-def ioc(s: Session, p: Principal, values: list[str], with_context: bool = True) -> list[dict]:
+def ioc(s: Session, p: Principal, values: list[str], with_context: bool = True,
+        org_unit_id: str | None = None) -> list[dict]:
     out = []
     for v in values[:200]:
         r = analyze_observable(v)
         if r.get("type") and with_context:
-            r["internal_context"] = internal_context(s, p, r["type"], r["value"])
+            r["internal_context"] = internal_context(s, p, r["type"], r["value"], org_unit_id=org_unit_id)
         out.append(r)
     return out
 
