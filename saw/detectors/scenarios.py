@@ -195,8 +195,20 @@ def catalog() -> list[dict[str, Any]]:
              "entity_role": s.entity_role, "strict_order": s.strict_order} for s in load()]
 
 
+# What an analyst should do next for each possible result, phrased as an action, not a verdict.
+GUIDANCE = {
+    "matched_candidate": "같은 상대의 탐지가 순서대로 이어진 후보입니다. 각 단계의 근거 이벤트에서 원문까지 내려가 확인하고, 아래 확인 항목을 수행하세요. 후보는 '이어서 보라'는 안내이며 침해 성공이 아닙니다.",
+    "no_chain": "단계별 근거는 있으나 하나의 흐름으로 이어지지 않았습니다. 시간창·주소 역할·순서 조건과 수집 범위를 확인하세요. 이어지지 않음이 정상이나 오탐 정답은 아닙니다.",
+    "insufficient_evidence": "흐름에 필요한 단계의 근거가 없습니다. 아래 '근거 없는 단계'의 누락 로그·필드와, 상위 탐지기의 실패·자료 부족·비활성 여부를 확인하세요. 근거 없음이 정상이나 오탐 정답은 아닙니다.",
+}
+
+
 def execution_report(findings: list[dict], drafts: list[FindingDraft]) -> dict:
-    """Describe this exact matcher input/output; no-chain never means normal."""
+    """Describe this exact matcher input/output; no-chain never means normal.
+
+    Each scenario carries the authored explanation, analyst checks, and a status-specific
+    next step so the result is actionable in the product without a separate document.
+    """
     from saw.core.application.provenance import digest
 
     pack = load()
@@ -216,7 +228,9 @@ def execution_report(findings: list[dict], drafts: list[FindingDraft]) -> dict:
                   if any(not step["eligible_findings"] for step in steps) else "no_chain")
         results.append({"id": sc.id, "title": sc.title, "status": status, "match_count": matched,
                         "steps": steps, "max_span_seconds": sc.max_span_seconds,
-                        "entity_role": sc.entity_role, "strict_order": sc.strict_order})
+                        "entity_role": sc.entity_role, "strict_order": sc.strict_order,
+                        "explain": sc.explain, "checks": list(sc.checks), "next_step": GUIDANCE[status],
+                        "missing_steps": [step["name"] for step in steps if not step["eligible_findings"]]})
     return {"schema": "scenario-execution/1", "match_unit": "flow", "engine_version": VERSION,
             "pack_sha256": digest([asdict(sc) for sc in pack]),
             "counts": {"input_findings": len(findings), "eligible_findings": len(eligible),

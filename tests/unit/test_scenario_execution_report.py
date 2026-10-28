@@ -17,6 +17,9 @@ def test_report_pins_pack_and_actual_matches(monkeypatch):
     assert row["status"] == "matched_candidate" and row["match_count"] == len(drafts) == 1
     assert [s["eligible_findings"] for s in row["steps"]] == [1, 1]
     assert report["counts"]["input_findings"] == 2
+    # Authored guidance is surfaced per scenario so the result is actionable in-product.
+    assert row["explain"] == "추가 확인 필요" and row["checks"] == []
+    assert row["missing_steps"] == [] and row["next_step"] == scenarios.GUIDANCE["matched_candidate"]
 
 
 def test_no_chain_differs_from_absent_steps(monkeypatch):
@@ -26,8 +29,11 @@ def test_no_chain_differs_from_absent_steps(monkeypatch):
     assert scenarios.match(rows) == []
     assert scenarios.execution_report(rows, [])["scenarios"][0]["status"] == "no_chain"
     report = scenarios.execution_report(rows[:1], [])
-    assert report["scenarios"][0]["status"] == "insufficient_evidence"
-    assert report["scenarios"][0]["steps"][1]["eligible_findings"] == 0
+    row = report["scenarios"][0]
+    assert row["status"] == "insufficient_evidence"
+    assert row["steps"][1]["eligible_findings"] == 0
+    assert row["missing_steps"] == [row["steps"][1]["name"]]
+    assert row["next_step"] == scenarios.GUIDANCE["insufficient_evidence"]
 
 
 def test_opaque_identity_and_invalid_time_cannot_join(monkeypatch):

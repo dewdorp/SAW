@@ -20,9 +20,12 @@ const scenario = { detector_id: "scenario.flow", status: "complete", detail: {
   schema: "scenario-execution/1", engine_version: "synthetic-v1", pack_sha256: "synthetic-pack-sha",
   counts: { input_findings: 8, eligible_findings: 5, excluded_findings: 3 }, max_results_per_scenario: 2,
   scenarios: [
-    { id: "synthetic-match", title: "가상 탐색 흐름", status: "matched_candidate", match_count: 2, steps: [{ name: "가상 탐색", eligible_findings: 3 }], max_span_seconds: 120, entity_role: "source", strict_order: true },
-    { id: "synthetic-empty", title: "가상 연결 없음", status: "no_chain", match_count: 0, steps: [{ name: "가상 단계", eligible_findings: 2 }], max_span_seconds: 60, entity_role: "any", strict_order: false },
-    { id: "synthetic-missing", title: "가상 근거 부족", status: "insufficient_evidence", match_count: 0, steps: [{ name: "누락 단계", eligible_findings: 0 }], max_span_seconds: 60, entity_role: "destination", strict_order: true },
+    { id: "synthetic-match", title: "가상 탐색 흐름", status: "matched_candidate", match_count: 2, steps: [{ name: "가상 탐색", eligible_findings: 3 }], max_span_seconds: 120, entity_role: "source", strict_order: true,
+      explain: "가상 탐색 흐름 설명입니다.", next_step: "가상 후보를 확인하세요.", checks: ["가상 확인 항목 1", "가상 확인 항목 2"], missing_steps: [] },
+    { id: "synthetic-empty", title: "가상 연결 없음", status: "no_chain", match_count: 0, steps: [{ name: "가상 단계", eligible_findings: 2 }], max_span_seconds: 60, entity_role: "any", strict_order: false,
+      explain: "가상 연결 없음 설명입니다.", next_step: "가상 시간창을 확인하세요.", checks: [], missing_steps: [] },
+    { id: "synthetic-missing", title: "가상 근거 부족", status: "insufficient_evidence", match_count: 0, steps: [{ name: "누락 단계", eligible_findings: 0 }], max_span_seconds: 60, entity_role: "destination", strict_order: true,
+      explain: "가상 근거 부족 설명입니다.", next_step: "가상 누락 로그를 확인하세요.", checks: ["가상 누락 확인"], missing_steps: ["누락 단계"] },
   ],
 } };
 const show = (executions: any[]) => render(<CsvScenarioResults executions={executions} onFindings={() => {}} onSourceContext={() => {}} />);
@@ -69,6 +72,24 @@ describe("frozen CSV and scenario history", () => {
     expect(within(panel).getByText(/전체 가능한 연결 수가 아닙니다/)).toBeTruthy();
     expect(within(panel).getByText(/최대 시간창 120초 · 주소 역할 출발지 · 엄격한 시간 순서 적용/)).toBeTruthy();
     expect(within(panel).getByText(/최종 판정은 분석가가/)).toBeTruthy();
+  });
+
+  it("gives each scenario an actionable next step, missing steps and analyst checks in-product", () => {
+    show([scenario]);
+    const panel = screen.getByRole("region", { name: "시나리오 실행 결과" });
+    expect(within(panel).getByText("가상 탐색 흐름 설명입니다.")).toBeTruthy();
+    const notes = within(panel).getAllByRole("note", { name: "지금 할 일" });
+    expect(notes.map(n => n.textContent)).toEqual([
+      "지금 할 일 가상 후보를 확인하세요.",
+      "지금 할 일 가상 시간창을 확인하세요.",
+      "지금 할 일 가상 누락 로그를 확인하세요.",
+    ]);
+    expect(within(panel).getByText("근거 없는 단계: 누락 단계")).toBeTruthy();
+    expect(within(panel).getByText("확인 항목 2개")).toBeTruthy();
+    fireEvent.click(within(panel).getByText("확인 항목 2개"));
+    expect(within(panel).getByText("가상 확인 항목 1")).toBeTruthy();
+    expect(within(panel).getByText("가상 확인 항목 2")).toBeTruthy();
+    expect(within(panel).queryByText("확인 항목 0개")).toBeNull();
   });
 
   it("leaves old or unsupported history unrecorded and does not manufacture zero", () => {

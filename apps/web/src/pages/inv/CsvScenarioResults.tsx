@@ -74,6 +74,10 @@ export function CsvScenarioResults({ executions, onFindings, onSourceContext }: 
           <div className="small">최대 시간창 {amount(scenario.max_span_seconds, "초")} · 주소 역할 {ROLES[scenario.entity_role] || "미기록"} · 엄격한 시간 순서 {scenario.strict_order === true ? "적용" : scenario.strict_order === false ? "미적용" : "미기록"}</div>
           <table className="t"><caption>단계별 조건에 맞는 탐지 근거 수</caption><thead><tr><th>단계</th><th>탐지 근거</th></tr></thead><tbody>{rows(scenario.steps).map((step, i) => <tr key={i}><th style={{ overflowWrap: "anywhere" }}>{text(step.name)}</th><td>{count(step.eligible_findings)}</td></tr>)}</tbody></table>
           <p className="small muted">단계별 건수는 서로 겹칠 수 있으며 하나의 연결·동일 자산·공격 순서가 성립했다는 뜻은 아닙니다.</p>
+          {typeof scenario.explain === "string" && scenario.explain && <p className="small">{scenario.explain}</p>}
+          {typeof scenario.next_step === "string" && scenario.next_step && <div role="note" aria-label="지금 할 일" className="small"><b>지금 할 일 </b>{scenario.next_step}</div>}
+          {Array.isArray(scenario.missing_steps) && scenario.missing_steps.length > 0 && <div className="small">근거 없는 단계: {scenario.missing_steps.filter((name: unknown) => typeof name === "string").join(", ")}</div>}
+          {Array.isArray(scenario.checks) && scenario.checks.length > 0 && <details><summary className="small">확인 항목 {scenario.checks.length}개</summary><ul className="small">{scenario.checks.map((item: unknown, i: number) => typeof item === "string" ? <li key={i}>{item}</li> : null)}</ul></details>}
         </article>)}
         {!rows(flow.scenarios).length && <p>저장된 시나리오별 결과가 없습니다. 0건 적중이나 정상으로 해석할 수 없습니다.</p>}
         {Array.isArray(flow.limitations) && flow.limitations.map((line: unknown, index: number) => typeof line === "string" ? <p className="small muted" key={index}>{line}</p> : null)}
