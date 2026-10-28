@@ -43,6 +43,7 @@ WEB, API, WAS, ADMIN, DB, FILES, DNS, MAIL = ("10.20.1.10", "10.20.1.20", "10.20
 SERVERS = [f"10.20.3.{i}" for i in range(10, 40)]
 EMPLOYEES = [f"10.20.5.{i}" for i in range(11, 41)]
 JUMP = "10.20.6.5"
+VICTIM_PC = "10.20.5.77"
 EXT_A, EXT_B, EXT_C = "198.51.100.23", "198.51.100.57", "198.51.100.91"
 BOTNET = [f"198.51.100.{i}" for i in range(120, 170)]
 C2, DROP, POOL = "203.0.113.66", "203.0.113.88", "203.0.113.120"
@@ -581,6 +582,249 @@ def _(c):
     for i in range(300):
         c.http(at(14, 0, i), "10.20.2.77", f"GET /api/orders?page={i} HTTP/1.1", 200, ua=PYREQ,
                host=API_HOST, dst=API, recv=2000)
+
+
+# ============================================================= MORE SINGLE-TECHNIQUE VARIETY
+# Tautology SQLi markers that the product tagger recognises (verified to raise web.injection_like).
+TAUT = ["1' OR '1'='1", "1' OR '1'='1'-- -", "1') OR ('1'='1"]
+
+
+@scenario("exploit-sqli-tautology", "SQL 주입 — 항상 참(인증 우회)", "EXPLOITATION", ["T1190"], ["ndr"], "attack",
+          "로그인/조회 파라미터에 항상 참이 되는 조건을 주입해 인증·조건을 우회 시도.", "web.injection_like pattern:sqli")
+def _(c):
+    c.normal_web()
+    _inject(c, EXT_A, "/login?user=", TAUT * 5, at(16, 45), status=lambda i: 200 if i % 2 else 401)
+
+
+@scenario("exploit-ssti-marker", "서버 템플릿 주입 시도(비실행 표기)", "EXPLOITATION", ["T1190"], ["ndr"], "attack",
+          "템플릿 평가 파라미터에 주입 정황 요청. 실제 표현식은 defang 처리.", "label-only(EXPLOITATION) + 요청 반복")
+def _(c):
+    c.normal_web()
+    for i in range(12):
+        c.http(at(17, 30, i * 6), EXT_B, f"GET /render?tpl={enc(DEFANGED.format('SSTI'))} HTTP/1.1", 200, ua=PYREQ, recv=1500,
+               label="defanged-ssti")
+
+
+@scenario("exploit-ssrf-marker", "서버 측 요청 위조 시도(비실행 표기)", "EXPLOITATION", ["T1190"], ["ndr"], "attack",
+          "이미지/URL 가져오기 파라미터에 내부 지향 요청 정황. 실제 대상은 defang 처리.", "label-only(EXPLOITATION)")
+def _(c):
+    c.normal_web()
+    for i in range(12):
+        c.http(at(10, 45, i * 8), EXT_C, f"GET /fetch?url={enc(DEFANGED.format('SSRF'))} HTTP/1.1", 200 if i % 2 else 502,
+               ua=PYREQ, recv=1200, label="defanged-ssrf")
+
+
+@scenario("exploit-file-upload-bypass", "업로드 확장자 우회 정황", "DELIVERY", ["T1190", "T1505.003"], ["ndr"], "attack",
+          "이중 확장자·대소문자 변형 경로로 업로드 뒤 접근 시도(페이로드는 defang 표기).", "label(DELIVERY) + 업로드 경로 접근")
+def _(c):
+    c.normal_web()
+    c.http(at(22, 30), EXT_A, "POST /board/upload HTTP/1.1", 200, ua=CURL, sent=12000, recv=300, label="defanged-upload")
+    for i, p in enumerate(("/files/report.pdf.jsp", "/files/image.png.jsp", "/files/doc.JsP")):
+        c.http(at(22, 32, i * 10), EXT_A, f"GET {p}?x={enc(DEFANGED.format('WEBSHELL'))} HTTP/1.1", 200, ua=CURL,
+               recv=900, label="defanged-webshell")
+
+
+@scenario("data-graphql-introspection", "GraphQL 스키마 열거", "DISCOVERY", ["T1595.003"], ["ndr"], "attack",
+          "외부 출발지가 GraphQL 내부 스키마를 반복 질의해 전체 타입·필드를 수집.", "web.scripted_client / 행동")
+def _(c):
+    c.normal_web(dst=API, host=API_HOST)
+    for i in range(120):
+        c.http(at(15, 30, i), EXT_B, "GET /graphql?query=%7B__schema%7Btypes%7Bname%7D%7D%7D HTTP/1.1", 200,
+               ua=PYREQ, host=API_HOST, dst=API, recv=40000)
+
+
+@scenario("cred-default-credentials", "기본 계정·관리 콘솔 시도", "AUTHENTICATION", ["T1078.001"], ["ndr"], "attack",
+          "외부 출발지가 관리 콘솔 경로에 기본 계정 로그인을 반복 시도.", "web.credential_attack / sig.console")
+def _(c):
+    c.normal_web()
+    for i in range(40):
+        path = ("/admin/login", "/manager/html", "/wp-login.php", "/phpmyadmin/")[i % 4]
+        c.http(at(6, 0, i * 5), EXT_C, f"POST {path} HTTP/1.1", 200 if i == 39 else 401, ua=PYREQ, recv=300)
+
+
+@scenario("c2-dga-domains", "DGA 의심 다수 외부 연결", "OUTBOUND", ["T1568.002"], ["ndr"], "attack",
+          "내부 단말이 짧은 시간에 서로 다른 외부 목적지로 연속 연결(도메인 생성 알고리즘 의심).", "ndr 세션 다수 외부 목적지 / 행동")
+def _(c):
+    c.normal_fw()
+    for i in range(60):
+        c.session(at(2, 30, i * 20), EMPLOYEES[4], f"203.0.113.{160 + i % 80}", 443, sent=400, recv=400, label="dga-suspect")
+
+
+@scenario("lateral-winrm-sweep", "내부 WinRM 확산 정황", "LATERAL", ["T1021.006"], ["fw"], "attack",
+          "침해 의심 단말이 내부 다수 서버의 5985/5986으로 연결.", "fw.observation 복수 목적지 / lateral")
+def _(c):
+    c.normal_fw()
+    for i, dst in enumerate(SERVERS):
+        c.fw_row(at(7, 30, i * 9), JUMP, dst, 5985 + (i % 2), dur=_rand_dur(c), sent=5000, recv=8000)
+
+
+@scenario("recon-tls-host-sweep", "TLS 포트 호스트 스윕", "DISCOVERY", ["T1595.001"], ["fw"], "attack",
+          "외부 출발지가 다수 내부 호스트의 443에 짧게 연결 시도.", "fw.observation 복수 목적지 탐색")
+def _(c):
+    c.normal_fw()
+    for i in range(180):
+        c.denied(at(4, 30, i * 2), EXT_C, f"10.20.3.{i % 254 + 1}", 443)
+
+
+# ============================================================= REALISTIC BREACH INCIDENTS (multi-step)
+@scenario("incident-ecommerce-data-breach", "사건: 쇼핑몰 고객정보 유출", "DATA_ACCESS",
+          ["T1595", "T1190", "T1213", "T1041"], ["ndr", "fw"], "attack",
+          "외부 공격자가 탐색→SQL 주입(일부 성공)→고객 식별자 순차 대량 조회→웹서버에서 외부로 대량 송신으로 이어진 유출 정황.",
+          "web.discovery+injection_like+api_enumeration, FW 대량 외부 송신")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    _flood(c, EXT_A, [f"/{w}/" for w in WORDLIST * 3], at(8), status=404, ua=SCANNERS["gobuster"])
+    _inject(c, EXT_A, "/product/view?id=", TAUT * 3, at(8, 20), status=lambda i: 200 if i % 2 else 500)
+    for i in range(400):
+        c.http(at(8, 40, i), EXT_A, f"GET /api/customer?id={5000 + i} HTTP/1.1", 200, ua=PYREQ, host=API_HOST, dst=API, recv=1800)
+    c.fw_row(at(9, 30), WEB, DROP, 443, dur=600, sent=2_500_000_000, recv=60000)
+
+
+@scenario("incident-webshell-to-lateral", "사건: 웹셸 거점 뒤 내부 확산", "LATERAL",
+          ["T1190", "T1505.003", "T1021.002"], ["ndr", "fw"], "attack",
+          "공격자가 민감 파일 탐색→업로드 거점 확보→업로드 경로 반복 접근 뒤 내부 서버로 SMB 확산한 정황.",
+          "sensitive_file_probe+sig.webshell, FW 내부 복수 목적지 445")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    for i, p in enumerate(SENSITIVE):
+        c.http(at(9, 0, i * 3), EXT_B, f"GET {p} HTTP/1.1", 200 if i < 2 else 404, ua=SCANNERS["nikto"], recv=600)
+    c.http(at(9, 10), EXT_B, "POST /upload HTTP/1.1", 200, ua=CURL, sent=9000, recv=400, label="defanged-webshell-upload")
+    for i in range(10):
+        c.http(at(9, 12, i * 20), EXT_B, f"GET /uploads/s.jsp?x={enc(DEFANGED.format('WEBSHELL'))} HTTP/1.1", 200,
+               ua=CURL, recv=1200, label="defanged-webshell")
+    for i, dst in enumerate(SERVERS):
+        c.fw_row(at(10, 0, i * 8), WAS, dst, 445, dur=_rand_dur(c), sent=6000, recv=12000)
+
+
+@scenario("incident-insider-exfiltration", "사건: 내부자 대량 반출", "DATA_ACCESS",
+          ["T1213", "T1041"], ["ndr", "fw"], "attack",
+          "업무시간 밖에 내부 단말이 관리 내보내기를 반복 조회(대용량 응답) 뒤 외부로 대량 송신한 정황.",
+          "off-hours 민감 조회+large_response, FW 대량 외부 송신")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    for i in range(14):
+        c.http(at(2, 0, i * 20), JUMP, f"GET /admin/members/export?page={i} HTTP/1.1", 200, ua=BROWSER, recv=45_000_000)
+    c.fw_row(at(3, 30), JUMP, DROP, 443, dur=900, sent=4_000_000_000, recv=80000)
+
+
+@scenario("incident-credential-compromise", "사건: 계정 탈취 뒤 권한 우회·조회", "DATA_ACCESS",
+          ["T1110", "T1190", "T1213"], ["ndr"], "attack",
+          "로그인 무차별 대입 성공→거부된 관리 경로를 요청 변형으로 우회→식별자 순차 대량 조회로 이어진 정황.",
+          "credential_attack+request_mutation_success+api_enumeration")
+def _(c):
+    c.normal_web()
+    for i in range(55):
+        c.http(at(1, 0, i * 3), EXT_C, "POST /login HTTP/1.1", 200 if i == 54 else 401, ua=PYREQ, recv=180)
+    for i in range(6):
+        c.http(at(1, 20, i * 8), EXT_C, "GET /admin/orders HTTP/1.1", 403, ua=CURL, recv=200)
+    c.http(at(1, 22), EXT_C, "GET /admin/orders?export=1 HTTP/1.1", 200, ua=CURL, recv=9000)
+    for i in range(350):
+        c.http(at(1, 30, i), EXT_C, f"GET /api/order?id={7000 + i} HTTP/1.1", 200, ua=PYREQ, host=API_HOST, dst=API, recv=1600)
+
+
+@scenario("incident-vpn-bruteforce-admin", "사건: 원격 접속 탈취 뒤 내부 관리", "LATERAL",
+          ["T1110", "T1133", "T1021"], ["ndr", "fw"], "attack",
+          "외부에서 원격 접속 포털에 무차별 대입 성공 뒤 내부 관리 포트로 접속한 정황.",
+          "credential_attack, FW/세션 내부 관리 접속")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    for i in range(60):
+        c.http(at(23, 0, i * 3), EXT_A, "POST /remote/login HTTP/1.1", 200 if i == 59 else 401, ua=PYREQ, recv=200)
+    for i, dst in enumerate((ADMIN, DB, "10.20.3.11")):
+        c.session(at(23, 30, i * 60), EXT_A, dst, 3389, sent=4000, recv=9000, label="internal-admin")
+
+
+@scenario("incident-phishing-beacon", "사건: 악성 유입 뒤 정주기 비컨", "OUTBOUND",
+          ["T1105", "T1071.001"], ["ndr", "fw"], "attack",
+          "내부 단말이 외부에서 실행 파일형 객체를 받은 뒤 외부로 정주기 소량 연결을 반복한 정황.",
+          "label(DELIVERY)+FW 반복 주기 접속")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    c.http(at(10, 0), VICTIM_PC, "GET /share/invoice.zip HTTP/1.1", 200, ua=BROWSER, dst=EXT_B,
+           host="files.example.test", recv=8_000_000, label="defanged-delivery")
+    for i in range(60):
+        c.fw_row(at(10, 10, i * 60), VICTIM_PC, C2, 443, dur=1, sent=512, recv=512)
+
+
+@scenario("incident-api-token-abuse", "사건: API 토큰 남용 열거", "DATA_ACCESS",
+          ["T1110.004", "T1213"], ["ndr"], "attack",
+          "외부에서 API 인증에 자격증명 스터핑 뒤 성공 토큰으로 객체를 순차 대량 조회한 정황.",
+          "credential_attack(API)+api_enumeration")
+def _(c):
+    c.normal_web(dst=API, host=API_HOST)
+    for i in range(70):
+        c.http(at(5, 0, i * 2), EXT_B, "POST /api/auth HTTP/1.1", 200 if i in (40, 55) else 401, ua=PYREQ,
+               host=API_HOST, dst=API, recv=160)
+    for i in range(300):
+        c.http(at(5, 30, i), EXT_B, f"GET /api/account?id={9000 + i} HTTP/1.1", 200, ua=PYREQ, host=API_HOST, dst=API, recv=1500)
+
+
+@scenario("incident-scanner-to-exploit", "사건: 자동 점검 뒤 취약점 성공", "EXPLOITATION",
+          ["T1595.002", "T1190"], ["ndr"], "attack",
+          "외부에서 자동 점검 도구로 대량 탐색 뒤 같은 출발지의 주입 요청이 성공 응답을 받은 정황.",
+          "sig.tool+web.injection_like(성공 신호)")
+def _(c):
+    c.normal_web()
+    probes = ["/actuator/health", "/server-info", "/console/login", "/swagger-ui.html", "/api/v1/status"] * 10
+    _flood(c, EXT_C, probes, at(12, 30), status=404, ua=SCANNERS["nuclei"], per=1)
+    _inject(c, EXT_C, "/search?q=", ["<script>alert(1)</script>", "\"><img src=x onerror=alert(1)>"] * 6, at(12, 50), status=200)
+
+
+@scenario("incident-dns-exfil-tunnel", "사건: DNS 터널 의심 반출", "OUTBOUND",
+          ["T1048", "T1071.004"], ["fw"], "attack",
+          "내부 단말이 외부 해석기로 과다 DNS 질의와 장시간 연결을 유지한 정황.", "fw.observation 과다 질의/장시간")
+def _(c):
+    c.normal_fw()
+    for i in range(300):
+        c.fw_row(at(1, 0, i), EMPLOYEES[11], DROP, 53, proto="UDP", dur=0, sent=180, recv=90)
+    c.fw_row(at(1, 10), EMPLOYEES[11], DROP, 443, dur=21600, sent=400000, recv=400000)
+
+
+@scenario("incident-defacement", "사건: 웹 변조", "PERSISTENCE",
+          ["T1190", "T1505.003"], ["ndr"], "attack",
+          "경로 조작·업로드로 거점 확보 뒤 메인 페이지 변경 요청이 성공한 정황.", "injection_like(traversal)+업로드 접근")
+def _(c):
+    c.normal_web()
+    _inject(c, EXT_A, "/download?file=", ["../../../../etc/passwd", "..%2f..%2f..%2fetc%2fpasswd"] * 4, at(18, 30),
+            status=lambda i: 200 if i % 2 == 0 else 400)
+    c.http(at(18, 45), EXT_A, "POST /admin/content/upload HTTP/1.1", 200, ua=CURL, sent=15000, recv=300, label="defanged-upload")
+    c.http(at(18, 46), EXT_A, "POST /admin/content/index HTTP/1.1", 200, ua=CURL, sent=4000, recv=300, label="defacement")
+
+
+@scenario("incident-ransomware-precursor", "사건: 랜섬웨어 전조(확산+대량 접근)", "LATERAL",
+          ["T1021.002", "T1021.001", "T1083"], ["fw"], "attack",
+          "거점 단말이 내부 다수 서버로 SMB·RDP 확산하며 파일 서버에 대량 접근한 정황(암호화 자체는 미표현).",
+          "FW 내부 복수 목적지 445/3389 + 파일서버 대량")
+def _(c):
+    c.normal_fw()
+    for i, dst in enumerate(SERVERS):
+        c.fw_row(at(3, 0, i * 6), VICTIM_PC, dst, 445, dur=_rand_dur(c), sent=8000, recv=16000)
+        c.fw_row(at(3, 5, i * 6), VICTIM_PC, dst, 3389, dur=_rand_dur(c), sent=4000, recv=9000)
+    c.fw_row(at(3, 40), VICTIM_PC, FILES, 445, dur=1800, sent=200000, recv=5_000_000_000)
+
+
+# ============================================================= MORE BENIGN CONTROLS
+@scenario("benign-internal-healthcheck", "정상 내부 헬스체크", "UNCLASSIFIED", [], ["fw"], "benign_control",
+          "모니터링 단말이 내부 서비스에 정주기 헬스체크(외부 아님). 대조군.", "주기 접속 관측되나 내부·정상")
+def _(c):
+    c.normal_fw()
+    for i in range(80):
+        c.fw_row(at(0, 0, i * 60), "10.20.2.88", WEB, 443, dur=1, sent=300, recv=600)
+
+
+@scenario("benign-cdn-download", "정상 대용량 다운로드", "UNCLASSIFIED", [], ["ndr", "fw"], "benign_control",
+          "사용자가 승인된 CDN에서 대용량 업데이트를 받음. 대조군.", "큰 수신 관측되나 정상")
+def _(c):
+    c.normal_web()
+    c.normal_fw()
+    c.http(at(11, 0), EMPLOYEES[2], "GET /download/update.zip HTTP/1.1", 200, ua=BROWSER, dst=SAAS[1],
+           host="cdn.example.test", recv=80_000_000)
+    c.fw_row(at(11, 1), EMPLOYEES[2], SAAS[1], 443, dur=60, sent=5000, recv=80_000_000)
 
 
 # ============================================================= generation
