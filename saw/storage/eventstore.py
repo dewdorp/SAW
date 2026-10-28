@@ -19,6 +19,15 @@ from saw.core.schemas.query import FIELD_RE, AggRequest, Filter, GroupMetric, Gr
 
 INDEXED_COLUMNS = {"event_id", "investigation_id", "evidence_id", "data_source"}
 ARRAY_FIELDS = {"tags", "param_names", "finding_ids"}
+MAX_HISTOGRAM_BUCKETS = 5000
+_INTERVALS = (1, 5, 10, 30, 60, 300, 600, 1800, 3600, 10800, 21600, 43200, 86400, 604800)
+
+
+def widened_interval(iv: int, span: float | None) -> int:
+    """The requested interval, or the smallest standard one keeping the bucket count bounded."""
+    if span is None or span / max(1, iv) <= MAX_HISTOGRAM_BUCKETS:
+        return iv
+    return next((x for x in _INTERVALS if x >= iv and span / x <= MAX_HISTOGRAM_BUCKETS), _INTERVALS[-1])
 
 
 class EventStorePort(Protocol):
@@ -331,21 +340,30 @@ class SQLiteEventStore:
                           f"WHERE {w}", cp * 5 + p).fetchone()
             return {"min": r[0], "max": r[1], "avg": r[2], "sum": r[3], "count": r[4]}
         if agg.type == "percentiles":
-            vals = [r[0] for r in c.execute(
-                f"SELECT {col} AS v FROM events WHERE {w} AND {col} IS NOT NULL ORDER BY v",
-                cp + p + cp).fetchall()]
+            # One indexed position lookup per percentile instead of loading the whole column into memory.
+            n = c.execute(f"SELECT COUNT({col}) FROM events WHERE {w}", cp + p).fetchone()[0]
             out = {}
             for pc in agg.percents:
-                out[str(pc)] = vals[min(len(vals) - 1, int(len(vals) * pc / 100))] if vals else None
+                if not n:
+                    out[str(pc)] = None
+                    continue
+                row = c.execute(f"SELECT {col} AS v FROM events WHERE {w} AND {col} IS NOT NULL ORDER BY v "
+                                "LIMIT 1 OFFSET ?", cp + p + cp + [min(n - 1, int(n * pc / 100))]).fetchone()
+                out[str(pc)] = row[0] if row else None
             return {"values": out}
         if agg.type == "date_histogram":
-            iv = agg.interval_sec or self._auto_interval(investigation_id, w, p)
+            iv = self._bounded_interval(w, p, agg.interval_sec or self._auto_interval(investigation_id, w, p))
             rows = c.execute(
                 f"SELECT CAST(ts_epoch / ? AS INTEGER) * ? AS b, COUNT(*) FROM events WHERE {w} "
                 f"AND ts_epoch IS NOT NULL GROUP BY b ORDER BY b", [iv, iv] + p
             ).fetchall()
             return {"interval_sec": iv, "buckets": [{"key": r[0], "count": r[1]} for r in rows]}
         raise ValueError(f"unsupported agg {agg.type}")
+
+    def _bounded_interval(self, w: str, p: list, iv: int) -> int:
+        """Never return more than MAX_HISTOGRAM_BUCKETS buckets: widen a too fine interval instead."""
+        lo, hi = self._conn().execute(f"SELECT MIN(ts_epoch), MAX(ts_epoch) FROM events WHERE {w}", p).fetchone()
+        return widened_interval(iv, None if lo is None else hi - lo)
 
     def _auto_interval(self, inv: str, w: str, p: list) -> int:
         lo, hi = self._conn().execute(f"SELECT MIN(ts_epoch), MAX(ts_epoch) FROM events WHERE {w}", p).fetchone()
@@ -400,7 +418,7 @@ class SQLiteEventStore:
                           split_field: str | None = None) -> dict:
         """Date histogram with per-bucket metrics (avg/max/sum/cardinality) and optional split series."""
         w, p = self._where(investigation_id, filters, time)
-        iv = interval_sec or self._auto_interval(investigation_id, w, p)
+        iv = self._bounded_interval(w, p, interval_sec or self._auto_interval(investigation_id, w, p))
         sel, sp = ["CAST(ts_epoch / ? AS INTEGER) * ? AS b"], [iv, iv]
         grp = "b"
         if split_field:

@@ -50,7 +50,8 @@ class FiltersIn(BaseModel):
 
 class StatisticsIn(FiltersIn):
     filters: list[Filter] = Field(default_factory=list, max_length=30)
-    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port", "src_dst", "status_code", "method"] = "data_source"
+    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port", "src_dst", "status_code", "method",
+                      "enforcement_action", "alert_name", "protocol"] = "data_source"
     size: int = Field(20, ge=1, le=50)
     order_by: Literal["count", "bytes_in_sum", "bytes_out_sum", "http_error_count"] = "count"
 
@@ -153,6 +154,16 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
             "top_asn": terms("src_as_org"), "top_country": terms("src_geo_country"), "top_cloud": terms("src_cloud"),
         },
     }
+
+
+@router.post("/scope-summary")
+def scope_summary(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """The analyst's whole-picture view: scope, inputs and parse quality, breakdowns and daily trend."""
+    from saw.core.application.scope_summary import build
+
+    inv = _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    return build(s, inv, body.filters, body.time)
 
 
 @router.post("/statistics")

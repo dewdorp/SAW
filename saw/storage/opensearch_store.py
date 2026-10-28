@@ -253,8 +253,8 @@ class OpenSearchEventStore:
         elif agg.type == "percentiles":
             aggs = {"a": {"percentiles": {"field": agg.field, "percents": agg.percents}}}
         else:
-            aggs = {"a": {"date_histogram": {"field": "timestamp",
-                                             "fixed_interval": f"{agg.interval_sec or 60}s"}}}
+            aggs = {"a": {"date_histogram": {"field": "timestamp", "fixed_interval":
+                                             f"{self._bounded(investigation_id, filters, agg.interval_sec or 60)}s"}}}
         if agg.type == "date_histogram" and not agg.interval_sec:
             aggs = {"a": {"date_histogram": {"field": "timestamp",
                                              "fixed_interval": f"{self._auto_interval(investigation_id, filters, time)}s"}}}
@@ -273,6 +273,17 @@ class OpenSearchEventStore:
         iv = int(aggs["a"]["date_histogram"]["fixed_interval"][:-1])
         return {"interval_sec": iv,
                 "buckets": [{"key": int(x["key"] / 1000), "count": x["doc_count"]} for x in r["buckets"] if x["doc_count"]]}
+
+    def _bounded(self, investigation_id: str, filters: list[Filter], iv: int) -> int:
+        """Same bucket bound as the SQLite store: widen a too fine interval instead of returning millions."""
+        from saw.storage.eventstore import widened_interval
+
+        lo, hi = self.time_bounds(investigation_id, filters)
+        if not lo or not hi:
+            return iv
+        span = (datetime.fromisoformat(hi.replace("Z", "+00:00"))
+                - datetime.fromisoformat(lo.replace("Z", "+00:00"))).total_seconds()
+        return widened_interval(iv, span)
 
     def _auto_interval(self, investigation_id: str, filters: list[Filter], time: TimeRange | None) -> int:
         """Same bucket choice as the SQLite store: smallest step giving <= 200 buckets."""
@@ -355,7 +366,8 @@ class OpenSearchEventStore:
                           metrics: list[GroupMetric], time: TimeRange | None = None,
                           split_field: str | None = None) -> dict:
         self._fresh()
-        iv = interval_sec or self._auto_interval(investigation_id, filters, time)
+        iv = self._bounded(investigation_id, filters, interval_sec) if interval_sec else \
+            self._auto_interval(investigation_id, filters, time)
         sub = {m.name: ({"cardinality": {"field": m.field}} if m.type == "cardinality" else {m.type: {"field": m.field}})
                for m in metrics if m.type != "count"}
         h: dict[str, Any] = {"date_histogram": {"field": "timestamp", "fixed_interval": f"{iv}s", "min_doc_count": 1},

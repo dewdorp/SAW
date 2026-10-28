@@ -204,6 +204,11 @@ def _clean(data: dict, inv_id: str) -> dict[str, Any]:
         checked = int(checked or len(ids) or 0)
         if not total or not checked or checked >= int(total):
             raise ValueError("표본 확인은 본 건수가 전체보다 적어야 합니다(전체를 봤다면 '전체'를 고르세요)")
+    if coverage == "all" and tt == "set" and total is not None:
+        # Only records actually loaded can have been looked at: 20,000 shown of 100,000 is a sample, not "all".
+        seen = scope_in.get("loaded", checked)
+        if seen is not None and int(seen) < int(total):
+            raise ValueError("불러온 기록이 검색 결과 전체보다 적어 '전체 확인'으로 기록할 수 없습니다. '표본'으로 기록하세요")
     scope = {"coverage": coverage, "checked": int(checked) if checked is not None else (len(ids) or None),
              "total": int(total) if total is not None else None, "query": query, "event_ids": ids}
     return {"target_type": tt, "target_key": key[:512], "target_label": str(data.get("target_label") or key)[:512],
