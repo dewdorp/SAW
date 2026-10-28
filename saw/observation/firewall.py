@@ -215,6 +215,11 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                 if obs["record_kind"] == "session_end":
                     state["ended"] = True
                     state["ended_at"] = _time(obs.get("end_time")) or timestamp
+                if obs.get("whole_session"):
+                    # One record is the whole connection, so it was observed from its start.
+                    state["start_seen"] = True
+                    if state["started"] is None:
+                        state["started"] = timestamp
                 for name, metric in obs["counters"].items():
                     value = metric["value"]
                     state["valid"][name] &= metric["state"] == "observed"

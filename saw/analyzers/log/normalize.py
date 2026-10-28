@@ -220,7 +220,8 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
             ev["params"], ev["param_names"] = params, names
             tags = set(ev.get("tags") or [])
             for v in params.values():
-                if any(c in v for c in "'\"<>;|`$%{}()") or ".." in v:
+                # Values arrive decoded: keyword-only payloads ("1 UNION SELECT NULL") carry only spaces.
+                if any(c in v for c in "'\"<>;|`$%{}() \t+") or ".." in v:
                     for t in pattern_tags(urllib.parse.unquote(urllib.parse.unquote(v))):
                         tags.add(f"pattern:{t}")
             if tags:

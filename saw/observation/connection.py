@@ -186,8 +186,12 @@ def connection_observation(event: dict, *, context_snapshot: dict | None = None)
         return _lookup(event, mapping.get(semantic, default))[1]
     raw_kind = value("record_kind", "record_kind")
     kind = (profile.get("record_kind_map") or {}).get(str(raw_kind), raw_kind)
+    # A verified "total" counter with no record-kind column means each record carries a whole session's
+    # totals (one row per finished session, as in common firewall exports): that record ends its session.
+    whole_session = (verified and mode == "total" and not mapping.get("record_kind")
+                     and raw_kind in (None, "", "-", "(empty)"))
     if kind not in {"session_start", "session_interim", "session_end"}:
-        kind = "session_end" if zeek else "unknown"
+        kind = "session_end" if zeek or whole_session else "unknown"
     action_raw = value("action", "action")
     action_map = profile.get("action_map") or snapshot.get("action_map") or {}
     action = action_map.get(str(action_raw), "unknown") if profile.get("action_verified") is True else "unknown"
@@ -225,6 +229,7 @@ def connection_observation(event: dict, *, context_snapshot: dict | None = None)
         duration /= 1000
     return {"producer": "saw", "version": VERSION, "context": context, "counters": counters,
             "profile_version": context["device_profile_version_id"], "record_kind": kind, "raw_record_kind": raw_kind,
+            "whole_session": bool(whole_session and kind == "session_end"),
             "session_id": value("session_id", "session_id"),
             "start_time": start_time or (event.get("timestamp") if zeek else None),
             "end_time": end_time, "raw_action": action_raw, "action": action,

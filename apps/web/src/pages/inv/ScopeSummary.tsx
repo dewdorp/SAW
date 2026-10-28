@@ -144,7 +144,7 @@ export function ScopeSummary({ inv }: { inv: string }) {
       </div>
 
       {d.analysis && <Panel title={`최근 분석 실행 v${d.analysis.version} — 일부만 처리·자료 부족인 분석`}>
-        {d.analysis.incomplete.length ? <ul className="small">{d.analysis.incomplete.map((x: any) => <li key={x.detector_id}>{x.detector_id}: {x.label}</li>)}</ul>
+        {d.analysis.incomplete.length ? <ul className="small">{d.analysis.incomplete.map((x: any) => <li key={x.detector_id}>{x.detector_id}: {x.label}{x.reason_label ? ` — ${x.reason_label}` : ""}</li>)}</ul>
           : <div className="small muted">모든 분석이 설정된 범위에서 끝났습니다. 수집의 완전성은 별도로 확인해야 합니다.</div>}
         <div className="small muted">'자료 부족'·'일부만 처리'는 정상 판정이 아닙니다. 분석 실행 이력 탭에서 범위와 이유를 확인하세요.</div>
       </Panel>}

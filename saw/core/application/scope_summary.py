@@ -25,6 +25,14 @@ ACTION_KO = {"allowed": "허용", "blocked": "차단", "detected": "탐지(경�
              "conflicting": "기록 간 처리값 충돌", "unmapped": "해석하지 못한 처리값"}
 INCOMPLETE = {"partial": "일부만 처리", "limited": "한도 도달", "insufficient_data": "자료 부족", "failed": "실패",
               "cancelled": "취소", "skipped": "미실행", "not_applicable": "적용 대상 없음"}
+# Why a detector did not finish, so "not analyzed" is never read as "analyzed, nothing found".
+REASONS = {"unverified_device_context": "기록의 장비(출처)가 등록·확인되지 않아 분석하지 않았습니다. 관계사·장비(출처)를 등록하면 분석됩니다.",
+           "unresolved_context": "기록의 장비(출처)가 등록·확인되지 않아 분석하지 않았습니다. 관계사·장비(출처)를 등록하면 분석됩니다.",
+           "no_records_in_scope": "등록된 장비 범위에 속한 기록이 없어 분석하지 않았습니다. 관계사·장비(출처)를 등록하면 분석됩니다.",
+           "policy_disabled": "이 장비 관측 기준이 꺼져 있어 분석하지 않았습니다.",
+           "partitioned_execution": "장비 범위별로 나눠 실행했고 일부 범위는 완료되지 않았습니다.",
+           "runtime_record_limit": "기록 수 한도에 도달해 일부만 분석했습니다.",
+           "required_source_missing": "필요한 로그 종류가 없어 분석하지 않았습니다."}
 
 
 def _parse(value):
@@ -99,9 +107,16 @@ def _analysis(s, inv_id) -> dict | None:
                    .order_by(AnalysisRun.version.desc()).limit(1))
     if run is None:
         return None
-    incomplete = [{"detector_id": e.detector_id, "status": e.status, "label": INCOMPLETE[e.status]}
-                  for e in s.scalars(select(DetectorExecution).where(DetectorExecution.run_id == run.id))
-                  if e.status in INCOMPLETE and e.status != "not_applicable"]
+    incomplete = []
+    for e in s.scalars(select(DetectorExecution).where(DetectorExecution.run_id == run.id)):
+        if e.status not in INCOMPLETE or e.status == "not_applicable":
+            continue
+        detail = e.detail if isinstance(e.detail, dict) else {}
+        seen = {str(r) for r in detail.get("limitations") or []} | {str(r) for r in detail.get("quality") or {}}
+        seen.add(str(detail.get("reason")))
+        reason = next((r for r in REASONS if r in seen), None)
+        incomplete.append({"detector_id": e.detector_id, "status": e.status, "label": INCOMPLETE[e.status],
+                           "reason": reason, "reason_label": REASONS.get(reason)})
     return {"run_id": run.id, "version": run.version, "status": run.status, "finished_at": run.finished_at,
             "incomplete": sorted(incomplete, key=lambda x: x["detector_id"])[:50]}
 

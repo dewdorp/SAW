@@ -45,6 +45,9 @@ def test_scope_summary_counts_basis_actions_gaps_and_outside_period(senior):
     assert data["inputs"]["files"] == 1 and data["inputs"]["timestamp_invalid"] + data["inputs"]["timestamp_missing"] == 1
     assert any("시간" in f["message"] for f in data["inputs"]["by_file"])
     assert "장기 정상 기준선" in data["method_note"]
+    # Device observation without a registered device was not run; the view says why instead of "nothing found".
+    fw = [x for x in data["analysis"]["incomplete"] if x["detector_id"] == "fw.observation"]
+    assert fw and fw[0]["reason"] == "unresolved_context" and "등록" in fw[0]["reason_label"]
 
     # A filter changes only the stated basis, never the whole-investigation denominator.
     filtered = senior.post(f"/investigations/{inv['id']}/scope-summary",

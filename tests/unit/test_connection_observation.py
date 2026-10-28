@@ -84,6 +84,32 @@ def test_unknown_devices_and_affiliates_do_not_merge_sessions():
     assert report["status"] == "insufficient_data"
 
 
+def test_total_counters_without_record_kind_column_are_finished_sessions():
+    # Firewall exports with one row per finished session carry no record-kind column; a verified "total"
+    # counter declares each row holds its session's totals, so large transfers stay measurable.
+    _, analyze = api()
+    ctx = context("total")
+    del ctx["profile"]["source_fields"]["record_kind"]
+    rows = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n"
+                      "2026-10-20T00:00:00Z,10.0.0.1,192.0.2.1,443,allow,3000000000,50000")
+    report = analyze(iter(rows), context_snapshot=ctx)
+    assert report["sessions"][0]["src_to_dst_bytes"] == 3000000000
+    assert "missing_session_end" not in report["quality"]
+    assert any(c["kind"] == "transfer_asymmetry" for c in report["candidates"])
+    # Regular one-row connections are each a new connection, so a fixed-interval series is a beacon candidate.
+    beacon = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n" + "\n".join(
+        f"2026-10-20T0{h}:00:00Z,10.0.0.1,192.0.2.1,443,allow,512,512" for h in range(6)))
+    assert any(c["kind"] == "beacon" for c in analyze(iter(beacon), context_snapshot=ctx)["candidates"])
+    # Without a verified total, the same rows stay unknown rather than guessed.
+    unverified = context("total")
+    del unverified["profile"]["source_fields"]["record_kind"]
+    unverified["profile"]["measurement_profile"]["verified"] = False
+    assert analyze(iter(rows), context_snapshot=unverified)["quality"]["unknown_record_kind"] == 1
+    cumulative = context("cumulative")
+    del cumulative["profile"]["source_fields"]["record_kind"]
+    assert analyze(iter(rows), context_snapshot=cumulative)["quality"]["unknown_record_kind"] == 1
+
+
 def test_delta_unknown_and_counter_reversal_are_distinct():
     _, analyze = api()
     rows = events([f"2026-10-20T00:0{i}:00Z,10.0.0.1,192.0.2.1,443,S7,{kind},allow,{sent},1,2026-10-20T00:00:00Z"
