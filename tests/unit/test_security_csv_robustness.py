@@ -72,3 +72,14 @@ def test_rows_with_wrong_column_count_name_the_missing_or_extra_cells():
     text = good + short.splitlines()[1] + "\r\n"
     out = parse_text(text)
     assert out["failed"] == 1 and len(out["events"]) == 1
+
+
+def test_json_records_with_only_an_action_key_are_not_waf_events():
+    # DDoS or web records carry "action" too; calling them WAF events would change their meaning silently.
+    ddos = ('{"timestamp":"2026-10-14T14:00:00+09:00","source_type":"ddos","src_ip":"198.51.100.100",'
+            '"dst_ip":"10.20.1.10","dst_port":443,"action":"detected","request_count":1200}')
+    out = parse_text("\n".join([ddos] * 3))
+    assert out["parser"] != "waf_json" and out["events"][0]["data_source"] != "waf"
+    waf = ('{"timestamp":"2026-10-14T14:00:00Z","src_ip":"198.51.100.9","uri":"/a","action":"block",'
+           '"rule_id":"942100","attack_type":"SQL Injection"}')
+    assert parse_text("\n".join([waf] * 3))["parser"] == "waf_json"

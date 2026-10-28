@@ -79,6 +79,9 @@ for _ces, _aliases in list(FIELD_ALIASES.items()) + list(EXTRA_ALIASES.items()):
         _COMPACT_INDEX.setdefault(compact_key(_a), _ces)
 WAF_HINTS = {"action", "rule", "rule_id", "ruleid", "attack", "attack_type", "signature", "sig_id", "policy",
              "violation", "waf", "securityaction", "securityrule", "block", "cs1"}
+# JSON records: "action", "policy" and "block" appear in firewall, DDoS and web records too, so they
+# alone must not make a record a WAF event.
+JSON_WAF_HINTS = WAF_HINTS - {"action", "policy", "block"}
 WAF_HINTS_KO = {"공격명", "탐지명", "정책명", "차단여부", "대응", "룰", "룰명", "시그니처", "공격유형", "조치", "탐지룰"}
 
 
@@ -178,7 +181,7 @@ class GenericJsonWafParser(JsonLinesParser):
         lines = [s for s in sample if s.strip()]
         if not lines:
             return 0.0
-        hint = sum(1 for s in lines if any(f'"{h}"' in s.lower() for h in WAF_HINTS))
+        hint = sum(1 for s in lines if any(f'"{h}"' in s.lower() for h in JSON_WAF_HINTS))
         return super().detect(sample) / 0.9 * (0.97 if hint >= len(lines) / 2 else 0.0)
 
 
