@@ -538,7 +538,9 @@ def coverage(s: Session, p: Principal) -> dict:
     sources: set[str] = set()
     for i in invs:
         sources |= set(present_sources(i.id))
-    attack_ids = {i.id for i in invs if i.verdict == "attack"}
+    from saw.core.domain.enums import ATTACK_VERDICTS
+
+    attack_ids = {i.id for i in invs if i.verdict in ATTACK_VERDICTS}
     observed: Counter = Counter()
     from saw.detection.derived_access import visible_findings
     rows = s.scalars(select(Finding).where(Finding.investigation_id.in_(attack_ids))) if attack_ids else []

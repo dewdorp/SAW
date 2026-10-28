@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from saw.core.application import audit
 from saw.core.application.investigations import Forbidden, NotFound, require
-from saw.core.domain.enums import Role
+from saw.core.domain.enums import ATTACK_VERDICTS, Role
 from saw.core.security.authz import Principal
 from saw.storage.db import utcnow
 from saw.storage.models import Finding, Investigation, InvestigationMember, Review, User
@@ -56,7 +56,7 @@ def _still_required(s: Session, r: Review) -> bool:
         return bool(f and f.risk_level in ("critical", "high") and f.status in DOWNGRADE)
     if r.subject_type == "conclusion":
         inv = s.get(Investigation, r.investigation_id)
-        return bool(inv and inv.status == "closed" and inv.verdict == "attack")
+        return bool(inv and inv.status == "closed" and inv.verdict in ATTACK_VERDICTS)
     return True
 
 
@@ -201,9 +201,11 @@ def on_finding_feedback(s: Session, p: Principal, f: Finding, verdict: str) -> R
 
 
 def on_close(s: Session, p: Principal, inv: Investigation) -> Review | None:
-    if inv.verdict == "attack":
+    if inv.verdict in ATTACK_VERDICTS:
         first = (inv.verdict_reason or "").strip().splitlines()[0] if (inv.verdict_reason or "").strip() else ""
-        return need(s, p, inv.id, "conclusion", "", inv.display_id, f"공격으로 판정: {first}"[:1000])
+        label = {"attack_attempt": "공격 시도로 판정", "compromise_confirmed": "침해·영향 확인으로 판정"}.get(
+            inv.verdict, "공격으로 판정")
+        return need(s, p, inv.id, "conclusion", "", inv.display_id, f"{label}: {first}"[:1000])
     return None
 
 

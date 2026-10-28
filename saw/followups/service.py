@@ -123,7 +123,7 @@ def create(s, p, inv_id, data):
     return _append(s, p, row, payload, "create", sources, body.reason)
 
 
-def _evidence(s, p, refs, *, target, sources):
+def _evidence(s, p, refs, *, target, sources, events=None):
     sources = set(sources) | {r["investigation_id"] for r in refs}
     authorize(s, p, sources, write_target=target)
     clean, seen = [], set()
@@ -136,9 +136,29 @@ def _evidence(s, p, refs, *, target, sources):
             raise NotFound("follow-up evidence not found")
         sources |= source_ids(event)
         clean.append({**item, "sha256": digest(event)})
+        if events is not None:
+            events.append({"investigation_id": item["investigation_id"], "timestamp": event.get("timestamp"),
+                           "src_ip": event.get("src_ip"), "dst_ip": event.get("dst_ip"),
+                           "dst_port": event.get("dst_port")})
         seen.add(key)
     authorize(s, p, sources, write_target=target)
     return clean, sources
+
+
+def _scope_check(s, inv_id, payload, reply_scope, events):
+    from saw.core.application.investigations import declared_period
+    from saw.followups.scope import compare, requested_scope
+    from saw.storage.models import Investigation
+
+    inv = s.get(Investigation, inv_id)
+    requested = requested_scope(payload, getattr(inv, "org_unit_id", None),
+                                declared_period(inv) if inv is not None else (None, None))
+    return compare(requested, reply_scope, events, inv_id)
+
+
+def _reply_events(payload):
+    return [{"investigation_id": item["investigation_id"], "event_id": item["event_id"]}
+            for item in ((payload.get("reply") or {}).get("evidence") or [])]
 
 
 def mutate(s, p, inv_id, ident, action, data):
@@ -148,8 +168,13 @@ def mutate(s, p, inv_id, ident, action, data):
     before = _version(s, row)
     sources = {inv_id, *before.source_investigation_ids}
     evidence = None
+    scope_events: list[dict] = []
     if action in {"reply", "verify"}:
-        evidence, sources = _evidence(s, p, [r.model_dump() for r in body.evidence], target=inv_id, sources=sources)
+        evidence, sources = _evidence(s, p, [r.model_dump() for r in body.evidence], target=inv_id, sources=sources,
+                                      events=scope_events)
+    if action == "verify":
+        # The reply's own evidence also counts when judging whether the reply covers the asked activity.
+        _evidence(s, p, _reply_events(before.payload), target=inv_id, sources=sources, events=scope_events)
     authorize(s, p, sources, write_target=inv_id)
     s.execute(update(FollowUp).where(FollowUp.id == ident).values(id=ident)
               .execution_options(synchronize_session=False))
@@ -174,15 +199,27 @@ def mutate(s, p, inv_id, ident, action, data):
         payload.update(patch)
         payload.update(status="replied" if payload["reply"] else "open", verification=None)
     elif action == "reply":
+        reply_scope = body.scope.model_dump(mode="json") if body.scope else None
         payload.update(status="replied", verification=None,
                        reply={"note": body.note, "evidence": evidence, "received_by": p.user_id,
-                              "received_at": utcnow().isoformat()})
+                              "received_at": utcnow().isoformat(), "scope": reply_scope,
+                              "scope_check": _scope_check(s, inv_id, payload, reply_scope, scope_events)})
     elif action == "verify":
         if not payload["reply"] or not evidence:
             raise ValueError("회신과 검증 근거가 필요합니다.")
+        check = _scope_check(s, inv_id, payload, payload["reply"].get("scope"), scope_events)
+        outcome = body.outcome
+        remaining: list[str] = []
+        if outcome == "confirmed":
+            if check["result"] in {"mismatch", "not_stated"}:
+                raise ValueError("회신의 관계사·기간·대상이 확인 요청과 일치하지 않거나 적혀 있지 않아 '확인됨'으로 검증할 수 "
+                                 f"없습니다: {check['summary']} 회신 범위를 보완받거나 '확인되지 않음'·'자료 부족'으로 기록하세요.")
+            if check["result"] == "partial":
+                # Only the covered part is explained; what the reply leaves out stays an open question.
+                outcome, remaining = "partially_confirmed", list(check["uncovered"])
         payload.update(status="verified", verification={
-            "outcome": body.outcome, "basis": body.basis, "evidence": evidence,
-            "verified_by": p.user_id, "verified_at": utcnow().isoformat()})
+            "outcome": outcome, "basis": body.basis, "evidence": evidence, "scope_check": check,
+            "remaining_questions": remaining, "verified_by": p.user_id, "verified_at": utcnow().isoformat()})
     elif action in {"cancel", "close_with_limits"}:
         payload.update(status="cancelled" if action == "cancel" else "closed_with_limits",
                        disposition={"reason": body.reason, "by": p.user_id, "at": utcnow().isoformat()})
@@ -333,6 +370,36 @@ def collect_followup_sources(s, inv_id, version_ids=None):
         sources |= set(check.source_investigation_ids)
     return sources
 
+
+
+def benign_blockers(s, inv_id) -> list[dict]:
+    """Follow-ups that keep a 'normal / false positive' conclusion from being recorded.
+
+    Explicitly cancelled or 'closed with limits' requests do not block (the analyst decided knowingly).
+    Unanswered, unverified, unconfirmed, partly confirmed or out-of-scope replies do.
+    """
+    out = []
+    for row in s.scalars(select(FollowUp).where(FollowUp.investigation_id == inv_id)):
+        version = s.get(FollowUpVersion, row.current_version_id) if row.current_version_id else None
+        if version is None:
+            continue
+        payload = version.payload
+        status, verification = payload.get("status"), payload.get("verification") or {}
+        check = verification.get("scope_check") or {}
+        reason = None
+        if status == "open":
+            reason = "회신을 기다리는 중입니다."
+        elif status == "replied":
+            reason = "회신은 받았지만 아직 검증하지 않았습니다."
+        elif status == "verified" and verification.get("outcome") != "confirmed":
+            reason = {"partially_confirmed": "회신이 일부만 설명합니다: " + "; ".join(verification.get("remaining_questions") or []),
+                      "not_confirmed": "확인 결과 설명이 확인되지 않았습니다.",
+                      "insufficient_data": "확인 자료가 부족합니다."}.get(verification.get("outcome"), "확인이 끝나지 않았습니다.")
+        elif status == "verified" and check.get("result") not in (None, "matches", "no_request_scope"):
+            reason = check.get("summary") or "회신 범위가 확인 대상과 일치하지 않습니다."
+        if reason:
+            out.append({"followup_id": row.id, "question": payload.get("question"), "status": status, "reason": reason})
+    return out
 
 
 def _verify_evidence(payload, cache):

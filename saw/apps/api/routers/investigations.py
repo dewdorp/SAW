@@ -128,6 +128,18 @@ def add_member(inv_id: str, body: MemberIn, ctx: AuthContext = Depends(auth), s:
 @router.post("/{inv_id}/close")
 def close(inv_id: str, body: CloseIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     from saw.core.application.guidance import FollowUp, build_closure_draft
+    from saw.core.domain.enums import BENIGN_VERDICTS
+    from saw.followups.service import benign_blockers
+
+    inv_svc.require(s, ctx.principal, "investigation.close", inv_id)
+    if body.verdict in BENIGN_VERDICTS:
+        # A reply about another period/target, or one that explains only part of the activity, is not an
+        # explanation of what was observed: the conclusion stays open until it is resolved or closed with limits.
+        blockers = benign_blockers(s, inv_id)
+        if blockers:
+            lines = "; ".join(f"'{b['question']}' — {b['reason']}" for b in blockers[:5])
+            raise ValueError(f"확인 요청 {len(blockers)}건이 해결되지 않아 정상·오탐으로 종결할 수 없습니다: {lines}. "
+                             "회신을 검증하거나, '증거 부족으로 추가 확인 필요'로 종결하거나, 해당 요청을 한계와 함께 닫으세요.")
     draft = build_closure_draft(s, ctx.principal, inv_id)
     extra = [FollowUp.model_validate({k: v for k, v in x.items() if k != "check_id"}).model_dump() for x in body.follow_up]
     draft["behavior_assessment"] = body.behavior_assessment.strip() or draft["behavior_assessment"]

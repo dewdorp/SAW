@@ -333,6 +333,8 @@ class IdsAlerts:
                              [f"ip:{ev.get('src_ip')}", f"ip:{ev.get('dst_ip')}"], _q(flt), r["first"], r["last"], f"{self.id}:{sid}",
                              attack=attack, attack_unmapped_reason=None if attack else "rule has no ATT&CK metadata",
                              explanation=f"Suricata 시그니처 {sid} 경보 {r['count']}건. 시그니처 매칭은 공격 '시도'의 근거이며 성공 여부는 별도 확인 필요.",
+                             # A signature match (and the device's own severity) never shows that an attack worked.
+                             success_signal=False,
                              sample_event_ids=_samples(ctx, flt), total_events=r["count"])
             out.append(d)
         return out

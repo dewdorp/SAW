@@ -119,7 +119,8 @@ def draft_from_investigation(s: Session, p: Principal, inv: Investigation) -> Ex
              for c in recorded if c is not None and c.investigation_id == inv.id]
     steps += [{"step": text, "source": "analyst_close_entry"} for text in detail.get("checks", []) if text]
     verdict = inv.verdict or "unknown"
-    category = {"attack": "attack", "false_positive": "false_positive", "normal": "benign_pattern"}.get(verdict, "operational")
+    category = {"attack": "attack", "attack_attempt": "attack", "compromise_confirmed": "attack",
+                "false_positive": "false_positive", "normal": "benign_pattern"}.get(verdict, "operational")
     observables = []
     for f in fs[:5]:
         for ent in f["entities"][:4]:
@@ -278,7 +279,9 @@ def fp_conflicts(s: Session, p: Principal, conditions: list[dict]) -> dict:
         return {"matches": 0, "investigations": []}
     es = container.get().events
     total, invs = 0, []
-    for inv in s.execute(select(Investigation).where(Investigation.verdict == "attack")).scalars():
+    from saw.core.domain.enums import ATTACK_VERDICTS
+
+    for inv in s.execute(select(Investigation).where(Investigation.verdict.in_(sorted(ATTACK_VERDICTS)))).scalars():
         n = es.count(inv.id, flt)
         if n:
             total += n
