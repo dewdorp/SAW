@@ -286,6 +286,9 @@ def _plan(s: Session, kind: str, target_id: str) -> dict:
     from saw.hunting.service import HuntSession, HuntStep
     if _count(s, Experience, Experience.source_investigation_id == inv_id):
         blockers.add("knowledge_reference")
+    from saw.internal_kb.models import InternalGolden
+    if _count(s, InternalGolden, InternalGolden.investigation_id == inv_id):
+        blockers.add("knowledge_reference")  # an internal golden record holds this investigation's analysis
     if any(_has_ref(d.source, related_ids) for d in s.scalars(select(Detection))):
         blockers.add("detection_reference")
     if any(_has_ref(t.scope, related_ids) or _has_ref(t.result, related_ids) for t in s.scalars(select(TestRun))):
