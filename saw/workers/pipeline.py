@@ -289,7 +289,7 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
     batch_bytes = 0
     samples: list[dict] = []
     cov = {"lines": 0, "blank_lines": 0, "skipped_lines": 0, "failed_lines": 0, "continuation_lines": 0, "events": 0,
-           "rejected_events": int(resume.get("rejected", 0))}
+           "rejected_events": int(resume.get("rejected", 0)), "timestamp_missing": 0, "timestamp_invalid": 0}
     first_ts = last_ts = None
     enc = _file_encoding(path)
     size = max(1, path.stat().st_size)
@@ -342,6 +342,8 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
             if ts:
                 first_ts = ts if first_ts is None or ts < first_ts else first_ts
                 last_ts = ts if last_ts is None or ts > last_ts else last_ts
+            else:  # kept as an event, but it cannot take part in any time-based view
+                cov["timestamp_missing" if ev.get("timestamp_quality") == "missing" else "timestamp_invalid"] += 1
             cov["events"] += 1
             emitted += 1
             if emitted <= skip:
@@ -380,8 +382,13 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
     if batch:
         done_events += store(batch)
     cov["events"] -= cov["rejected_events"]  # events = what can actually be searched
+    warnings = list(getattr(parser, "warnings", []) or [])
+    if cov["timestamp_missing"]:
+        warnings.append(f"시간 값이 없는 기록 {cov['timestamp_missing']}건은 검색은 되지만 시간 추이·순서 분석에서 빠집니다.")
+    if cov["timestamp_invalid"]:
+        warnings.append(f"시간 값을 해석할 수 없는 기록 {cov['timestamp_invalid']}건(예: 존재하지 않는 날짜)은 시간 추이·순서 분석에서 빠집니다.")
     return {"done_events": done_events, "ok": cov["events"], "failed": cov["failed_lines"] + cov["rejected_events"],
-            "samples": samples, "encoding": enc, "warnings": list(getattr(parser, "warnings", []) or []),
+            "samples": samples, "encoding": enc, "warnings": warnings,
             "coverage": cov, "first_ts": first_ts, "last_ts": last_ts}
 
 

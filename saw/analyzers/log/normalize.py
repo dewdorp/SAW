@@ -175,18 +175,29 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
     actions = []
     ext = ev.get("ext") or {}
     sources = [ev, ext] + [v for v in ext.values() if isinstance(v, dict)]
+    unmapped = False
     for source in sources:
         for key, value in source.items():
             if str(key).lower().replace("_", "").replace(" ", "") in action_keys and isinstance(value, str):
-                word = value.strip().lower()
-                if word in {"block", "blocked", "deny", "denied", "drop", "차단"}:
+                # "허용(정책1)" / "Accept (rule 7)": the policy note does not change the action.
+                word = re.sub(r"\s*[(\[].*[)\]]\s*$", "", value.strip()).lower()
+                if word in {"block", "blocked", "deny", "denied", "drop", "dropped", "reject", "rejected", "reset",
+                            "차단", "거부", "거절", "폐기"}:
                     actions.append("blocked")
-                elif word in {"allow", "allowed", "permit", "permitted", "pass", "허용", "통과"}:
+                elif word in {"allow", "allowed", "permit", "permitted", "pass", "accept", "accepted", "허용", "통과"}:
                     actions.append("allowed")
+                elif word in {"detect", "detected", "alert", "탐지"}:
+                    actions.append("detected")  # an alert was raised; it says nothing about blocking or passing
+                elif word in {"monitor", "monitored", "monitoring", "log", "logged", "모니터링", "로깅"}:
+                    actions.append("monitored")
+                elif word not in {"", "-"}:
+                    unmapped = True  # kept raw; never guessed as blocked or allowed
     if len(set(actions)) == 1:
         ev["enforcement_action"] = actions[0]
     elif actions:
         ev["enforcement_action"] = "conflicting"
+    elif unmapped:
+        ev["enforcement_action"] = "unmapped"
     if "timestamp_raw" in ev and not ev.get("timestamp"):
         ev["timestamp"], ev["timestamp_quality"] = parse_time(ev["timestamp_raw"], assumed_tz)
     for k in ("src_port", "dst_port", "status_code", "bytes_in", "bytes_out"):

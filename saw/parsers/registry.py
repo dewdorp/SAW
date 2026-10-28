@@ -120,7 +120,7 @@ def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: st
     if res.ext:
         ev["ext"] = {parser.product: {k: v for k, v in list(res.ext.items())[:200]}}
     if ev.get("timestamp_raw") is None:
-        ev["timestamp_quality"] = "ingest_time"
+        ev["timestamp_quality"] = "missing"  # no time in the record; nothing (not even ingest time) is substituted
     return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation, context_snapshot=context_snapshot)
 
 

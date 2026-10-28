@@ -255,10 +255,21 @@ class CsvParser(BaseParser):
         self.delim = ","
         self.kind = ("custom", "log")
         self.warnings = []
+        self._repaired = {"padded": 0, "merged": 0}
 
     def reset(self) -> None:
         self.header = None
         self.warnings = []
+        self._repaired = {"padded": 0, "merged": 0}
+
+    def _repair_notes(self) -> list[str]:
+        notes = []
+        if self._repaired["padded"]:
+            notes.append(f"열이 모자란 행 {self._repaired['padded']}건은 뒤쪽 열을 빈 값으로 두고 읽었습니다(값을 만들지 않음).")
+        if self._repaired["merged"]:
+            notes.append(f"열이 넘치는 행 {self._repaired['merged']}건은 남는 값을 마지막 열에 합쳐 읽었습니다. "
+                         "마지막 열의 값이 올바른지 원문과 비교하세요.")
+        return notes
 
     def detect(self, sample: list[str]) -> float:
         lines = [s.lstrip("\ufeff") for s in sample if s.strip()]
@@ -290,9 +301,14 @@ class CsvParser(BaseParser):
                 self.warnings = [duplicate_columns_note(repeated)]
             self.kind = infer_source(self.header)
             return Skip()
-        row = _fit_row(next(csv.reader(io.StringIO(line), delimiter=self.delim), []), len(self.header))
+        raw_row = next(csv.reader(io.StringIO(line), delimiter=self.delim), [])
+        row = _fit_row(raw_row, len(self.header))
         if row is None:
             return Failed("column count mismatch")
+        if len(raw_row) < len(self.header):
+            self._repaired["padded"] += 1
+        elif len(raw_row) > len(self.header) and any(c.strip() for c in raw_row[len(self.header):]):
+            self._repaired["merged"] += 1
         f, ext = map_fields(dict(zip(self.header, row, strict=True)))
         if self.kind[0] != "custom":
             f.setdefault("data_source", self.kind[0])
@@ -332,6 +348,7 @@ class CsvParser(BaseParser):
         if pending:
             yield pending[0], Failed("unterminated quoted field")
             yield from self._plain(pending[1:])
+        self.warnings = [*self.warnings, *self._repair_notes()]
 
     def _plain(self, rest: list[RawLine]) -> Iterator[tuple[RawLine, ParseResult]]:
         for rl in rest:  # end of file inside a stray quote: the remaining lines are ordinary rows
@@ -343,7 +360,9 @@ class CsvParser(BaseParser):
         return RawLine(text, first.offset, first.line_no, end - first.offset), self.parse_line(text)
 
 
-_KV = re.compile(r'([\w.\-]+)=("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s]*)')
+# A key starts at the line start or after a separator. Without that anchor a long run of word characters
+# (e.g. a base64 payload in one CSV field) is re-scanned from every position: detection took seconds per line.
+_KV = re.compile(r'(?:^|(?<=[\s,;|&>\[(]))([\w.\-]+)=("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s]*)')
 
 
 def parse_kv(s: str) -> dict[str, str]:

@@ -65,18 +65,40 @@ def test_reordered_header_and_unknown_columns_preserve_values(headers, parser_id
     assert ev["ext"]["security_csv"]["extra-field"] == 'unknown,"quoted" value'
 
 
+CORE = {"탐지시간", "출발지IP", "목적지IP"}
+MAPPED = {"탐지시간": "timestamp_raw", "출발지IP": "src_ip", "목적지IP": "dst_ip", "출발지포트": "src_port",
+          "목적지포트": "dst_port", "프로토콜": "protocol", "송신바이트": "bytes_out", "수신바이트": "bytes_in"}
+
+
 @pytest.mark.parametrize(("headers", "parser_id"), [(FW, "ko_fw_csv"), (NDR, "ko_ndr_csv")])
-def test_missing_wrong_or_duplicate_required_header_never_claims_format(headers, parser_id):
+def test_missing_wrong_or_duplicate_required_header_is_explicit_never_silent(headers, parser_id):
+    """A near-miss export keeps its meaning and says what is missing; a duplicated column is never guessed.
+
+    Refusing it would hand the file to the generic CSV parser, which silently drops session/HTTP/action meaning
+    or silently picks the first of two columns.
+    """
     parser = get_parser(parser_id)
     for name in headers:
-        for invalid in ([h for h in headers if h != name],
-                        ["wrong-column" if h == name else h for h in headers],
-                        [*headers, name]):
+        for kind, invalid in (("missing", [h for h in headers if h != name]),
+                              ("wrong", ["wrong-column" if h == name else h for h in headers]),
+                              ("duplicate", [*headers, name])):
             text = document(invalid)
-            assert parser.detect(text.splitlines()) == 0
+            if kind != "duplicate" and name in CORE:
+                assert parser.detect(text.splitlines()) == 0  # no time/source/destination: not this export
+                parser.reset()
+                assert isinstance(parser.parse_line(text.splitlines()[0]), Failed)
+                assert isinstance(parser.parse_line(text.splitlines()[1]), Failed)
+                continue
+            assert parser.detect(text.splitlines()) == 0.97  # beats the generic CSV parser (0.95)
             parser.reset()
-            assert isinstance(parser.parse_line(text.splitlines()[0]), Failed)
-            assert isinstance(parser.parse_line(text.splitlines()[1]), Failed)
+            assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
+            parsed = parser.parse_line(text.splitlines()[1])
+            assert isinstance(parsed, Parsed)
+            assert any(name in note for note in parser._notes)
+            if kind == "duplicate":
+                # Neither copy is used; both values are kept for the analyst to resolve.
+                assert MAPPED.get(name) not in parsed.fields
+                assert parsed.ext[f"{name}_후보1"] == parsed.ext[f"{name}_후보2"] == row()[name]
 
 
 @pytest.mark.parametrize("parser_id", ["ko_fw_csv", "ko_ndr_csv"])
@@ -152,16 +174,20 @@ def test_valid_http_request_line_preserves_target(request_header, method, uri):
 
 
 @pytest.mark.parametrize(("response", "expected"), [("100", 100), ("599", 599), (" 204 ", 204),
-    ("", None), ("-", None), ("99", None), ("600", None), ("0200", None), ("200 OK", None),
-    ("HTTP/1.1 200", None), ("200.0", None), ("+200", None), ("２００", None)])
+    ("", None), ("-", None), ("99", None), ("600", None), ("0200", None), ("200 OK", 200),
+    ("HTTP/1.1 200", 200), ("HTTP/1.1 404 Not Found", 404), ("200.0", None), ("+200", None), ("２００", None),
+    ("999", None), ("HTTP/1.1 999 Odd", None)])
 def test_http_status_is_strict_ascii_three_digit_range(response, expected):
     ev = event(응답값=response)
     assert ev.get("status_code") == expected
     assert ev["ext"]["security_csv"]["응답값"] == response
 
 
-@pytest.mark.parametrize(("action", "expected"), [("차단", "blocked"), ("허용", "allowed"),
-                                                ("탐지", None), ("detected", None), ("", None)])
+@pytest.mark.parametrize(("action", "expected"), [("차단", "blocked"), ("허용", "allowed"), ("거부", "blocked"),
+                                                ("허용(정책1)", "allowed"), ("Accept", "allowed"), ("Reject", "blocked"),
+                                                # an alert/monitor outcome is recorded as such, never as block/allow
+                                                ("탐지", "detected"), ("detected", "detected"), ("모니터링", "monitored"),
+                                                ("vendor-specific-7", "unmapped"), ("", None)])
 def test_only_explicit_appliance_action_is_normalized(action, expected):
     ev = event(대응=action, 공격명="synthetic compromise label")
     assert ev.get("enforcement_action") == expected
@@ -207,12 +233,15 @@ def test_header_is_reset_between_files_and_invalid_rows_fail_closed():
 
 
 @pytest.mark.parametrize(("headers", "parser_id"), [(FW, "ko_fw_csv"), (NDR, "ko_ndr_csv")])
-def test_case_variant_of_required_header_fails_closed_before_unique_names(headers, parser_id):
+def test_case_variant_of_required_header_is_ambiguous_and_never_chosen(headers, parser_id):
     for ambiguous in (["출발지ip", *headers], [*headers, "출발지ip"]):
         parser = get_parser(parser_id)
         text = document(ambiguous)
-        assert parser.detect(text.splitlines()) == 0
-        assert isinstance(parser.parse_line(text.splitlines()[0]), Failed)
+        assert parser.detect(text.splitlines()) == 0.97
+        assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
+        parsed = parser.parse_line(text.splitlines()[1])
+        assert isinstance(parsed, Parsed) and "src_ip" not in parsed.fields
+        assert any("출발지IP" in note and "확인" in note for note in parser._notes)
 
 
 def test_reserved_format_metadata_cannot_overwrite_original_extra_columns():
@@ -409,12 +438,18 @@ def test_reserved_source_columns_has_stable_object_shape_across_export_files(com
 
 @pytest.mark.parametrize(("headers", "parser_id"), [(FW, "ko_fw_csv"), (NDR, "ko_ndr_csv")])
 @pytest.mark.parametrize("extra_name", ["csv_format.x", "source_columns.x", "vendor.extra", "", "   "])
-def test_dotted_or_blank_extra_headers_fail_closed_for_typed_namespace(headers, parser_id, extra_name):
+def test_dotted_or_blank_extra_headers_are_renamed_and_kept_out_of_the_typed_namespace(headers, parser_id, extra_name):
     text = document([*headers, extra_name], row(**{extra_name: "synthetic original"}))
     parser = get_parser(parser_id)
-    assert parser.detect(text.splitlines()) == 0
-    assert isinstance(parser.parse_line(text.splitlines()[0]), Failed)
-    assert isinstance(parser.parse_line(text.splitlines()[1]), Failed)
+    assert parser.detect(text.splitlines()) == 0.97
+    assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
+    parsed = parser.parse_line(text.splitlines()[1])
+    assert isinstance(parsed, Parsed)
+    # The value is preserved under a flat name: no key can become a typed field path or a reserved marker.
+    assert "synthetic original" in parsed.ext.values()
+    assert not any("." in key for key in parsed.ext)
+    assert parsed.ext["csv_format"] in {"fw", "ndr"} and not isinstance(parsed.ext.get("source_columns"), str)
+    assert any("추가 원본 열" in note for note in parser._notes)
 
 
 @pytest.mark.parametrize(("headers", "parser_id"), [(FW, "ko_fw_csv"), (NDR, "ko_ndr_csv")])
