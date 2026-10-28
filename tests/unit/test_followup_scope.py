@@ -38,6 +38,10 @@ def test_partial_cover_keeps_the_rest_as_an_open_question():
 def test_reply_without_any_scope_cannot_be_matched():
     out = run({})
     assert out["result"] == "not_stated"
+    # Records attached as evidence show what was observed, not what the reply covers.
+    inside = {"investigation_id": "inv-1", "timestamp": "2026-10-13T01:01:00Z"}
+    assert run({}, [inside])["result"] == "not_stated"
+    assert run(None, [inside])["result"] == "not_stated"
 
 
 def test_evidence_from_another_investigation_or_outside_the_period_is_flagged():

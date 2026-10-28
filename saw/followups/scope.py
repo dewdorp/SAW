@@ -96,7 +96,13 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
     if not parts:
         return {"result": "no_request_scope", "components": {}, "uncovered": [],
                 "summary": "확인 요청과 조사에 대상·기간이 없어 회신 범위를 비교하지 못했습니다."}
+    stated = any(reply.get(k) for k in ("org_unit_id", "src_ips", "dst_ips", "dst_ports", "start", "end"))
     worst = max(parts.values(), key=lambda part: ORDER[part["status"]])["status"]
+    if not stated and worst != "mismatch":
+        # Attached records show what was observed, not what the reply covers: a reply that states no
+        # affiliate, target or period cannot be matched to the activity, whatever evidence is attached.
+        worst = "unknown"
+        parts = {k: v for k, v in parts.items() if k != "evidence"} or parts
     if worst == "mismatch":
         result = "mismatch"
     elif worst == "match":
