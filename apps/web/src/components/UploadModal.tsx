@@ -41,6 +41,7 @@ export function UploadModal({ kind: k0, invId, initialFiles, onClose }: { kind?:
       if (target !== "new" && subjectStatus === "verified" && (!subjectOrg || !basis.trim())) throw new Error("관측 대상 관계사와 귀속 확인 근거를 입력하세요.");
       let id = target;
       if (target === "new") {
+        if (!org) throw new Error("새 조사는 관계사를 선택해야 합니다. 조사 기간은 조사 화면 위쪽에서 지정할 수 있습니다.");
         const investigation = await api.post("/investigations", { title: title || `${files.length}개 파일 · ${new Date().toLocaleString("ko-KR")}`, ...(org ? { org_unit_id: org } : {}) });
         id = investigation.id;
       }

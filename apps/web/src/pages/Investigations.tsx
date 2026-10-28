@@ -9,7 +9,8 @@ import { api } from "../lib/api";
 import { fmtBytes, fmtTime } from "../lib/format";
 
 const STATUS_KO: Record<string, string> = { new: "신규", in_progress: "분석 중", closed: "종결", open: "진행 중" };
-const VERDICT_KO: Record<string, string> = { attack: "공격", normal: "정상", false_positive: "오탐", unknown: "판단 불가" };
+const VERDICT_KO: Record<string, string> = { normal: "정상 업무로 확인", attack_attempt: "공격 시도 확인", compromise_confirmed: "침해·영향 확인",
+  insufficient_evidence: "증거 부족", data_quality_limited: "데이터 품질로 판단 제한", attack: "공격", false_positive: "오탐", unknown: "판단 불가" };
 const KIND_KO: Record<string, string> = { web_log: "웹 로그", waf_log: "WAF", pcap: "PCAP", ioc_list: "IOC", sec_log: "보안 로그", fw_log: "방화벽", db_audit: "DB 감사", paste: "붙여넣기", auto: "자동" };
 
 export function Investigations() {
@@ -26,11 +27,16 @@ export function Investigations() {
   const more=async()=>{setPaging(true);setPageError(null);try{const page=await api.get(`/investigations?limit=50&before=${encodeURIComponent(allRows[allRows.length-1].id)}`);setOlder(old=>[...old,...page]);if(!page.length)setExhausted(true);}catch(error){setPageError(error);}finally{setPaging(false);}};
   const [title, setTitle] = useState("");
   const [org, setOrg] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
   const [filter, setFilter] = useState("");
   const [orgName, setOrgName] = useState("");
   const nav = useNavigate();
   const qc = useQueryClient();
-  const create = useMutation({ mutationFn: () => api.post("/investigations", { title, ...(org ? { org_unit_id: org } : {}) }), onSuccess: i => { qc.invalidateQueries({ queryKey: ["investigations"] }); nav(`/inv/${i.id}`); } });
+  // One investigation = one affiliate + one period (dates are read in KST, the end day is inclusive).
+  const create = useMutation({ mutationFn: () => api.post("/investigations", { title, org_unit_id: org,
+    period_start: `${periodStart}T00:00:00+09:00`, period_end: `${periodEnd}T23:59:59+09:00` }), onSuccess: i => { qc.invalidateQueries({ queryKey: ["investigations"] }); nav(`/inv/${i.id}`); } });
+  const ready = !!title.trim() && !!org && !!periodStart && !!periodEnd && periodStart <= periodEnd;
   const createOrg = useMutation({ mutationFn: () => api.post("/source-context/org-units", { display_name: orgName.trim() }), onSuccess: o => { qc.setQueryData(["org-units"], (old: any) => [...(old || []), o]); setOrg(o.id); setOrgName(""); } });
   const rows = allRows.filter((i: any) => !filter || (filter === "unassigned" ? !i.org_unit_id : i.org_unit_id === filter));
   return <div className="page col">
@@ -41,17 +47,19 @@ export function Investigations() {
       </div>
       <div className="pb col">
         <div className="row wrap"><input className="input grow" placeholder="새 조사 제목 (예: 고객 API 대량 조회 의심)" value={title} onChange={e => setTitle(e.target.value)} />
-          <label>새 조사 관계사 <select className="input" value={org} onChange={e => setOrg(e.target.value)}><option value="">미지정</option>{(orgs.data || []).map((o: any) => <option key={o.id} value={o.id}>{o.display_name}</option>)}</select></label>
-          <button className="btn primary sm" disabled={!title.trim() || create.isPending} onClick={() => create.mutate()}>새 조사 만들기</button></div>
-        {me.data?.permissions.includes("asset.write") && <div className="row wrap"><label>새 관계사 이름 <input className="input" maxLength={64} value={orgName} onChange={e => setOrgName(e.target.value)} /></label><button className="btn sm" disabled={!orgName.trim() || createOrg.isPending} onClick={() => createOrg.mutate()}>관계사 등록</button></div>}
-        <p className="small muted">조사 관계사는 업무 분류입니다. 실제 관측 대상의 귀속은 업로드할 때 별도 근거로 확인합니다.</p>
+          <label>관계사 <select className="input" aria-label="새 조사 관계사" value={org} onChange={e => setOrg(e.target.value)}><option value="">선택하세요</option>{(orgs.data || []).map((o: any) => <option key={o.id} value={o.id}>{o.display_name}</option>)}</select></label>
+          <label>조사 기간 <input className="input" type="date" aria-label="조사 시작일" value={periodStart} onChange={e => setPeriodStart(e.target.value)} /> ~ <input className="input" type="date" aria-label="조사 종료일" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} /></label>
+          <button className="btn primary sm" disabled={!ready || create.isPending} onClick={() => create.mutate()} title={ready ? undefined : "제목·관계사·조사 기간을 모두 입력하세요"}>새 조사 만들기</button></div>
+        {me.data?.permissions.includes("org.manage") && <div className="row wrap"><label>새 관계사 이름 <input className="input" maxLength={64} value={orgName} onChange={e => setOrgName(e.target.value)} /></label><button className="btn sm" disabled={!orgName.trim() || createOrg.isPending} onClick={() => createOrg.mutate()}>관계사 등록</button></div>}
+        <p className="small muted">조사는 관계사 한 곳과 조사 기간 하나를 단위로 합니다. 그 안에서 여러 의심 행위와 확인 사항을 함께 다룹니다. 자료를 올린 뒤에는 관계사를 바꿀 수 없습니다(다른 관계사 자료는 새 조사로).</p>
       </div>
       <ErrorBox error={create.error || createOrg.error || q.error || orgs.error || pageError} />
-      {q.isLoading ? <Loading /> : <div style={{ overflowX: "auto" }}><table className="t"><thead><tr><th>내보내기 선택</th><th>위험도</th><th>ID</th><th>제목</th><th>관계사</th><th>상태</th><th>증거</th><th>관측 기간</th><th>생성</th><th></th></tr></thead>
+      {q.isLoading ? <Loading /> : <div style={{ overflowX: "auto" }}><table className="t"><thead><tr><th>내보내기 선택</th><th>위험도</th><th>ID</th><th>제목</th><th>관계사</th><th>상태</th><th>증거</th><th>조사 기간</th><th>관측 기간</th><th>생성</th><th></th></tr></thead>
         <tbody>{rows.map((i: any) => <tr key={i.id}><td><input type="checkbox" aria-label={`조사 ${i.id} 선택`} checked={!!selected[i.id]} disabled={!selected[i.id]&&Object.keys(selected).length>=20} onChange={e=>setSelected(old=>e.target.checked?{...old,[i.id]:i.title}:Object.fromEntries(Object.entries(old).filter(([id])=>id!==i.id)))}/></td><td><Sev level={i.risk_level} score={i.risk_score} /></td><td className="mono"><Link to={`/inv/${i.id}`}>{i.display_id}</Link></td>
           <td><Link to={`/inv/${i.id}`} style={{ color: "var(--fg)", fontWeight: 600 }}>{i.title}</Link></td><td>{i.org_unit || "미분류"}</td>
           <td><Badge tone={i.status === "closed" ? undefined : "accent"}>{STATUS_KO[i.status] || i.status}{i.verdict ? ` · ${VERDICT_KO[i.verdict] || i.verdict}` : ""}</Badge></td>
           <td className="small">{i.evidence.map((e: any) => `${KIND_KO[e.kind] || e.kind} ${fmtBytes(e.size)}`).join(", ")}</td>
+          <td className="small">{i.period_start ? `${fmtTime(i.period_start)} ~ ${fmtTime(i.period_end)}` : "미지정"}</td>
           <td className="small">{fmtTime(i.time_start)} ~ {fmtTime(i.time_end)}</td><td className="small">{fmtTime(i.created_at)}</td><td><Link className="btn sm" to={`/inv/${i.id}/report`}>보고용 요약</Link></td></tr>)}</tbody></table></div>}
       {!!allRows.length&&!exhausted&&<button className="btn" disabled={paging} onClick={more}>이전 조사 더 보기</button>}
       <section className="pb col"><h4>선택한 조사 내보내기 · {Object.keys(selected).length}/20</h4><p className="small muted">필터 밖·다른 페이지 선택도 아래에 유지됩니다. 불러온 페이지 전체를 모든 조사로 간주하지 않습니다.</p>{Object.entries(selected).map(([id,title])=><div key={id}>{title} · <span className="mono">{id}</span><button className="btn sm" onClick={()=>setSelected(old=>Object.fromEntries(Object.entries(old).filter(([key])=>key!==id)))}>조사 선택 제거</button></div>)}<div className="row wrap"><button className="btn" disabled={!Object.keys(selected).length||!me.data?.permissions.includes("investigation.write")} onClick={()=>setExporting(true)}>선택 조사 HTML·Excel</button><button className="btn" disabled={!Object.keys(selected).length} onClick={()=>setSelected({})}>조사 선택 모두 해제</button></div></section>

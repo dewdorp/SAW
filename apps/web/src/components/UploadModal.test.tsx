@@ -6,10 +6,10 @@ import { UploadModal } from "./UploadModal";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function routes() {
+function routes(orgs: any[] = []) {
   return mockApi({
     "GET /investigations": [200, [{ id: "inv9", display_id: "INV-9", title: "기존 조사" }]],
-    "GET /source-context/org-units": [200, []],
+    "GET /source-context/org-units": [200, orgs],
     "GET /source-context/investigations/inv9/devices": [200, []],
     "POST /investigations": [201, { id: "new1" }],
     "POST /investigations/new1/evidence": [201, { id: "ev1" }],
@@ -37,18 +37,23 @@ const ui = (props: Partial<Parameters<typeof UploadModal>[0]> = {}) => (
 
 describe("UploadModal", () => {
   it("creates a new investigation, uploads in parts, starts processing and opens the job", async () => {
-    const api = routes();
+    const api = routes([{ id: "org-a", display_name: "가상 A사" }]);
     renderUI(ui({ kind: "pcap" }));
     expect((screen.getByRole("combobox", { name: /종류/ }) as HTMLSelectElement).value).toBe("pcap");
     fireEvent.change(screen.getByPlaceholderText("새 조사 제목 (선택)"), { target: { value: "침해 의심 캡처" } });
     pick("capture.pcap", "12345678");
     expect(screen.getByText("capture.pcap")).toBeTruthy();
+    // A new investigation needs its affiliate: nothing is created or uploaded without one.
+    fireEvent.click(screen.getByRole("button", { name: /업로드/ }));
+    expect(await screen.findByText(/관계사를 선택해야/)).toBeTruthy();
+    expect(api.find("POST", "/investigations")).toHaveLength(0);
+    fireEvent.change(await screen.findByLabelText("새 조사 관계사"), { target: { value: "org-a" } });
     fireEvent.click(screen.getByRole("button", { name: /업로드/ }));
     expect(await screen.findByText("job page")).toBeTruthy();
     const seq = api.calls.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.url}`);
     expect(seq).toEqual(["POST /investigations", "POST /investigations/new1/evidence", "POST /uploads", "PUT /uploads/up1/parts/1",
       "PUT /uploads/up1/parts/2", "POST /uploads/up1/complete", "POST /evidence/ev1/process"]);
-    expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "침해 의심 캡처" });
+    expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "침해 의심 캡처", org_unit_id: "org-a" });
     expect(api.find("POST", "/investigations/new1/evidence")[0].body.kind).toBe("pcap");
   });
 

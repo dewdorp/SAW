@@ -19,13 +19,19 @@ function fmtMetric(m: any): string {
   return String(v ?? "");
 }
 
+const BASELINE_SOURCE: Record<string, string> = {
+  "relative:same_source_destination_service_prior_windows": "같은 출발지·목적지·서비스의 직전 15분 구간들",
+};
+
 export function BaselineBar({ m }: { m: any }) {
   const b = m.baseline;
   const max = Math.max(Number(m.observed) || 0, Number(b.max) || 0) * 1.05 || 1;
+  const source = BASELINE_SOURCE[b.source] || (String(b.source || "").startsWith("asset:") ? "등록된 자산 정보의 예상값" : b.source || "조사 안의 상대 비교");
   return (
     <div className="col" style={{ gap: 2 }}>
-      <div className="small">{m.label} <span className="muted">({b.source})</span></div>
-      <div className="row small"><span className="muted" style={{ width: 54 }}>참고 범위</span>
+      <div className="small">{m.label} <span className="muted">(비교 대상: {source})</span></div>
+      {(b.start || b.windows) && <div className="small muted">실제 비교 기간: {b.start ? `${fmtTime(b.start)} ~ ${fmtTime(b.end)}` : "기록 없음"}{b.windows ? ` · ${b.windows}개 구간` : ""} — 장기간 정상 기준선이 아닙니다.</div>}
+      <div className="row small"><span className="muted" style={{ width: 54 }}>비교 기준</span>
         <div className="range grow"><div className="normal" style={{ left: `${(100 * (b.min || 0)) / max}%`, width: `${Math.max(1, (100 * ((b.max || 0) - (b.min || 0))) / max)}%` }} /></div>
         <span className="mono" style={{ width: 90 }}>{fmtNum(b.min)}–{fmtNum(b.max)}</span></div>
       <div className="row small"><span className="muted" style={{ width: 54 }}>관측</span>
@@ -127,8 +133,8 @@ export function FindingDetail({ inv, id, onBack }: { inv: string; id: string; on
           <table className="t"><tbody>{metrics.map((m: any) => <tr key={m.name}><td>{m.label}</td><td className="num">{fmtMetric(m)}</td></tr>)}</tbody></table>
           <div className="small" style={{ marginTop: 8, color: "var(--fg-1)" }}>{explain}</div>
         </Panel>
-        <Panel title="기준선과 관측값 비교">
-          {base.length ? base.map((m: any) => <BaselineBar key={m.name} m={m} />) : <div className="muted small">기준선 없음 — 자산 정보(Asset)를 등록하면 평소 값과 비교합니다 (현재는 조사 내부 상대 비교)</div>}
+        <Panel title="비교 기준과 관측값 (실제 비교 기간 표시)">
+          {base.length ? base.map((m: any) => <BaselineBar key={m.name} m={m} />) : <div className="muted small">비교 기준 없음 — 이 탐지는 조사 안의 규칙·상대 비교만 사용했습니다. 장기 정상 기준선 비교가 아닙니다.</div>}
           {rs && <><div className="small" style={{ marginTop: 6 }}>Baseline band (초록) vs Current (주황)</div><RateBand series={rs.series} band={rs.band} bucket={rs.bucket_sec} /></>}
           {seqm && <div style={{ marginTop: 6 }}><SequenceCompare normal={seqm.normal_path} observed={seqm.observed_path} rarity={rarity} /></div>}
           {intervals?.length > 0 && <><div className="small" style={{ marginTop: 6 }}>Interval histogram (좁은 봉우리 = 규칙적 주기)</div><IntervalHist values={intervals} /></>}

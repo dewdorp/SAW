@@ -15,12 +15,16 @@ describe("organization investigation entry", () => {
     expect(screen.queryByText("INV-B")).toBeNull();
     fireEvent.change(screen.getByLabelText("새 조사 관계사"), { target: { value: "ob" } });
     fireEvent.change(screen.getByPlaceholderText(/새 조사 제목/), { target: { value: "서비스 미지정 FW 조사" } });
+    // One affiliate + one period: creation stays disabled until the period is chosen.
+    expect((screen.getByRole("button", { name: "새 조사 만들기" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("조사 시작일"), { target: { value: "2026-09-29" } });
+    fireEvent.change(screen.getByLabelText("조사 종료일"), { target: { value: "2026-10-28" } });
     fireEvent.click(screen.getByRole("button", { name: "새 조사 만들기" }));
     expect(await screen.findByText("created workbench")).toBeTruthy();
-    expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "서비스 미지정 FW 조사", org_unit_id: "ob" });
+    expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "서비스 미지정 FW 조사", org_unit_id: "ob", period_start: "2026-09-29T00:00:00+09:00", period_end: "2026-10-28T23:59:59+09:00" });
   });
-  it("allows only asset writers to register an organization and selects the new organization", async () => {
-    const api = mockApi(routes({ "GET /auth/me": [200, { ...ME, permissions: [...ME.permissions, "asset.write"] }], "POST /source-context/org-units": [201, { id: "oc", display_name: "가상 C사" }] }));
+  it("allows only affiliate managers to register an organization and selects the new organization", async () => {
+    const api = mockApi(routes({ "GET /auth/me": [200, { ...ME, permissions: [...ME.permissions, "org.manage"] }], "POST /source-context/org-units": [201, { id: "oc", display_name: "가상 C사" }] }));
     renderUI(ui);
     fireEvent.change(await screen.findByLabelText("새 관계사 이름"), { target: { value: "가상 C사" } });
     fireEvent.click(screen.getByRole("button", { name: "관계사 등록" }));

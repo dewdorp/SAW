@@ -55,11 +55,11 @@ export function OverviewTab({ inv }: { inv: string }) {
     <div className="col">
       <div className="row wrap" style={{ gap: 16 }}>
         <b>분석 개요</b>
-        <span>{fmtNum(s.files)} Files</span><span>{fmtNum(s.events)} Events</span>
+        <span>파일 {fmtNum(s.files)}개</span><span>기록 {fmtNum(s.events)}건</span>
         <span className="muted">{fmtTime(s.time_range[0])} ~ {fmtTime(s.time_range[1])}</span>
-        <span>Unique IP <b>{fmtNum(s.unique_ip, s.approximate)}</b></span>{hasHttp && <span>고유 URI <b>{fmtNum(s.unique_uri, s.approximate)}</b></span>}
-        <span>Findings <b>{Object.values(s.findings).reduce((a: number, b: any) => a + b, 0) as number}</b></span>
-        <span className="muted">Parse errors {pct(s.parse_error_rate)}</span>
+        <span>고유 출발지 IP <b>{fmtNum(s.unique_ip, s.approximate)}</b></span>{hasHttp && <span>고유 URI <b>{fmtNum(s.unique_uri, s.approximate)}</b></span>}
+        <span>조사 제안 <b>{Object.values(s.findings).reduce((a: number, b: any) => a + b, 0) as number}</b>건</span>
+        <span className="muted">읽지 못한 줄 비율 {pct(s.parse_error_rate)}</span>
         <span className="muted small">{s.data_sources.map((x: any) => `${x.key} ${fmtNum(x.count)}`).join(" · ")}</span>
       </div>
       <p className="muted small">이벤트 수·관측 기간·차트는 현재 필터와 시간 범위입니다. 파일 수·탐지 결과·파싱 오류율은 조사 전체 값입니다. 파일·로그 종류·출발지별 상세 집계는 로그 통계 탭에서 확인하세요.</p>

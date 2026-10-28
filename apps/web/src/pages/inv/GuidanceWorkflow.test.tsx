@@ -57,11 +57,11 @@ describe("Closure reuses analyst records", () => {
     expect((screen.getByLabelText("실제 영향 판단") as HTMLTextAreaElement).value).toBe("실제 영향 미확인");
     expect((screen.getByLabelText("범위 제한") as HTMLTextAreaElement).value).toContain("WAS 처리 결과 미수집");
     expect(screen.queryByLabelText("WAF 차단 여부 확인")).toBeNull();
-    fireEvent.click(screen.getByLabelText("공격"));
+    fireEvent.click(screen.getByLabelText(/^공격 시도 확인/));
     fireEvent.change(screen.getByLabelText("판정 사유"), { target: { value: "공격 시도 관측. 실제 침해는 미확인." } });
     fireEvent.click(screen.getByRole("button", { name: "종결" }));
     await waitFor(() => expect(api.find("POST", "/investigations/i/close")).toHaveLength(1));
-    expect(api.find("POST", "/investigations/i/close")[0].body).toMatchObject({ behavior_assessment: "공격 시도 관측", impact_assessment: "실제 영향 미확인", checks: [], follow_up: [] });
+    expect(api.find("POST", "/investigations/i/close")[0].body).toMatchObject({ verdict: "attack_attempt", behavior_assessment: "공격 시도 관측", impact_assessment: "실제 영향 미확인", checks: [], follow_up: [] });
   });
 });
 

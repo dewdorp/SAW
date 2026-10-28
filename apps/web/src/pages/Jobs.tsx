@@ -126,18 +126,28 @@ function JobDetailContent({principal}:{principal:string}) {
         <table className="t"><thead><tr><th>파일</th><th>크기</th><th>형식</th><th>파서</th><th>상태</th><th className="num">이벤트</th><th className="num">실패</th><th>메시지</th></tr></thead>
           <tbody>{files.map((f: any) => (
             <tr key={f.id}><td className="mono ellipsis" style={{ maxWidth: 300 }}>{f.parent_file_id ? "  └ " : ""}{f.name}</td><td>{fmtBytes(f.size)}</td><td>{f.type}</td><td>{f.parser_id || "?"}</td>
-              <td>{f.status === "done" ? "✓ 완료" : f.status === "failed" ? "✗ 실패" : f.status === "degraded" ? "⚠ 일부 실패" : f.status}</td><td className="num">{fmtNum(f.events_parsed)}</td><td className="num">{fmtNum(f.events_failed)}</td><td className="small ellipsis" style={{ maxWidth: 280 }}>{f.message}</td></tr>))}</tbody></table>
+              <td>{f.status === "done" ? (f.message ? "✓ 완료 · 확인할 점 있음" : "✓ 완료") : f.status === "failed" ? "✗ 실패" : f.status === "degraded" ? "⚠ 일부 실패" : f.status}</td><td className="num">{fmtNum(f.events_parsed)}</td><td className="num">{fmtNum(f.events_failed)}</td><td className="small ellipsis" style={{ maxWidth: 280 }} title={f.message}>{f.message}</td></tr>))}</tbody></table>
       </Panel>
+      {files.some((f: any) => f.message && f.message !== "no lines parsed") && (
+        <Panel title="파일별 확인할 점 — 읽기는 했지만 분석에 쓰지 못했거나 정리한 내용">
+          {files.filter((f: any) => f.message && f.message !== "no lines parsed").map((f: any) => (
+            <div key={f.id} className="small" style={{ marginBottom: 6 }}><b className="mono">{f.name}</b>
+              {String(f.message).split(" · ").map((m: string, i: number) => <div key={i}>⚠ {m}</div>)}</div>))}
+          <div className="small muted">파일을 읽었거나 행 수를 셌다는 것만으로 분석에 필요한 의미가 모두 보존된 것은 아닙니다. 위 항목은 원문을 보존한 채 분석 값으로 쓰지 않은 부분입니다.</div>
+        </Panel>
+      )}
       {leaves.some((f: any) => f.coverage) && (
         <Panel title="처리 범위 — 파일의 모든 줄이 어디로 갔는지">
-          <table className="t"><thead><tr><th>파일</th><th className="num">전체 줄</th><th className="num">이벤트</th><th className="num">이어진 줄</th><th className="num">머리글·합쳐진 줄</th><th className="num">빈 줄</th><th className="num">실패</th><th className="num">저장 거부</th><th className="num">분석 비율</th></tr></thead>
+          <table className="t"><thead><tr><th>파일</th><th className="num">전체 줄</th><th className="num">이벤트</th><th className="num">이어진 줄</th><th className="num">머리글·합쳐진 줄</th><th className="num">빈 줄</th><th className="num">실패</th><th className="num">저장 거부</th><th className="num">시간 없음·해석 불가</th><th className="num">분석 비율</th></tr></thead>
             <tbody>{leaves.filter((f: any) => f.coverage).map((f: any) => {
               const c = f.coverage;
               const used = c.lines ? (c.events + c.continuation_lines + c.skipped_lines) / Math.max(1, c.lines - c.blank_lines) : 0;
               return <tr key={f.id}><td className="mono ellipsis" style={{ maxWidth: 260 }}>{f.name}</td><td className="num">{fmtNum(c.lines)}</td><td className="num">{fmtNum(c.events)}</td>
                 <td className="num">{fmtNum(c.continuation_lines || 0)}</td><td className="num">{fmtNum(c.skipped_lines)}</td><td className="num">{fmtNum(c.blank_lines)}</td>
                 <td className="num">{c.failed_lines ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.failed_lines)}</b> : 0}</td>
-                <td className="num">{c.rejected_events ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.rejected_events)}</b> : 0}</td><td className="num">{(used * 100).toFixed(used < 1 ? 2 : 0)}%</td></tr>;
+                <td className="num">{c.rejected_events ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.rejected_events)}</b> : 0}</td>
+                <td className="num">{(c.timestamp_missing || 0) + (c.timestamp_invalid || 0) ? <b style={{ color: "var(--warn)" }}>{fmtNum((c.timestamp_missing || 0) + (c.timestamp_invalid || 0))}</b> : 0}</td>
+                <td className="num">{(used * 100).toFixed(used < 1 ? 2 : 0)}%</td></tr>;
             })}</tbody></table>
           <div className="muted small">머리글·합쳐진 줄: CSV 머리글, 요청 이벤트에 합쳐진 응답 행(NDR) 등. 실패한 줄은 아래 표본에서 원인을 확인하세요. 저장 거부: 읽기는 했지만 검색엔진이 받지 않아 검색·탐지에 포함되지 않은 이벤트입니다.</div>
         </Panel>
