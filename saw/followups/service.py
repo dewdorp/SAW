@@ -372,12 +372,29 @@ def collect_followup_sources(s, inv_id, version_ids=None):
 
 
 
+def _period_widened(checked: dict, current: tuple) -> bool:
+    """A request that inherited the investigation period no longer covers it after the period grew."""
+    from saw.followups.scope import _time
+
+    if not checked.get("inherited"):
+        return False
+    cs, ce, ns, ne = _time(checked.get("start")), _time(checked.get("end")), _time(current[0]), _time(current[1])
+    if not (cs and ce and ns and ne):
+        return bool(ns or ne) and not (cs and ce)
+    return ns < cs or ne > ce
+
+
 def benign_blockers(s, inv_id) -> list[dict]:
     """Follow-ups that keep a 'normal / false positive' conclusion from being recorded.
 
     Explicitly cancelled or 'closed with limits' requests do not block (the analyst decided knowingly).
     Unanswered, unverified, unconfirmed, partly confirmed or out-of-scope replies do.
     """
+    from saw.core.application.investigations import declared_period
+    from saw.storage.models import Investigation
+
+    inv = s.get(Investigation, inv_id)
+    period = declared_period(inv) if inv is not None else (None, None)
     out = []
     for row in s.scalars(select(FollowUp).where(FollowUp.investigation_id == inv_id)):
         version = s.get(FollowUpVersion, row.current_version_id) if row.current_version_id else None
@@ -397,6 +414,10 @@ def benign_blockers(s, inv_id) -> list[dict]:
                       "insufficient_data": "확인 자료가 부족합니다."}.get(verification.get("outcome"), "확인이 끝나지 않았습니다.")
         elif status == "verified" and check.get("result") not in (None, "matches", "no_request_scope"):
             reason = check.get("summary") or "회신 범위가 확인 대상과 일치하지 않습니다."
+        elif status == "verified" and _period_widened(check.get("checked_period") or {}, period):
+            checked = check["checked_period"]
+            reason = (f"조사 기간이 바뀌어 이 확인 요청이 검증한 기간({checked.get('start')} ~ {checked.get('end')}) 밖의 "
+                      "구간은 확인되지 않았습니다. 새 구간에 대해 다시 확인하세요.")
         if reason:
             out.append({"followup_id": row.id, "question": payload.get("question"), "status": status, "reason": reason})
     return out

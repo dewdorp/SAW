@@ -31,10 +31,32 @@ def requested_scope(payload: dict, inv_org_unit_id: str | None, inv_period: tupl
     period = payload.get("period") or {}
     start = _time(period.get("start")) or _time(inv_period[0] if inv_period else None)
     end = _time(period.get("end")) or _time(inv_period[1] if inv_period else None)
+    # A request without its own period checks the investigation's period as it stands now; the result records
+    # that, so a later change of the investigation period is known to leave part of it unchecked.
+    inherited = not (_time(period.get("start")) and _time(period.get("end")))
     return {"org_unit_id": target.get("org_unit_id") or inv_org_unit_id, "start": start, "end": end,
+            "period_inherited": inherited,
             "src_ips": [str(x) for x in target.get("src_ips") or []],
             "dst_ips": [str(x) for x in target.get("dst_ips") or []],
             "dst_ports": [str(x) for x in target.get("dst_ports") or []]}
+
+
+EVENT_FIELDS = {"src_ips": "src_ip", "dst_ips": "dst_ip", "dst_ports": "dst_port"}
+
+
+def _endpoint(requested: dict, event: dict) -> str:
+    """One record against the asked endpoints, field by field within the same record (never across records)."""
+    missing = False
+    for key, field in EVENT_FIELDS.items():
+        wanted = {str(x) for x in requested.get(key) or []}
+        if not wanted:
+            continue
+        value = event.get(field)
+        if value in (None, ""):
+            missing = True
+        elif str(value) not in wanted:
+            return "mismatch"
+    return "unknown" if missing else "match"
 
 
 def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dict], investigation_id: str) -> dict:
@@ -83,16 +105,24 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
             put(key, "match", f"회신이 확인 대상 {label}를 모두 다룹니다.")
     if evidence_events:
         foreign = [e for e in evidence_events if e.get("investigation_id") not in (None, investigation_id)]
-        outside = [e for e in evidence_events
-                   if ps and pe and (_time(e.get("timestamp")) is None or not ps <= _time(e.get("timestamp")) <= pe)]
+        bad, unknown = [], []
+        for e in evidence_events:
+            when = _time(e.get("timestamp"))
+            endpoint = _endpoint(requested, e)
+            if (ps and pe and (when is None or not ps <= when <= pe)) or endpoint == "mismatch":
+                bad.append(e)
+            elif endpoint == "unknown":
+                unknown.append(e)
         if foreign:
             put("evidence", "mismatch", f"근거 기록 {len(foreign)}건이 다른 조사의 기록입니다.")
-        elif outside and len(outside) == len(evidence_events):
-            put("evidence", "mismatch", "근거 기록이 모두 확인 대상 기간 밖입니다.")
-        elif outside:
-            put("evidence", "partial", f"근거 기록 {len(outside)}건이 확인 대상 기간 밖입니다.")
+        elif bad and len(bad) == len(evidence_events):
+            put("evidence", "mismatch", "근거 기록이 모두 확인 대상의 기간·주소·포트 밖입니다.")
+        elif bad:
+            put("evidence", "partial", f"근거 기록 {len(bad)}건이 확인 대상의 기간·주소·포트 밖입니다.")
+        elif unknown:
+            put("evidence", "partial", f"근거 기록 {len(unknown)}건은 주소·포트 정보가 없어 같은 대상인지 확인할 수 없습니다.")
         else:
-            put("evidence", "match", f"근거 기록 {len(evidence_events)}건이 확인 대상 범위 안에 있습니다.")
+            put("evidence", "match", f"근거 기록 {len(evidence_events)}건이 확인 대상 기간·주소·포트 안에 있습니다.")
     asked = bool(requested["org_unit_id"] or (ps and pe) or any(requested[k] for k in LIST_LABELS))
     if not asked and parts.get("evidence", {}).get("status") != "mismatch":
         # Nothing was asked to compare against; records from this investigation alone set no scope.
@@ -119,4 +149,6 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
                "partial": "회신이 확인 대상의 일부만 설명합니다. 남은 부분은 계속 확인이 필요합니다.",
                "mismatch": "회신의 관계사·기간·대상이 확인 대상과 다릅니다. 이 회신으로 해당 행위를 설명할 수 없습니다.",
                "not_stated": "회신에 범위가 적혀 있지 않아 같은 행위에 대한 설명인지 확인할 수 없습니다."}[result]
-    return {"result": result, "components": parts, "uncovered": uncovered, "summary": summary}
+    checked = {"start": ps.isoformat() if ps else None, "end": pe.isoformat() if pe else None,
+               "inherited": bool(requested.get("period_inherited"))}
+    return {"result": result, "components": parts, "uncovered": uncovered, "summary": summary, "checked_period": checked}
