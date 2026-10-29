@@ -187,7 +187,7 @@ class SQLiteEventStore:
             clauses.append("ts_epoch >= ?")
             params.append(ts_epoch(time.start))
         if time and time.end:
-            clauses.append("ts_epoch <= ?")
+            clauses.append("ts_epoch < ?" if time.end_exclusive else "ts_epoch <= ?")
             params.append(ts_epoch(time.end))
         for f in filters or []:
             if f.field in ARRAY_FIELDS and f.op in ("is", "is_not", "in", "not_in"):

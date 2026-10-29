@@ -40,7 +40,7 @@ def test_scope_summary_counts_basis_actions_gaps_and_outside_period(senior):
     days = {d["date"]: d["count"] for d in data["time"]["daily"]}
     assert days["2026-10-01"] == 2 and days["2026-10-03"] == 0 and days["2026-10-04"] == 1
     assert "2026-10-03" in data["time"]["empty_days"]
-    assert data["time"]["outside_period"] == {"before": 0, "after": 1}
+    assert data["time"]["outside_period"] == {"before": 0, "after": 1, "inside": 4}
     assert data["time"]["without_timestamp"] == 1
     assert data["inputs"]["files"] == 1 and data["inputs"]["timestamp_invalid"] + data["inputs"]["timestamp_missing"] == 1
     assert any("시간" in f["message"] for f in data["inputs"]["by_file"])
@@ -78,3 +78,43 @@ def test_partial_search_results_cannot_be_recorded_as_fully_checked(analyst):
     assert refused.status_code == 400 and "표본" in refused.text
     body["scope"].update(loaded=100000)
     assert analyst.post(f"/investigations/{inv['id']}/checks", json=body).status_code in (200, 201)
+
+
+def _inv_with(senior, start, end, rows):
+    org = senior.post("/source-context/org-units", json={"display_name": f"Days {uuid.uuid4().hex[:6]}"}).json()
+    inv = senior.post("/investigations", json={"title": "days", "org_unit_id": org["id"],
+                                              "period_start": start, "period_end": end}).json()
+    _process(senior, inv["id"], "fw.csv", _fw(rows))
+    return inv
+
+
+def test_an_old_outlier_outside_the_period_does_not_empty_the_daily_chart(senior):
+    """UX-02: one 2020 record made the hourly histogram widen past a day and every 2026 day showed 0."""
+    inv = _inv_with(senior, "2026-10-01T00:00:00+09:00", "2026-10-05T23:59:59+09:00", [
+        ("2026-10-01 10:00:00", "허용", "198.51.100.1"), ("2026-10-03 00:00:00", "허용", "198.51.100.1"),
+        ("2026-10-05 23:59:59", "허용", "198.51.100.2"), ("2020-01-01 10:00:00", "허용", "198.51.100.3")])
+    data = senior.post(f"/investigations/{inv['id']}/scope-summary", json={"filters": []}).json()
+    days = {d["date"]: d["count"] for d in data["time"]["daily"]}
+    assert days == {"2026-10-01": 1, "2026-10-02": 0, "2026-10-03": 1, "2026-10-04": 0, "2026-10-05": 1}
+    assert data["time"]["outside_period"]["before"] == 1 and data["time"]["outside_period"]["inside"] == 3
+
+
+def test_the_last_day_includes_its_final_second_and_kst_midnight_belongs_to_the_next_day(senior):
+    """UX-07: [start, day after end 00:00) — 23:59:59.500 of the last day is inside, 00:00 after it is not."""
+    inv = _inv_with(senior, "2026-10-01T00:00:00+09:00", "2026-10-02T23:59:59+09:00", [
+        ("2026-10-01 00:00:00", "허용", "198.51.100.1"), ("2026-10-02 23:59:59.500", "허용", "198.51.100.1"),
+        ("2026-10-03 00:00:00", "허용", "198.51.100.1")])
+    data = senior.post(f"/investigations/{inv['id']}/scope-summary", json={"filters": []}).json()
+    days = {d["date"]: d["count"] for d in data["time"]["daily"]}
+    assert days == {"2026-10-01": 1, "2026-10-02": 1}
+    assert data["time"]["outside_period"] == {"before": 0, "after": 1, "inside": 2}
+
+
+def test_days_a_search_excludes_are_not_reported_as_collection_gaps(senior):
+    """UX-09: searching one day must not call the other days' data 'not collected'."""
+    inv = _inv_with(senior, "2026-10-01T00:00:00+09:00", "2026-10-03T23:59:59+09:00", [
+        ("2026-10-01 10:00:00", "허용", "198.51.100.1"), ("2026-10-02 10:00:00", "차단", "198.51.100.1")])
+    one_day = senior.post(f"/investigations/{inv['id']}/scope-summary", json={
+        "filters": [], "time": {"start": "2026-10-01T00:00:00+09:00", "end": "2026-10-01T23:59:59+09:00"}}).json()
+    assert one_day["time"]["empty_days"] == ["2026-10-03"]  # nothing was collected that day at all
+    assert one_day["time"]["no_result_days"] == ["2026-10-02"]  # data exists, the search just excludes it

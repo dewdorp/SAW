@@ -121,7 +121,10 @@ export function ScopeSummary({ inv }: { inv: string }) {
         right={<span className="row small" style={{ gap: 6 }}><button className={`btn sm ${weekly ? "" : "primary"}`} onClick={() => setWeekly(false)}>일별</button><button className={`btn sm ${weekly ? "primary" : ""}`} onClick={() => setWeekly(true)}>주별</button></span>}>
         <EChart ariaLabel="기간별 기록 수" height={200} option={option as any} onClick={(p: any) => openDay(p.dataIndex)} />
         {t.empty_days.length > 0 && <div className="small" style={{ color: "var(--warn)" }}>
-          기록이 하나도 없는 날 {t.empty_days.length}일: {t.empty_days.slice(0, 20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 공백인지, 실제로 통신이 없었는지는 수집 담당자에게 확인해야 합니다.
+          조사 전체에 기록이 하나도 없는 날 {t.empty_days.length}일: {t.empty_days.slice(0, 20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 공백인지, 실제로 통신이 없었는지는 수집 담당자에게 확인해야 합니다.
+        </div>}
+        {(t.no_result_days || []).length > 0 && <div className="small muted">
+          현재 검색 조건에서 결과가 없는 날 {t.no_result_days.length}일 — 이 날들에도 다른 기록은 있으므로 수집 공백이 아닙니다.
         </div>}
       </Panel>
 

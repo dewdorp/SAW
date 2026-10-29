@@ -27,6 +27,7 @@ class Filter(BaseModel):
 class TimeRange(BaseModel):
     start: str | None = None  # ISO8601
     end: str | None = None
+    end_exclusive: bool = False  # [start, end) — used for whole-day periods so no instant of the last day is lost
 
 
 class SearchRequest(BaseModel):
