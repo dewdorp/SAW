@@ -93,6 +93,10 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
             put("evidence", "partial", f"근거 기록 {len(outside)}건이 확인 대상 기간 밖입니다.")
         else:
             put("evidence", "match", f"근거 기록 {len(evidence_events)}건이 확인 대상 범위 안에 있습니다.")
+    asked = bool(requested["org_unit_id"] or (ps and pe) or any(requested[k] for k in LIST_LABELS))
+    if not asked and parts.get("evidence", {}).get("status") != "mismatch":
+        # Nothing was asked to compare against; records from this investigation alone set no scope.
+        parts, uncovered = {}, []
     if not parts:
         return {"result": "no_request_scope", "components": {}, "uncovered": [],
                 "summary": "확인 요청과 조사에 대상·기간이 없어 회신 범위를 비교하지 못했습니다."}

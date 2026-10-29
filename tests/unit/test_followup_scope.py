@@ -59,3 +59,8 @@ def test_investigation_scope_is_used_when_the_request_names_none():
     assert requested["org_unit_id"] == "aff-a" and requested["start"] == datetime(2026, 9, 30, 15, tzinfo=UTC)
     assert compare(requested, {}, [], "inv")["result"] == "not_stated"
     assert compare(requested_scope({}, None, (None, None)), {}, [], "inv")["result"] == "no_request_scope"
+    # Records from this investigation give no scope to compare when nothing was asked; another investigation's do.
+    unscoped = requested_scope({}, None, (None, None))
+    own = {"investigation_id": "inv", "timestamp": "2026-10-13T01:01:00Z"}
+    assert compare(unscoped, {}, [own], "inv")["result"] == "no_request_scope"
+    assert compare(unscoped, {}, [{**own, "investigation_id": "other"}], "inv")["result"] == "mismatch"
