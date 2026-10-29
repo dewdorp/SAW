@@ -47,8 +47,8 @@ describe("whole picture", () => {
     expect(screen.getByText(/조사 기간 밖 기록: 이전 0건, 이후 3건/)).toBeTruthy();
     expect(screen.getByText("⚠ 구분자를 ';'로 인식했습니다.")).toBeTruthy();
     expect(screen.getByText("⚠ 이 형식의 열 중 없는 열: 세션시간.")).toBeTruthy();
-    expect(await screen.findByText("미등록 — 의미 확인 필요")).toBeTruthy();
-    expect(screen.getByText("의미 확인됨")).toBeTruthy();
+    expect(await screen.findByText("의미 확인 필요")).toBeTruthy();
+    expect(screen.getByText("의미 확인됨(같은 장비·유효기간)")).toBeTruthy();
     expect(screen.getByText("anomaly.peer: 일부만 처리")).toBeTruthy();
     expect(screen.getByText(/장기 정상 기준선 비교가 아닙니다/)).toBeTruthy();
   });

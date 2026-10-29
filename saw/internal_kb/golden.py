@@ -87,6 +87,7 @@ class Content(Strict):
     later_logs: list[dict] = Field(default_factory=list, max_length=MAX_ITEMS)
     later_evidence_refs: list[Line] = Field(default_factory=list, max_length=MAX_ITEMS)
     later_facts: list[LongLine] = Field(default_factory=list, max_length=MAX_ITEMS)
+    alert_meanings: list[dict] = Field(default_factory=list, max_length=MAX_ITEMS)  # which registered meaning version applied
     final_judgement: Judgement = Field(default_factory=Judgement)
     unresolved: list[LongLine] = Field(default_factory=list, max_length=MAX_ITEMS)
     notes: LongLine = ""
@@ -295,6 +296,15 @@ def draft(s, p, inv_id: str) -> dict:
             unresolved.append(_fit(open_line))
     if view["hidden_followups"]:
         unresolved.append(f"열람 권한이 없는 조사를 근거로 쓴 확인 요청 {view['hidden_followups']}건은 이 초안에서 제외했습니다.")
+    from saw.internal_kb.signatures import investigation_alerts
+
+    try:
+        alerts = investigation_alerts(s, p, inv_id)["items"]
+    except Exception:  # noqa: BLE001 - a draft without alert meanings is still useful; the list says so
+        alerts = []
+    meanings = [{"alert_name": a["alert_name"], "vendor": a["vendor"], "product": a["product"], "count": a["count"],
+                 "registry": a["registry"], "meaning_id": (a["applied"] or {}).get("id"),
+                 "meaning_version": (a["applied"] or {}).get("version")} for a in alerts]
     detail = inv.close_detail or {}
     guidance = detail.get("guidance") or {}
     unresolved += [line for line in str(detail.get("limits") or "").splitlines() if line.strip()]
@@ -312,6 +322,7 @@ def draft(s, p, inv_id: str) -> dict:
         "later_logs": view["later_logs"][:MAX_ITEMS],
         "later_evidence_refs": view["later_refs"][:MAX_ITEMS],
         "later_facts": view["later_lines"][:MAX_ITEMS],
+        "alert_meanings": meanings[:MAX_ITEMS],
         "final_judgement": {"status": inv.verdict or "", "rationale": _fit(inv.verdict_reason or ""),
                             "scope": " ".join(x for x in (guidance.get("behavior_assessment"),
                                                           guidance.get("impact_assessment")) if x)[:4000]},

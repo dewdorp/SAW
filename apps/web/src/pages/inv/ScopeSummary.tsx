@@ -7,7 +7,11 @@ import { fmtNum, fmtTime } from "../../lib/format";
 import { axisStyle, EChart, safeTooltip } from "../../viz/EChart";
 
 const SOURCE_KO: Record<string, string> = { connection: "연결(방화벽·NDR 세션)", web: "HTTP 요청(NDR·웹)", waf: "웹 방화벽", zeek_conn: "네트워크 연결", zeek_http: "패킷 속 HTTP", suricata: "IDS 경보" };
-const REGISTRY_KO: Record<string, string> = { confirmed: "의미 확인됨", ambiguous: "등록 항목 여러 개 — 확인 필요", needs_confirmation: "미등록 — 의미 확인 필요" };
+const REGISTRY_KO: Record<string, string> = { confirmed: "의미 확인됨(같은 장비·유효기간)", name_only: "이름만 일치 — 장비 미지정 등록",
+  ambiguous: "적용 가능한 등록 여러 개 — 확인 필요", needs_confirmation: "의미 확인 필요" };
+// The tooltip explains the meaning that actually applies, or why no registered meaning applies — never just the first entry.
+const alertTitle = (a: any) => a.applied ? `${a.applied.meaning} (v${a.applied.version} · ${a.applied.basis})`
+  : (a.entries || []).map((e: any) => e.not_applied_reason).filter(Boolean).join(" / ") || "등록된 의미가 없습니다.";
 const PICKABLE = new Set(["data_source", "enforcement_action", "alert_name", "src_ip", "dst_ip", "dst_port", "protocol"]);
 
 /** Inline editor for the declared investigation period (shown while it is missing). */
@@ -126,11 +130,11 @@ export function ScopeSummary({ inv }: { inv: string }) {
         <Breakdown name="data_source" data={d.breakdown.data_source} onPick={pick("data_source")} />
         <Panel title="장비 공격명 (장비의 주장 · 의미 등록 상태)">
           {alerts.isLoading && <Loading />}
-          {(alerts.data?.items || []).slice(0, 10).map((a: any) => (
-            <div key={a.alert_name} className="row small" style={{ gap: 6 }}>
+          {(alerts.data?.items || []).slice(0, 10).map((a: any, i: number) => (
+            <div key={`${a.alert_name}-${i}`} className="row small" style={{ gap: 6 }}>
               <span className="grow ellipsis mono" title={a.alert_name}>{a.alert_name}</span>
               <span className="num">{fmtNum(a.count)}</span>
-              <span className={`tag ${a.registry === "confirmed" ? "" : "warn"}`} title={a.entries?.[0]?.meaning || ""}>{REGISTRY_KO[a.registry]}</span>
+              <span className={`tag ${a.registry === "confirmed" ? "" : "warn"}`} title={alertTitle(a)}>{REGISTRY_KO[a.registry] || a.registry}</span>
               <button className="btn ghost sm" onClick={() => pick("alert_name")(a.alert_name)}>좁혀 보기</button>
             </div>
           ))}
