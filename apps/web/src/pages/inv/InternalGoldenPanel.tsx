@@ -46,7 +46,8 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
   const draft = useMutation({ mutationFn: () => api.get(`/investigations/${inv}/internal-golden/draft`), onSuccess: (r: any) => setContent(normalized(r.content)) });
   const save = useMutation({
     mutationFn: () => api.post(`/investigations/${inv}/internal-golden`, { content, change_note: note, expected_version: baseVersion }),
-    onSuccess: () => { setNote(""); qc.invalidateQueries({ queryKey: ["internal-golden", inv] }); },
+    // The saved version is the new base at once, so an immediate second save is checked against it.
+    onSuccess: (saved: any) => { setNote(""); setBaseVersion(saved?.version ?? null); qc.invalidateQueries({ queryKey: ["internal-golden", inv] }); },
   });
   const openVersion = useMutation({ mutationFn: (v: number) => api.get(`/knowledge/internal-golden/${current.data.record.id}?version=${v}`), onSuccess: setViewing });
   if (current.isLoading) return <Loading />;
@@ -113,7 +114,7 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
           </Panel>
           <div className="row wrap" style={{ gap: 8 }}>
             <input className="input" aria-label="변경 메모" placeholder="무엇을 바꿨는지(선택)" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 280 }} />
-            <button className="btn primary" disabled={save.isPending || !content.title} onClick={() => save.mutate()}>{record ? `저장 (v${record.version + 1})` : "골든셋으로 저장"}</button>
+            <button className="btn primary" disabled={save.isPending || !content.title || (!!record && baseVersion !== record.version)} onClick={() => save.mutate()}>{record ? `저장 (v${record.version + 1})` : "골든셋으로 저장"}</button>
             {save.isSuccess && <span className="small">저장했습니다.</span>}
           </div>
           <ErrorBox error={save.error} />
