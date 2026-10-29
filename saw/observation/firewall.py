@@ -216,10 +216,20 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                     state["ended"] = True
                     state["ended_at"] = _time(obs.get("end_time")) or timestamp
                 if obs.get("whole_session"):
-                    # One record is the whole connection, so it was observed from its start.
-                    state["start_seen"] = True
-                    if state["started"] is None:
-                        state["started"] = timestamp
+                    # One record is the whole connection. Its time is a start only when the profile says so;
+                    # an end (or unspecified) time places the start only with a duration, and that start is
+                    # an estimate. Without either, no start-to-start period can be claimed.
+                    role = (obs.get("time_profile") or {}).get("role")
+                    duration = obs.get("duration_seconds")
+                    if timestamp is not None and role == "start":
+                        state["start_seen"] = True
+                        state["started"] = timestamp if state["started"] is None else state["started"]
+                    elif timestamp is not None and duration is not None and role in {"end", "occurred"}:
+                        state["start_seen"] = True
+                        state["started"] = timestamp - duration if state["started"] is None else state["started"]
+                        state["quality"].add("start_time_estimated")
+                    else:
+                        state["quality"].add("start_time_unknown")
                 for name, metric in obs["counters"].items():
                     value = metric["value"]
                     state["valid"][name] &= metric["state"] == "observed"
