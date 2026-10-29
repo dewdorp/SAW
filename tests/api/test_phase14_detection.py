@@ -97,3 +97,17 @@ def test_component_map_uses_saw_data_source_names():
 
     ds = zeek_record({"id.orig_h": "10.0.0.1", "id.resp_h": "1.2.3.4", "conn_state": "SF", "orig_bytes": 1})[0]
     assert ds in COMPONENT_SOURCES["Network Traffic: Network Traffic Flow"]
+
+
+@pytest.mark.parametrize("verdict", ["attack", "attack_attempt", "compromise_confirmed"])
+def test_new_attack_conclusions_count_as_attack_labels_in_the_legacy_replay(analyst, verdict):
+    """ROOT-01: attack_attempt and compromise_confirmed were counted as unlabeled; only "attack" counted."""
+    atk = _inv(analyst, f"attack-{verdict}", None, normal=300, enum_count=500)
+    fs = analyst.get(f"/investigations/{atk['id']}/findings").json()
+    enum = next(f for f in fs if f["category"] == "web.api_enumeration")
+    analyst.post(f"/investigations/{atk['id']}/close", json={"verdict": verdict, "reason": "labelled for testing"})
+    d = analyst.post(f"/detections/from-finding/{enum['id']}").json()
+    res = analyst.post(f"/detections/{d['id']}/test", json={}).json()["result"]
+    assert res["tp"] > 0 and res["detects_confirmed_attacks"] is True
+    assert res["by_verdict"].get(verdict, 0) == res["tp"] and res["unlabeled"] == res["hits"] - res["tp"] - res["fp"]
+    assert "조사 전체" in res["label_note"]

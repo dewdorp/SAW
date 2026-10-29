@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from saw import container
 from saw.config import get_settings
-from saw.core.application.investigations import declared_period
+from saw.core.application.investigations import declared_period, period_window
 from saw.core.application.statistics import bounds
 from saw.core.schemas.query import AggRequest, Filter, TimeRange
 
@@ -75,29 +75,58 @@ def _inputs(es, s, inv_id) -> dict:
             **totals, "by_file": rows[:200], "files_truncated": len(rows) > 200}
 
 
-def _days(es, inv_id, filters, time, start, end, zone) -> dict:
-    """Daily (and ISO-weekly) counts in the investigation's timezone, with empty days kept visible."""
-    if not start or not end:
-        return {"daily": [], "weekly": [], "empty_days": [], "interval_sec": None}
-    hist = es.aggregate(inv_id, filters, AggRequest(type="date_histogram", field="timestamp", interval_sec=3600), time)
+def _window(time: TimeRange | None, period: TimeRange | None) -> TimeRange | None:
+    """The searched time limited to the investigation period, so an old outlier cannot stretch the chart."""
+    if period is None:
+        return time
+    if time is None or not (time.start or time.end):
+        return period
+    start = max(x for x in (time.start, period.start) if x) if (time.start or period.start) else None
+    ends = [(_parse(x.end), x.end_exclusive) for x in (time, period) if x.end]
+    finish, exclusive = min(ends, key=lambda e: (e[0], not e[1])) if ends else (None, False)
+    return TimeRange(start=start, end=finish.isoformat() if finish else None, end_exclusive=exclusive)
+
+
+def _per_day(es, inv_id, filters, window, zone) -> dict:
+    hist = es.aggregate(inv_id, filters, AggRequest(type="date_histogram", field="timestamp", interval_sec=3600), window)
     per_day: dict[date, int] = {}
     for bucket in hist.get("buckets", []):
         day = datetime.fromtimestamp(bucket["key"], tz=UTC).astimezone(zone).date()
         per_day[day] = per_day.get(day, 0) + bucket["count"]
-    first, last = start.astimezone(zone).date(), end.astimezone(zone).date()
-    daily, empty, weekly = [], [], OrderedDict()
+    return {"days": per_day, "interval_sec": hist.get("interval_sec")}
+
+
+def _days(es, inv_id, filters, time, start, end, zone, period=None) -> dict:
+    """Daily (and ISO-weekly) counts in the investigation's timezone over the investigation period.
+
+    Days with no record at all in the investigation are collection gaps to ask about; days where only the
+    current search finds nothing are reported separately and are not gaps.
+    """
+    if not start or not end:
+        return {"daily": [], "weekly": [], "empty_days": [], "no_result_days": [], "interval_sec": None}
+    window = _window(time, period)
+    shown = _per_day(es, inv_id, filters, window, zone)
+    whole = shown if not filters and window == period else _per_day(es, inv_id, [], period, zone)
+    first = start.astimezone(zone).date()
+    last_moment = end.astimezone(zone)
+    if period is not None and period.end_exclusive:
+        last_moment -= timedelta(microseconds=1)
+    last = last_moment.date()
+    daily, empty, quiet, weekly = [], [], [], OrderedDict()
     day = first
     while day <= last and len(daily) < 800:
-        n = per_day.get(day, 0)
+        n = shown["days"].get(day, 0)
         daily.append({"date": day.isoformat(), "count": n})
-        if not n:
+        if not whole["days"].get(day, 0):
             empty.append(day.isoformat())
+        elif not n:
+            quiet.append(day.isoformat())
         year, week, _ = day.isocalendar()
         key = f"{year}-W{week:02d}"
         weekly[key] = weekly.get(key, 0) + n
         day += timedelta(days=1)
     return {"daily": daily, "weekly": [{"week": k, "count": v} for k, v in weekly.items()],
-            "empty_days": empty, "interval_sec": hist.get("interval_sec")}
+            "empty_days": empty, "no_result_days": quiet, "interval_sec": shown["interval_sec"]}
 
 
 def _analysis(s, inv_id) -> dict | None:
@@ -130,12 +159,15 @@ def build(s, inv, filters: list[Filter], time: TimeRange | None) -> dict:
     observed = bounds(es, inv.id, [], None)
     period = declared_period(inv)
     p_start, p_end = _parse(period[0]), _parse(period[1])
+    window = period_window(inv)
     with_time = es.count(inv.id, [Filter(field="timestamp", op="exists")], None)
     outside = None
-    if p_start and p_end:
-        before = es.count(inv.id, [], TimeRange(end=(p_start - timedelta(milliseconds=1)).isoformat()))
-        after = es.count(inv.id, [], TimeRange(start=(p_end + timedelta(milliseconds=1)).isoformat()))
-        outside = {"before": before, "after": after}
+    if window is not None:
+        before = es.count(inv.id, [], TimeRange(end=window.start, end_exclusive=True))
+        after = es.count(inv.id, [], TimeRange(start=window.end) if window.end_exclusive
+                         else TimeRange(start=(_parse(window.end) + timedelta(microseconds=1)).isoformat()))
+        outside = {"before": before, "after": after,
+                   "inside": es.count(inv.id, [], window)}
     breakdown = {}
     for field, label, size in BREAKDOWNS:
         agg = es.aggregate(inv.id, filters, AggRequest(type="terms", field=field, size=size), time)
@@ -153,7 +185,7 @@ def build(s, inv, filters: list[Filter], time: TimeRange | None) -> dict:
                   "note": ("현재 필터·시간 범위의 기록입니다. 조사 전체는 all_events입니다." if filtered
                            else "조사 전체 기록 기준입니다.")},
         "time": {"with_timestamp": with_time, "without_timestamp": max(0, all_events - with_time),
-                 "outside_period": outside, **_days(es, inv.id, filters, time, range_start, range_end, zone)},
+                 "outside_period": outside, **_days(es, inv.id, filters, time, range_start, range_end, zone, window)},
         "inputs": _inputs(es, s, inv.id),
         "breakdown": breakdown,
         "analysis": _analysis(s, inv.id),

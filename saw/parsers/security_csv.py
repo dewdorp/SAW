@@ -163,7 +163,10 @@ class _SecurityCsvParser(CsvParser):
         if repeated:
             notes.append(duplicate_columns_note(repeated))
         exact = not (notes or len(positions) != len(self.required_headers))
-        return {"delim": best["delim"], "names": names, "notes": notes, "missing": missing, "exact": exact}
+        # How well this format explains the export: its own columns present, and the export's columns it knows.
+        fit = (len(positions) / len(self.required_headers)) * (sum(len(v) for v in positions.values()) / len(header))
+        return {"delim": best["delim"], "names": names, "notes": notes, "missing": missing, "exact": exact,
+                "fit": fit}
 
     def detect(self, sample: list[str]) -> float:
         first = next((line for line in sample if line.strip()), "")
@@ -171,7 +174,9 @@ class _SecurityCsvParser(CsvParser):
         if plan is None:
             return 0.0
         # A near-match still beats the generic CSV parser (0.95), which would drop session/HTTP/action meaning.
-        return 0.99 if plan["exact"] else 0.97
+        # Between near-matching formats (an NDR export missing 공격명 but carrying TCP플래그 also near-matches the
+        # FW format), the one that explains more of the export wins instead of registration order.
+        return 0.99 if plan["exact"] else round(0.951 + 0.038 * plan["fit"], 4)
 
     def parse(self, lines):
         yield from super().parse(lines)
@@ -206,12 +211,12 @@ class _SecurityCsvParser(CsvParser):
             if value in ("", "-"):
                 continue
             if name in _PORTS:
-                if not value.isdigit() or int(value) > 65535:
+                if not (value.isascii() and value.isdigit()) or int(value) > 65535:  # "²" is a digit, not a port
                     self._bad["port"] += 1
                     continue
             elif name in _BYTES:
                 value = value.replace(",", "")  # "1,200" from spreadsheet exports
-                if not value.isdigit():
+                if not (value.isascii() and value.isdigit()):
                     self._bad["number"] += 1
                     continue
             elif name in _IPS and _IPV4_LIKE.fullmatch(value) and not _valid_ip(value):

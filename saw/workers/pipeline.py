@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from saw import container
 from saw.core.application import analysis
-from saw.parsers.base import Parsed, Skip
+from saw.parsers.base import Failed, Parsed, Skip
 from saw.parsers.registry import detect, iter_lines, sniff_encoding, to_ces
 from saw.storage.db import session_scope, utcnow
 from saw.storage.models import Evidence, EvidenceFile, Job
@@ -335,9 +335,14 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
         cov["continuation_lines"] += rl.text.count("\n")  # multi-line CSV record: extra physical lines
         if isinstance(r, Parsed):
             # structured events keep fields + raw_ref; the line is read back from the evidence file on demand
-            ev = to_ces(parser, rl, r, investigation_id=job.inv_id, evidence_id=job.ev_id, file_id=job.file_id,
-                        source_file=job.name, object_key=f"{job.bucket}/{job.key}", assumed_tz=job.tz,
-                        slim_sources=SLIM_SOURCES if slim else frozenset(), context_snapshot=context_snapshot)
+            try:
+                ev = to_ces(parser, rl, r, investigation_id=job.inv_id, evidence_id=job.ev_id, file_id=job.file_id,
+                            source_file=job.name, object_key=f"{job.bucket}/{job.key}", assumed_tz=job.tz,
+                            slim_sources=SLIM_SOURCES if slim else frozenset(), context_snapshot=context_snapshot)
+            except (ValueError, TypeError, OverflowError, ArithmeticError, KeyError) as exc:
+                # One record whose values cannot be normalised fails alone; the file keeps going.
+                r = Failed(f"이 행의 값을 정규화하지 못했습니다({type(exc).__name__}): {str(exc)[:200]}")
+        if isinstance(r, Parsed):
             ts = ev.get("timestamp")
             if ts:
                 first_ts = ts if first_ts is None or ts < first_ts else first_ts

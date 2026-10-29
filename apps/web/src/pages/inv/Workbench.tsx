@@ -63,6 +63,9 @@ export function Workbench() {
   const ctx = useInv(id);
   const tabs = useInvTabs();
   const qc = useQueryClient();
+  // One refresh contract: anything that changes the period, data or analysis refreshes every view built on it.
+  const refreshScope = () => ["inv", "scope-summary", "alert-names", "findings", "internal-golden", "checks"]
+    .forEach((key) => qc.invalidateQueries({ queryKey: [key, id] }));
   const [upload, setUpload] = useState(false);
   const [closing, setClosing] = useState(false);
   const [siem, setSiem] = useState(false);
@@ -114,7 +117,7 @@ export function Workbench() {
           <div className="grow" />
           <button className="btn sm" onClick={() => setUpload(true)}><Icon name="upload" size={14} /> 증거 추가</button>
           <button className="btn sm" onClick={() => setSiem(true)}>SIEM에서 가져오기</button>
-          <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); qc.invalidateQueries({ queryKey: ["inv", id] }); }}>재분석</button>
+          <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); refreshScope(); }}>재분석</button>
           <Link className="btn sm" to={`/inv/${id}/report`} title="임원 보고용으로 한 장에 정리한 화면 (인쇄·PDF 저장)"><Icon name="report" size={14} /> 보고용 요약</Link>
           <button className="btn sm ghost" aria-expanded={left} aria-controls="workbench-evidence" onClick={() => setLeft(!left)}>{left ? "증거·필터 숨기기" : "증거·필터 보기"}</button>
           <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "조사 안내·참고 숨기기" : "조사 안내·참고 보기"}</button>
@@ -128,7 +131,7 @@ export function Workbench() {
           <span><span className="muted">탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
         </div>
         {(!i.org_unit_id || !i.period_start) && <div role="note" className="small" style={{ color: "var(--warn)" }}>
-          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={() => qc.invalidateQueries({ queryKey: ["inv", id] })} />}
+          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={refreshScope} />}
         </div>}
         <form className="row wrap small" role="search" aria-label="로그 직접 검색" style={{ gap: 6 }} onSubmit={(e) => {
           e.preventDefault();
@@ -239,9 +242,9 @@ export function Workbench() {
         {right && <aside id="workbench-context" className="wb-right" aria-label="컨텍스트"><ContextPanel inv={id} /></aside>}
       </div>
       <EventDrawer inv={id} />
-      {upload && <UploadModal invId={id} onClose={() => { setUpload(false); qc.invalidateQueries({ queryKey: ["inv", id] }); }} />}
+      {upload && <UploadModal invId={id} onClose={() => { setUpload(false); refreshScope(); }} />}
       {siem && <ConnectorImport inv={id} onClose={() => { setSiem(false); qc.invalidateQueries(); }} />}
-      {closing && <CloseDialog inv={i} onClose={() => { setClosing(false); qc.invalidateQueries({ queryKey: ["inv", id] }); }} />}
+      {closing && <CloseDialog inv={i} onClose={() => { setClosing(false); refreshScope(); }} />}
     </div>
   );
 }

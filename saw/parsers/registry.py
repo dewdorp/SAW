@@ -146,8 +146,12 @@ def parse_text(text: str, *, investigation_id: str = "adhoc", parser_id: str | N
     # parser-driven, like file ingest: records spanning lines (quoted CSV) and paired records (NDR) work in a paste too
     for rl, r in parser.parse(iter(raw_lines())):
         if isinstance(r, Parsed):
-            events.append(to_ces(parser, rl, r, investigation_id=investigation_id, evidence_id=None,
-                                 file_id="paste", source_file="paste", object_key=None, assumed_tz=assumed_tz))
+            try:
+                events.append(to_ces(parser, rl, r, investigation_id=investigation_id, evidence_id=None,
+                                     file_id="paste", source_file="paste", object_key=None, assumed_tz=assumed_tz))
+            except (ValueError, TypeError, OverflowError, ArithmeticError, KeyError) as exc:
+                failures.append({"line_no": rl.line_no, "reason": f"이 행의 값을 정규화하지 못했습니다({type(exc).__name__})",
+                                 "raw": rl.text[:300]})
         elif isinstance(r, Failed):
             failures.append({"line_no": rl.line_no, "reason": r.reason, "raw": rl.text[:300]})
     return {"parser": det.parser_id, "confidence": det.confidence, "candidates": det.candidates,

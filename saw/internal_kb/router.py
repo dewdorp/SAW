@@ -32,6 +32,18 @@ def golden_list(org_unit_id: str | None = None, limit: int = Query(100, ge=1, le
     return {"items": golden.list_records(s, ctx.principal, org_unit_id=org_unit_id, limit=limit)}
 
 
+@router.get("/knowledge/internal-golden-export")
+def golden_export(audience: str = Query(..., pattern="^(agent|evaluator)$"), split: str | None = None,
+                  org_unit_id: str | None = None, ctx: AuthContext = Depends(auth),
+                  s: Session = Depends(db, scope="function")):
+    from fastapi.responses import Response
+
+    data = golden.export(s, ctx.principal, audience=audience, split=split, org_unit_id=org_unit_id)
+    name = "agent-input.jsonl" if audience == "agent" else "evaluator-answer.jsonl"
+    return Response(data, media_type="application/x-ndjson",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @router.get("/knowledge/internal-golden/{record_id}")
 def golden_get(record_id: str, version: int | None = Query(None, ge=1), ctx: AuthContext = Depends(auth),
                s: Session = Depends(db, scope="function")):

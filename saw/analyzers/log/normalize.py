@@ -88,7 +88,18 @@ def to_utc_iso(dt: datetime) -> str:
 
 
 def parse_time(raw: str | None, assumed_tz: str = "Asia/Seoul") -> tuple[str | None, str]:
-    """Returns (utc_iso, quality) with quality in exact|assumed_tz|invalid."""
+    """Returns (utc_iso, quality) with quality in exact|assumed_tz|invalid.
+
+    Never raises: an impossible date, offset or epoch in one record makes that record's time invalid,
+    it does not stop the file.
+    """
+    try:
+        return _parse_time(raw, assumed_tz)
+    except (ValueError, OverflowError, OSError):
+        return None, "invalid"
+
+
+def _parse_time(raw: str | None, assumed_tz: str) -> tuple[str | None, str]:
     if not raw:
         return None, "invalid"
     s = raw.strip().strip("[]")
@@ -97,7 +108,9 @@ def parse_time(raw: str | None, assumed_tz: str = "Asia/Seoul") -> tuple[str | N
     m = re.match(r"(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?\s*([+-]\d{4})?", s)
     if m:
         d, mon, y, H, M, S, frac, off = m.groups()
-        dt = datetime(int(y), _MONTHS.get(mon, 1), int(d), int(H), int(M), int(S),
+        if mon not in _MONTHS:  # an unknown month is invalid, never quietly January
+            return None, "invalid"
+        dt = datetime(int(y), _MONTHS[mon], int(d), int(H), int(M), int(S),
                       int((frac or "0")[:6].ljust(6, "0")))
         if off:
             sign = 1 if off[0] == "+" else -1

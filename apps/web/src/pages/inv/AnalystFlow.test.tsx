@@ -12,7 +12,7 @@ vi.mock("../../viz/EChart", () => ({
 }));
 
 const EMPTY = { label: "", buckets: [], other: 0, recorded: 0, not_recorded: 0 };
-const summary = (kind = "all") => ({
+const summary = (kind = "all", status = "complete") => ({
   scope: { org_unit: "가상 한빛금융", org_unit_id: "aff1", period_start: "2026-09-29T00:00:00+09:00", period_end: "2026-10-28T23:59:59+09:00",
     period_declared: true, observed_start: "2026-09-29T00:00:00+09:00", observed_end: "2026-10-28T23:00:00+09:00", timezone: "Asia/Seoul" },
   basis: { kind, all_events: 100000, events: kind === "all" ? 100000 : 6000, note: "" },
@@ -23,10 +23,13 @@ const summary = (kind = "all") => ({
     unsupported_files: 0, files_with_notes: 1, files_truncated: false,
     by_file: [{ name: "volume.csv", parser_id: "ko_fw_csv", status: "done", events: 100000, failed: 1,
       message: "구분자를 ';'로 인식했습니다. · 이 형식의 열 중 없는 열: 세션시간." }] },
-  breakdown: { ...Object.fromEntries(["data_source", "alert_name", "src_ip", "dst_ip", "dst_port", "protocol"].map((k) => [k, EMPTY])),
+  breakdown: { ...Object.fromEntries(["data_source", "src_ip", "dst_ip", "dst_port", "protocol"].map((k) => [k, EMPTY])),
+    // Under a filter the alert card shows the filtered counts, like every other card.
+    alert_name: { label: "장비 공격명", buckets: kind === "all" ? [{ key: "Synthetic Scan", count: 9 }, { key: "Vendor Label X", count: 2 }]
+      : [{ key: "Synthetic Scan", count: 4 }, { key: "Vendor Label X", count: 1 }], other: 0, recorded: 11, not_recorded: 0 },
     enforcement_action: { label: "처리 결과", buckets: [{ key: "allowed", count: 94000, label: "허용" }, { key: "blocked", count: 6000, label: "차단" }],
       other: 0, recorded: 100000, not_recorded: 0 } },
-  analysis: { run_id: "r1", version: 2, status: "complete", incomplete: [{ detector_id: "anomaly.peer", status: "partial", label: "일부만 처리" }] },
+  analysis: { run_id: "r1", version: 2, status, incomplete: [{ detector_id: "anomaly.peer", status: "partial", label: "일부만 처리" }] },
   method_note: "규칙 기반 집계입니다. 모델 판단이나 장기 정상 기준선 비교가 아닙니다.",
 });
 const alerts = { items: [{ alert_name: "Synthetic Scan", count: 9, registry: "confirmed", entries: [{ meaning: "경로 탐색" }] },
@@ -47,10 +50,22 @@ describe("whole picture", () => {
     expect(screen.getByText(/조사 기간 밖 기록: 이전 0건, 이후 3건/)).toBeTruthy();
     expect(screen.getByText("⚠ 구분자를 ';'로 인식했습니다.")).toBeTruthy();
     expect(screen.getByText("⚠ 이 형식의 열 중 없는 열: 세션시간.")).toBeTruthy();
-    expect(await screen.findByText("미등록 — 의미 확인 필요")).toBeTruthy();
-    expect(screen.getByText("의미 확인됨")).toBeTruthy();
+    expect(await screen.findByText("의미 확인 필요")).toBeTruthy();
+    expect(screen.getByText("의미 확인됨(같은 장비·유효기간)")).toBeTruthy();
     expect(screen.getByText("anomaly.peer: 일부만 처리")).toBeTruthy();
     expect(screen.getByText(/장기 정상 기준선 비교가 아닙니다/)).toBeTruthy();
+    // UX-04: the alert card follows the filter (4 of the whole 9), and says so.
+    expect(screen.getByText(/현재 필터 기준 건수/)).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
+  });
+
+  it("never reports a running analysis as finished", async () => {
+    // UX-05: a running run with no incomplete detector yet is still running, not "all finished".
+    const running = { ...summary("all", "running"), analysis: { run_id: "r2", version: 3, status: "running", incomplete: [] } };
+    mockApi({ "POST /investigations/i1/scope-summary": [200, running], "GET /investigations/i1/alert-names": [200, alerts] });
+    renderUI(<ScopeSummary inv="i1" />);
+    expect(await screen.findByText(/분석이 아직 진행 중입니다/)).toBeTruthy();
+    expect(screen.queryByText(/모든 분석이 설정된 범위에서 끝났습니다/)).toBeNull();
   });
 });
 
