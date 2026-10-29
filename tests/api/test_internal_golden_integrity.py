@@ -182,3 +182,21 @@ def test_export_keeps_first_known_input_apart_from_answers_and_lineage_apart_fro
     refused = senior.get("/knowledge/internal-golden-export", params={"audience": "agent"})
     assert refused.status_code == 400 and group in refused.text
 
+
+def test_uploaded_files_split_into_first_and_later_logs(senior):
+    """A file uploaded before the first question is an initial log; one uploaded after it is later material."""
+    from saw.devtools.security_csv_samples import fw_csv, ndr_csv
+    from tests.api.test_text_uploads import _process
+
+    inv = _inv(senior, "files")
+    _process(senior, inv["id"], "fw.csv", fw_csv())
+    check = _check(senior, inv["id"])
+    _followup(senior, inv["id"], check["id"])
+    _process(senior, inv["id"], "ndr.csv", ndr_csv("chain"))
+    response = senior.get(f"/investigations/{inv['id']}/internal-golden/draft")
+    assert response.status_code == 200, response.text
+    content = response.json()["content"]
+    assert [f["file"] for f in content["initial_logs"]] == ["fw.csv"]
+    assert [f["file"] for f in content["later_logs"]] == ["ndr.csv"]
+    assert senior.post(f"/investigations/{inv['id']}/internal-golden", json={"content": content}).status_code == 201
+

@@ -213,7 +213,7 @@ def _view(s, p, inv) -> dict:
     initial_refs = list(dict.fromkeys(ref for c in initial_checks for ref in _refs(inv_id, c)))
     later_refs = [r for r in dict.fromkeys(later_refs) if r not in initial_refs]
 
-    created = {f.id: _aware(e.created_at) for f, e in s.execute(
+    created = {f.id: _aware(e.uploaded_at) for f, e in s.execute(
         select(EvidenceFile, Evidence).join(Evidence).where(Evidence.investigation_id == inv_id))}
     files = []
     try:
@@ -223,7 +223,7 @@ def _view(s, p, inv) -> dict:
                                "events": int(f.get("events_parsed") or 0), "failed": int(f.get("events_failed") or 0)},
                               created.get(f.get("id") or f.get("file_id"))))
     except Exception:  # noqa: BLE001 - a draft without file details is still a useful starting point
-        files = [({"file": e.title or e.id, "kind": e.kind}, _aware(e.created_at))
+        files = [({"file": e.title or e.id, "kind": e.kind}, _aware(e.uploaded_at))
                  for e in s.scalars(select(Evidence).where(Evidence.investigation_id == inv_id))]
     initial_logs = [f for f, at in files if cutoff is None or at is None or at <= cutoff]
     later_logs = [f for f, at in files if cutoff is not None and at is not None and at > cutoff]
@@ -383,7 +383,7 @@ def _event_known_by(inv_id: str, ref: str, cutoff: datetime, s) -> bool:
         return False
     event = container.get().events.get(inv_id, event_id)
     evidence = s.get(Evidence, event.get("evidence_id")) if event and event.get("evidence_id") else None
-    return evidence is not None and _aware(evidence.created_at) <= cutoff
+    return evidence is not None and _aware(evidence.uploaded_at) <= cutoff
 
 
 def save(s, p, inv_id: str, body: SaveIn | dict) -> dict:
