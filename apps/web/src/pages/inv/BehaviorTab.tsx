@@ -72,7 +72,12 @@ export function BehaviorTab({ inv }: { inv: string }) {
     profile: { thresholds, ua_min_404: uaMin404, exclude_methods: excludeOptions ? ["OPTIONS"] : [],
       static_suffixes: suffixes.split(/[\s,;]+/).filter(Boolean), deduplicate_request_id: deduplicate } }),
     onSuccess: j => { setJobId(j.id); qc.setQueryData(["job", j.id], j); } });
-  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${jobId}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", jobId] }) });
+  // A job is cancelled only from the investigation it belongs to.
+  const cancel = useMutation({ mutationFn: async () => {
+    if (job.data && job.data.investigation_id && job.data.investigation_id !== inv) throw new Error("이 작업은 현재 조사의 작업이 아닙니다.");
+    return api.post(`/jobs/${jobId}/cancel`);
+  }, onSuccess: () => qc.invalidateQueries({ queryKey: ["job", jobId] }) });
+  useEffect(() => { setJobId(""); setSelectedId(""); setCompareId(""); }, [inv]);
   useEffect(() => {
     if (job.data?.state === "COMPLETED") {
       qc.invalidateQueries({ queryKey: ["behavior", inv] });

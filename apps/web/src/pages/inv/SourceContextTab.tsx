@@ -1,6 +1,6 @@
 import { blankDeviceSemantics, DeviceSemanticsFields } from "./DeviceSemanticsFields";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ErrorBox, Loading } from "../../components/common";
 import { api } from "../../lib/api";
 import { fmtTime } from "../../lib/format";
@@ -57,6 +57,8 @@ export function SourceContextTab({ inv }: { inv: string }) {
   const [advanced, setAdvanced] = useState("");
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // Everything chosen here belongs to one investigation: switching investigations starts clean.
+  useEffect(() => { setDevice(""); setProfile(blankProfile()); setAdvanced(""); setAck(false); setError(null); }, [inv]);
   const profiles = useQuery({ queryKey: ["source-profiles", device], queryFn: () => api.get(`/source-context/devices/${device}/profiles`), enabled: !!device });
   const addDevice = useMutation({ mutationFn: () => api.post(`/source-context/investigations/${inv}/devices`, { display_name: name.trim() }), onSuccess: row => { setDevice(row.id); setName(""); qc.setQueryData(["source-devices", inv], (old: any) => [...(old || []), row]); } });
   const save = useMutation({ mutationFn: (body: any) => api.post(`/source-context/devices/${device}/profiles`, body), onSuccess: () => { setAdvanced(""); setAck(false); qc.invalidateQueries({ queryKey: ["source-profiles", device] }); } });
@@ -75,6 +77,7 @@ export function SourceContextTab({ inv }: { inv: string }) {
       if (verificationFlags.some(value => value !== undefined && typeof value !== "boolean")) throw new Error("검증 여부는 true 또는 false 값이어야 합니다.");
       const verified = [body.measurement_profile, body.time, body.device_semantics].filter(x => x?.verified === true);
       if ((verified.length || body.action_verified) && (!ack || verified.some(x => !x.basis?.trim()) || (body.action_verified && !body.action_basis?.trim()))) throw new Error("검증 근거와 확인 동의가 필요합니다.");
+      if (!(devices.data || []).some((d: any) => d.id === device)) throw new Error("선택한 장비가 현재 조사의 장비가 아닙니다. 장비를 다시 선택하세요.");
       save.mutate(body);
     } catch (e) { setError(e); }
   };
