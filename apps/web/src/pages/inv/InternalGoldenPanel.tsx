@@ -10,6 +10,11 @@ const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 const LIST_FIELDS = ["initial_logs", "initial_evidence_refs", "observed_facts", "questions", "followups", "later_logs",
   "later_evidence_refs", "later_facts", "unresolved"];
 // Versions saved before a field existed still open: missing lists are shown empty, never as an error.
+// F12: every section of a version is compared, not only the final judgement.
+const SECTIONS: [string, string][] = [["initial_logs", "초기 로그"], ["initial_evidence_refs", "최초 근거"], ["observed_facts", "관찰 사실"],
+  ["initial_judgement", "최초 판단"], ["questions", "질문"], ["followups", "확인 요청·회신"], ["later_facts", "후속 변경"],
+  ["later_evidence_refs", "후속 근거"], ["alert_meanings", "공격명 의미 버전"], ["final_judgement", "최종 판단"], ["unresolved", "미해결"], ["notes", "메모"]];
+const changedSections = (old: any, now: any) => SECTIONS.filter(([k]) => JSON.stringify(old?.[k] ?? null) !== JSON.stringify(now?.[k] ?? null));
 const normalized = (c: any) => ({ ...c, ...Object.fromEntries(LIST_FIELDS.map((k) => [k, c?.[k] ?? []])), provenance: c?.provenance ?? {} });
 
 function Judgement({ label, value, onChange }: { label: string; value: any; onChange: (v: any) => void }) {
@@ -122,7 +127,13 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
               <button className="btn ghost sm" disabled={v.restricted} onClick={() => openVersion.mutate(v.version)}>보기</button>
             </div>
           ))}
-          {viewing && <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>v{viewing.shown_version} 최종 판단: {viewing.content.final_judgement.status || "미정"} — {viewing.content.final_judgement.rationale}</pre>}
+          {viewing && <div className="small" style={{ marginTop: 6 }}>
+            <b>v{viewing.shown_version}과 현재 v{record.version} 비교</b>
+            {(() => { const diff = changedSections(viewing.content, record.content); return diff.length
+              ? <ul>{diff.map(([k, label]) => <li key={k}>{label}: 바뀜{Array.isArray(viewing.content?.[k]) ? ` (${viewing.content[k].length}건 → ${(record.content?.[k] || []).length}건)` : ""}</li>)}</ul>
+              : <div className="muted">내용이 같습니다.</div>; })()}
+            <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>v{viewing.shown_version} 최종 판단: {viewing.content.final_judgement?.status || "미정"} — {viewing.content.final_judgement?.rationale}{"\n"}최초 근거: {(viewing.content.initial_evidence_refs || []).join(", ") || "없음"}</pre>
+          </div>}
           <div className="row wrap small" style={{ gap: 6, marginTop: 8 }}>
             <span className="muted">평가용 내보내기(볼 수 있는 저장본 전체, 학습·평가를 자동 실행하지 않음):</span>
             <button className="btn sm" onClick={() => api.download("/knowledge/internal-golden-export?audience=agent", "agent-input.jsonl")}>최초 입력만 (agent-input)</button>
