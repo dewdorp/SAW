@@ -72,11 +72,12 @@ def test_fine_histograms_over_long_ranges_are_bounded(tmp_path):
 
 def test_partial_search_results_cannot_be_recorded_as_fully_checked(analyst):
     inv = analyst.post("/investigations", json={"title": "coverage"}).json()
+    _process(analyst, inv["id"], "fw.csv", _fw([(f"2026-10-01 10:0{i}:00", "허용", "198.51.100.1") for i in range(5)]))
     body = {"target_type": "set", "target_key": "", "questions": ["nature"], "note": "",
-            "scope": {"coverage": "all", "query": {"filters": []}, "total": 100000, "checked": 100000, "loaded": 20000}}
+            "scope": {"coverage": "all", "query": {"filters": []}, "total": 5, "checked": 5, "loaded": 3}}
     refused = analyst.post(f"/investigations/{inv['id']}/checks", json=body)
     assert refused.status_code == 400 and "표본" in refused.text
-    body["scope"].update(loaded=100000)
+    body["scope"].update(loaded=5)
     assert analyst.post(f"/investigations/{inv['id']}/checks", json=body).status_code in (200, 201)
 
 
