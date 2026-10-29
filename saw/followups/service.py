@@ -372,6 +372,39 @@ def collect_followup_sources(s, inv_id, version_ids=None):
 
 
 
+def suggest(s, p, inv_id, check_id) -> dict:
+    """Prefill a follow-up from what the check points at, so no address, port or time is copied by hand.
+
+    Targets keep their pairing: each (source, destination, port) seen together in the check's records is
+    listed, and the period spans those records. Nothing here is a conclusion; the analyst edits and saves.
+    """
+    from saw.core.application.checks import _get as get_check
+
+    authorize(s, p, {inv_id})
+    check = get_check(s, inv_id, check_id)
+    ids = list(dict.fromkeys([*(check.evidence or []), *((check.scope or {}).get("event_ids") or [])]))[:50]
+    events = [e for e in (container.get().events.get(inv_id, i) for i in ids) if e]
+    src = list(dict.fromkeys(str(e["src_ip"]) for e in events if e.get("src_ip")))[:50]
+    dst = list(dict.fromkeys(str(e["dst_ip"]) for e in events if e.get("dst_ip")))[:50]
+    ports = list(dict.fromkeys(int(e["dst_port"]) for e in events if isinstance(e.get("dst_port"), int)))[:50]
+    pairs = list(dict.fromkeys((e.get("src_ip"), e.get("dst_ip"), e.get("dst_port")) for e in events))[:20]
+    if not events and check.target_key.startswith("ip:"):
+        src = [check.target_key[3:]]
+    times = sorted(str(e["timestamp"]) for e in events if e.get("timestamp"))
+    start = times[0] if times else check.time_start
+    end = times[-1] if times else check.time_end
+    label = check.target_label or check.target_key
+    span = f"{start} ~ {end}" if start and end else "기록된 기간"
+    return {"check_id": check.id, "evidence_records": len(events),
+            "question": f"{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? 수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
+            "reason": (check.note or "로그만으로는 업무 여부와 수행 주체를 알 수 없습니다.")[:8000],
+            "target": {"src_ips": src, "dst_ips": dst, "dst_ports": ports, "behavior": label[:1000]},
+            "period": {"start": start, "end": end} if start and end else None,
+            "observed_pairs": [{"src_ip": a, "dst_ip": b, "dst_port": c} for a, b, c in pairs],
+            "needed_data": ["작업·변경 기록(작업 번호, 수행자, 대상, 시간)", "해당 시간의 서버·애플리케이션 처리 기록"],
+            "note": "근거 기록에서 자동으로 채운 초안입니다. 저장 전에 내용을 확인하세요."}
+
+
 def _period_widened(checked: dict, current: tuple) -> bool:
     """A request that inherited the investigation period no longer covers it after the period grew."""
     from saw.followups.scope import _time

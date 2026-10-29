@@ -98,3 +98,25 @@ def test_a_verification_of_the_inherited_period_does_not_cover_a_widened_investi
     senior.patch(f"/investigations/{inv2['id']}", json={"period_start": "2026-10-01T00:00:00+09:00",
                                                         "period_end": "2026-10-31T23:59:59+09:00"})
     assert senior.post(f"/investigations/{inv2['id']}/close", json=close).status_code == 200
+
+
+def test_a_request_is_prefilled_from_the_check_records_without_copying_addresses(senior):
+    """F05: target, port and period come from the records the check points at."""
+    org, inv, _ = _setup(senior)
+    a = _event(inv["id"], timestamp="2026-10-13T01:01:00Z")
+    b = _event(inv["id"], timestamp="2026-10-13T01:04:00Z", dst_port=8443)
+    check = senior.post(f"/investigations/{inv['id']}/checks", json={
+        "target_type": "entity", "target_key": "ip:198.51.100.23", "questions": ["nature"], "note": "Burst of requests",
+        "evidence": [a["event_id"], b["event_id"]]}).json()
+    draft = senior.get(f"/investigations/{inv['id']}/follow-ups/draft", params={"check_id": check["id"]})
+    assert draft.status_code == 200, draft.text
+    d = draft.json()
+    assert d["target"]["src_ips"] == ["198.51.100.23"] and d["target"]["dst_ips"] == ["10.20.1.10"]
+    assert sorted(d["target"]["dst_ports"]) == [443, 8443]
+    assert d["period"] == {"start": "2026-10-13T01:01:00Z", "end": "2026-10-13T01:04:00Z"} or \
+        d["period"]["start"].startswith("2026-10-13T01:01:00")
+    assert d["evidence_records"] == 2 and len(d["observed_pairs"]) == 2
+    created = senior.post(f"/investigations/{inv['id']}/follow-ups", json={
+        "check_id": check["id"], "question": d["question"], "reason": d["reason"], "target": d["target"],
+        "period": d["period"], "needed_data": d["needed_data"]})
+    assert created.status_code == 201, created.text

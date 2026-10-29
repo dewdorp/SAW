@@ -34,6 +34,14 @@ def choices(inv_id: str, followup_id: str | None = None, check_id: str | None = 
     return _call(service.choices, s, ctx.principal, inv_id, followup_id=followup_id, check_id=check_id, q=q)
 
 
+@router.get("/draft")
+def draft(inv_id: str, check_id: str = Query(..., max_length=36),
+          ctx: AuthContext = Depends(require_perm("investigation.read")),
+          s: Session = Depends(db, scope="function")):
+    """A request prefilled from the check's own records: targets, ports, period and the question to ask."""
+    return _call(service.suggest, s, ctx.principal, inv_id, check_id)
+
+
 @router.post("", status_code=201)
 def create(inv_id: str, body: schemas.CreateIn,
            ctx: AuthContext = Depends(require_perm("investigation.write")),
