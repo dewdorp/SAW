@@ -13,6 +13,62 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
  'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
 PUBLIC_DOCS = (
+ 'docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md',
+ 'docs/samples/security-csv/fw-mixed-devices.csv',
+ 'docs/samples/security-csv/ndr-potential-chain.csv',
+ 'docs/samples/security-csv/ndr-normal.csv',
+ 'docs/samples/security-csv/ndr-label-only.csv',
+ 'docs/samples/security-csv/ndr-missing-response.csv',
+ 'docs/images/security-csv-20261025/csv-upload.png',
+ 'docs/images/security-csv-20261025/csv-fw-complete.png',
+ 'docs/images/security-csv-20261025/csv-ndr-complete.png',
+ 'docs/images/security-csv-20261025/csv-readiness.png',
+ 'docs/images/security-csv-20261025/csv-ndr-fields.png',
+ 'docs/images/security-csv-20261025/csv-scenarios.png',
+ 'docs/images/security-csv-20261025/csv-old-run.png',
+ 'docs/verification/affiliate-p5-validation-20261024.md',
+ 'docs/SAFE-REPROCESSING-GUIDE-20261024.md',
+ 'docs/opensearch-vendor-extensions.md',
+ 'docs/images/affiliate-p5-20261024/before-history.jpg',
+ 'docs/images/affiliate-p5-20261024/reprocess-choose.jpg',
+ 'docs/images/affiliate-p5-20261024/reprocess-complete.jpg',
+ 'docs/images/affiliate-p5-20261024/retained-v1-history.jpg',
+ 'docs/images/affiliate-p5-20261024/source-statistics.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-overview.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-capture-scope.jpg',
+ 'docs/images/affiliate-p5-20261024/pcap-session-evidence.jpg',
+ 'docs/AFFILIATE-GOLDEN-GUIDE-20261023.md',
+ 'docs/images/affiliate-p4-20261024/p4-holdout-answers-20261024.png',
+ 'docs/images/affiliate-p4-20261024/p4-holdout-result-20261024.png',
+ 'docs/images/affiliate-p4-20261024/p4-profiles-20261024.png',
+ 'docs/images/affiliate-p4-20261024/p4-release-approved-20261024.png',
+ 'docs/images/affiliate-p4-20261024/p4-release-awaiting-20261023.png',
+ 'docs/images/affiliate-p4-20261024/p4-release-revoked-20261024.png',
+ 'docs/verification/affiliate-p4-native-20261024.json',
+ 'docs/verification/affiliate-p4-final-gate-20261024.json',
+ 'docs/verification/affiliate-p4-browser-20261024.json',
+ 'docs/verification/affiliate-p4-validation-20261024.md',
+ 'docs/AFFILIATE-FOLLOWUP-REPORT-GUIDE-20261021.md',
+ 'docs/verification/affiliate-p3-validation-20261023.md',
+ 'docs/verification/affiliate-p3-native-20261023.json',
+ 'docs/verification/affiliate-p3-final-gate-20261023.json',
+ 'docs/verification/affiliate-p3-embedded-python-20261023.json',
+ 'docs/images/affiliate-p3-20261021/verified.png',
+ 'docs/images/affiliate-p3-20261021/export-completed.png',
+ 'docs/images/affiliate-p3-20261021/html-report.png',
+ 'docs/AFFILIATE-DETECTION-GUIDE-20261021.md',
+ 'docs/images/affiliate-p2-20261021/draft-active.png',
+ 'docs/images/affiliate-p2-20261021/selected-truth.png',
+ 'docs/images/affiliate-p2-20261021/policy-form.png',
+ 'docs/UPDATER-STABILIZATION-GUIDE-20261019.md',
+ 'docs/UPDATER-STABILIZATION-GUIDE-20261019.html',
+ 'docs/verification/updater-native-acceptance-20261019.md',
+ 'docs/verification/updater-flow-audit-20261019.md',
+ 'docs/assets/updater-20261019/01-baseline-required.png',
+ 'docs/assets/updater-20261019/02-media-diagnosis.png',
+ 'docs/assets/updater-20261019/03-compact-window.png',
+ 'docs/assets/updater-20261019/04-native-start.png',
+ 'docs/verification/updater-stabilization-20261019.json',
  'docs/verification/offline-release-2026-10-17.json',
  'docs/detection-rule-sources.md',
  'docs/adr/0016-windows-airgapped-deployment-and-builtin-pcap.md',
@@ -119,9 +175,9 @@ PUBLIC_DOCS = (
  'docs/assets/detection-validation-2026-10-12/05-flow.jpg',
  'docs/assets/detection-validation-2026-10-12/06-investigation.jpg')
 DESKTOP_WINDOWS_FILES = ('UPDATE-SAW.cmd', 'update-ui.ps1', 'update-ui.psm1', 'update-worker.ps1')
-WINDOWS_FILES = ('install-state.ps1','install-python.ps1','setup-postgresql-state.ps1','install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
+WINDOWS_FILES = ('test-update-environment.ps1','install-state.ps1','install-python.ps1','setup-postgresql-state.ps1','install-paths.ps1','update.ps1','install.ps1','verify-bundle.ps1','backup.ps1','uninstall.ps1','requirements.txt',
  'saw-ctl.ps1','saw-service.xml','postgresql-service.xml','setup-opensearch.ps1','setup-postgresql.ps1') + DESKTOP_WINDOWS_FILES
-MEDIA_WINDOWS_FILES = ('install.ps1', 'verify-bundle.ps1', 'backup.ps1', 'uninstall.ps1', 'update.ps1') + DESKTOP_WINDOWS_FILES
+MEDIA_WINDOWS_FILES = ('test-update-environment.ps1','install.ps1', 'verify-bundle.ps1', 'backup.ps1', 'uninstall.ps1', 'update.ps1') + DESKTOP_WINDOWS_FILES
 
 def copy_file(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -149,6 +205,7 @@ def copy_public_guides(out: Path):
     # The root entry point must rebase links from its app/docs source directory.
     start = re.sub(r'\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)]+)\)',
                    r'](app/docs/\1)', start)
+    start = '# 기존 설치 업데이트\n\n기존 계정과 자료를 유지하려면 UPDATE-SAW.cmd를 실행하고 [9항목 점검·복구 안내](app/docs/UPDATER-STABILIZATION-GUIDE-20261019.html)를 확인하세요. GitHub Source code ZIP은 설치 매체가 아닙니다.\n\n' + start
     (out / 'START-HERE.md').write_text(start, encoding='utf-8')
 
 
@@ -214,7 +271,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     build(out,str(inputs/'npm-licenses.json') if (inputs/'npm-licenses.json').exists() else None)
     from saw.storage.migrate import head
     version=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),'installer_contract':'saw.install-resume/1','desktop_update_ui':1,
+    return seal(out,{'source_commit':version,'source_worktree_included':True,'application_schema':head(),'installer_contract':'saw.install-resume/1','desktop_update_ui':1,'updater_inspection':1,
         'target':'Windows 10 Enterprise LTSC 2019 x64 build17763','target_validation':'PENDING_CLEAN_LTSC',
         'model_weights':'EXCLUDED','native_ai_runtime':'INCLUDED' if native else 'NOT_INCLUDED',
         'python_wheels':len(list((out/'wheels').glob('*.whl'))),'python':'3.12.10',

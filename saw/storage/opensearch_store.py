@@ -30,6 +30,12 @@ def translog(durability: str) -> dict:
 
 def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, durability: str = "request") -> dict:
     kw = {"type": "keyword", "ignore_above": 4096}
+    # Keep typed parser/producer contracts; unknown vendor objects preserve arbitrary JSON.
+    # Inventory and query limitations: docs/opensearch-vendor-extensions.md.
+    typed_extensions = (
+        "apache", "cloudflare", "csv", "iis", "json", "kv", "ndr", "nginx", "security_csv", "suricata", "syslog", "waf", "zeek",
+        "observation", "saw_observation", "device_observation", "connector", "fw", "ips", "vpn",
+    )
     return {
         "index_patterns": [f"{prefix}-*"],
         "priority": 100 if prefix == "saw" else 101,
@@ -46,7 +52,13 @@ def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, dura
             "mappings": {
                 "date_detection": False,
                 "numeric_detection": False,
-                "dynamic_templates": [{"strings": {"match_mapping_type": "string", "mapping": kw}}],
+                "dynamic_templates": [
+                    {"analyst_extensions": {"match_mapping_type": "object", "match_pattern": "regex",
+                        "path_match": r"ext\.u_[^.]+", "mapping": {"type": "object"}}},
+                    {"vendor_extensions": {"match_mapping_type": "object", "match_pattern": "regex",
+                        "path_match": r"ext\.[^.]+", "mapping": {"type": "flat_object"}}},
+                    {"strings": {"match_mapping_type": "string", "mapping": kw}},
+                ],
                 "properties": {
                     "timestamp": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                     "event_id": {"type": "keyword"}, "investigation_id": {"type": "keyword"},
@@ -57,6 +69,8 @@ def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, dura
                     "status_code": {"type": "integer"}, "bytes_in": {"type": "long"}, "bytes_out": {"type": "long"},
                     "params": {"type": "flat_object"},  # arbitrary parameter names must not grow the mapping
                     "raw_ref": {"type": "object", "enabled": False},
+                    "ext": {"type": "object", "properties": {
+                        name: {"type": "object"} for name in typed_extensions}},
                 },
             },
         },
@@ -239,8 +253,8 @@ class OpenSearchEventStore:
         elif agg.type == "percentiles":
             aggs = {"a": {"percentiles": {"field": agg.field, "percents": agg.percents}}}
         else:
-            aggs = {"a": {"date_histogram": {"field": "timestamp",
-                                             "fixed_interval": f"{agg.interval_sec or 60}s"}}}
+            aggs = {"a": {"date_histogram": {"field": "timestamp", "fixed_interval":
+                                             f"{self._bounded(investigation_id, filters, agg.interval_sec or 60)}s"}}}
         if agg.type == "date_histogram" and not agg.interval_sec:
             aggs = {"a": {"date_histogram": {"field": "timestamp",
                                              "fixed_interval": f"{self._auto_interval(investigation_id, filters, time)}s"}}}
@@ -259,6 +273,17 @@ class OpenSearchEventStore:
         iv = int(aggs["a"]["date_histogram"]["fixed_interval"][:-1])
         return {"interval_sec": iv,
                 "buckets": [{"key": int(x["key"] / 1000), "count": x["doc_count"]} for x in r["buckets"] if x["doc_count"]]}
+
+    def _bounded(self, investigation_id: str, filters: list[Filter], iv: int) -> int:
+        """Same bucket bound as the SQLite store: widen a too fine interval instead of returning millions."""
+        from saw.storage.eventstore import widened_interval
+
+        lo, hi = self.time_bounds(investigation_id, filters)
+        if not lo or not hi:
+            return iv
+        span = (datetime.fromisoformat(hi.replace("Z", "+00:00"))
+                - datetime.fromisoformat(lo.replace("Z", "+00:00"))).total_seconds()
+        return widened_interval(iv, span)
 
     def _auto_interval(self, investigation_id: str, filters: list[Filter], time: TimeRange | None) -> int:
         """Same bucket choice as the SQLite store: smallest step giving <= 200 buckets."""
@@ -341,7 +366,8 @@ class OpenSearchEventStore:
                           metrics: list[GroupMetric], time: TimeRange | None = None,
                           split_field: str | None = None) -> dict:
         self._fresh()
-        iv = interval_sec or self._auto_interval(investigation_id, filters, time)
+        iv = self._bounded(investigation_id, filters, interval_sec) if interval_sec else \
+            self._auto_interval(investigation_id, filters, time)
         sub = {m.name: ({"cardinality": {"field": m.field}} if m.type == "cardinality" else {m.type: {"field": m.field}})
                for m in metrics if m.type != "count"}
         h: dict[str, Any] = {"date_histogram": {"field": "timestamp", "fixed_interval": f"{iv}s", "min_doc_count": 1},

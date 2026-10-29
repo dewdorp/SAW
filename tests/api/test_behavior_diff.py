@@ -1,4 +1,5 @@
 from saw import container
+from saw.event_generations.reads import actor_scope
 
 
 def seed(api):
@@ -52,7 +53,8 @@ def test_behavior_diff_uses_saved_projection_after_reindex(analyst):
     assert job.status_code == 202
     saved = analyst.get(f"/investigations/{inv}/behavior").json()["results"][0]
     result = analyst.get(f"/investigations/{inv}/behavior/{saved['id']}").json()
-    row = container.get().events.get(inv, "bd-1")
+    with actor_scope(analyst.get("/auth/me").json()["id"]):
+        row = container.get().events.get(inv, "bd-1")
     row["uri"] = "/changed-after-snapshot"
     container.get().events.index([row])
     scope = result["result"]["scope"]

@@ -1,0 +1,557 @@
+{
+  "recorded_on": "2026-10-24",
+  "synthetic_only": true,
+  "runtime_reused_read_only_and_checked_against_pinned_archives": true,
+  "fresh_database_search_data_config": true,
+  "windows_services_installed": false,
+  "operational_data_or_accounts_used": false,
+  "runs": [
+    {
+      "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+      "target_os_acceptance": false,
+      "postgresql_version": "16.15",
+      "opensearch_version": "2.19.6",
+      "opensearch_plugins": [
+        "analysis-nori",
+        "opensearch-index-management",
+        "opensearch-job-scheduler"
+      ],
+      "runtime_verification": {
+        "postgresql": {
+          "files": 20150,
+          "verified_bytes": 875067514
+        },
+        "opensearch": {
+          "files": 3040,
+          "verified_bytes": 455295346
+        },
+        "nori": {
+          "files": 5,
+          "verified_bytes": 7819817
+        }
+      },
+      "test_results": [
+        {
+          "node": "tests/unit/test_migrations.py::test_fresh_upgrade_matches_models[1]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 11.518
+        },
+        {
+          "node": ".qa/affiliate-p1-20261020/test_p4_native_schema.py::test_populated_native_golden_upgrade",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 11.952
+        },
+        {
+          "node": "tests/api/test_golden_full_recalculation.py::test_actual_full_release_recalculates_21_records_and_preserves_two_windows",
+          "phase": "call",
+          "outcome": "failed",
+          "seconds": 6.917
+        }
+      ],
+      "test_counts": {
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0
+      },
+      "test_seconds": 52.234,
+      "pytest_exit_code": 1,
+      "opensearch_flush_failed_shards": 0,
+      "opensearch_stopped": true,
+      "postgresql_stopped": true,
+      "ports_closed": true,
+      "stop_complete": true,
+      "elapsed_seconds": 140.078,
+      "run": 1,
+      "scope": "Initial native failure: Finding version column too short"
+    },
+    {
+      "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+      "target_os_acceptance": false,
+      "postgresql_version": "16.15",
+      "opensearch_version": "2.19.6",
+      "opensearch_plugins": [
+        "analysis-nori",
+        "opensearch-index-management",
+        "opensearch-job-scheduler"
+      ],
+      "runtime_verification": {
+        "postgresql": {
+          "files": 20150,
+          "verified_bytes": 875067514
+        },
+        "opensearch": {
+          "files": 3040,
+          "verified_bytes": 455295346
+        },
+        "nori": {
+          "files": 5,
+          "verified_bytes": 7819817
+        }
+      },
+      "test_results": [
+        {
+          "node": "tests/unit/test_migrations.py::test_fresh_upgrade_matches_models[1]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 11.699
+        },
+        {
+          "node": ".qa/affiliate-p1-20261020/test_p4_native_schema.py::test_populated_native_golden_upgrade",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 12.424
+        },
+        {
+          "node": "tests/unit/test_detector_version_migration.py::test_fresh_schema_preserves_complete_detector_versions[postgresql]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 9.709
+        },
+        {
+          "node": "tests/unit/test_detector_version_migration.py::test_0022_populated_0021_upgrade_twice_preserves_provenance_and_history[postgresql]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 11.549
+        },
+        {
+          "node": "tests/api/test_golden_full_recalculation.py::test_actual_full_release_recalculates_21_records_and_preserves_two_windows",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 16.646
+        },
+        {
+          "node": "tests/api/test_golden_holdout_governance.py::test_holdout_consumption_result_answer_order_and_renamed_target_denied",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 4.406
+        },
+        {
+          "node": "tests/api/test_golden_holdout_governance.py::test_release_requires_independent_preview_and_revocation_blocks_download",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.114
+        },
+        {
+          "node": "tests/api/test_golden_holdout_governance.py::test_decline_eligibility_needs_independence_but_no_preview",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.666
+        },
+        {
+          "node": "tests/api/test_golden_holdout_governance.py::test_revoked_version_cannot_be_declined_then_reapproved",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.452
+        },
+        {
+          "node": "tests/api/test_golden_holdout_governance.py::test_holdout_public_seal_excludes_private_validation_digests",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.371
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_independent_reviewer_can_decline_without_preview",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.743
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_actor_after_actual_object_read[disabled]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.616
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_actor_after_actual_object_read[role]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.131
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_actor_after_actual_object_read[session]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.596
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_actor_after_actual_object_read[membership]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.735
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_reviewers_active_status_after_read",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.68
+        },
+        {
+          "node": "tests/api/test_golden_release_downloads.py::test_download_rechecks_revocation_after_actual_read",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.265
+        },
+        {
+          "node": "tests/api/test_golden_data_deletion.py::test_published_release_explicitly_blocks_source_deletion",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.585
+        },
+        {
+          "node": "tests/api/test_golden_data_deletion.py::test_failed_single_source_job_cleanup_is_bounded_to_exact_owned_prefix",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.539
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_admission_idempotency_conflict_and_bounded_queue",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.583
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_cancel_and_retry_reuses_verified_frozen_bytes_then_publishes",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.691
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_input_pending_recovery_cannot_be_resurrected_by_late_put",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.611
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_artifact_io_changes_cannot_publish_stale_worker[cancel]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.302
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_artifact_io_changes_cannot_publish_stale_worker[epoch]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.26
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_artifact_io_changes_cannot_publish_stale_worker[lease]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 4.311
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_corrupted_frozen_input_is_not_retried_or_published",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.17
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_private_input_reference_must_belong_to_exact_job",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.402
+        },
+        {
+          "node": "tests/api/test_golden_job_lifecycle.py::test_failed_new_build_keeps_previous_approved_bytes",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.976
+        },
+        {
+          "node": "tests/api/test_golden_export_jobs.py::test_golden_job_output_excludes_private_input_mapping_and_object_keys",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.0
+        },
+        {
+          "node": "tests/api/test_golden_export_jobs.py::test_readonly_golden_job_does_not_change_analysis_source_manifest",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.116
+        },
+        {
+          "node": "tests/api/test_golden_export_jobs.py::test_secondary_source_revocation_hides_golden_job_list_and_detail",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.47
+        },
+        {
+          "node": "tests/api/test_golden_export_jobs.py::test_real_release_submission_stores_verified_private_zip_and_idempotent_job",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.55
+        },
+        {
+          "node": "tests/api/test_golden_source_state.py::test_known_at_uses_actual_upload_processing_and_profile_times",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.69
+        },
+        {
+          "node": "tests/api/test_golden_source_state.py::test_missing_actual_processing_provenance_cannot_claim_complete",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.563
+        },
+        {
+          "node": "tests/api/test_golden_source_state.py::test_future_processing_record_cannot_be_backdated_to_event_time",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.621
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_new_experience_pins_exact_check_revision_and_v2_rejects_changed_check",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.523
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_profile_registry_is_exact_and_rejects_unbounded_implementation",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.117
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_direct_external_export_requires_release_approval",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.594
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_adopted_holdout_ordinary_dto_hides_answer_derived_metadata",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.043
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_holdout_experience_and_similarity_do_not_bypass_tracked_truth",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.967
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_v2_truth_axes_and_all_unit_kinds_are_exact_and_truth_author_cannot_adopt",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.94
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_v2_old_unpinned_experience_and_boolean_revision_are_rejected",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.986
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_v2_adoption_rejects_corrupted_exact_check_revision",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.752
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_v2_followup_exact_records_and_later_fact_evidence_stay_answer_only",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.241
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_reused_check_citation_merges_family_but_generic_policy_sources_do_not",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.074
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_selected_check_rejects_another_finished_run_with_different_scope",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.241
+        },
+        {
+          "node": "tests/api/test_golden_governance.py::test_p2_matching_semantics_are_frozen_and_evaluator_does_not_invent_them",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.347
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_freeze_pins_profiles_sources_contributors_and_reservation_cas",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.873
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_release_schema_never_accepts_holdout_combined_digest",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 1.187
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_profile_rows_cannot_be_rewritten",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.045
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_historical_version_does_not_disclose_inaccessible_current_pointer",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.136
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_current_and_historical_envelopes_hide_inaccessible_pending_job",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.351
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_replacement_requires_old_source_access_and_exact_current_cas",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.595
+        },
+        {
+          "node": "tests/api/test_golden_release_governance.py::test_cross_source_failed_replacement_retry_preserves_exact_new_input_ledger",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 3.423
+        },
+        {
+          "node": "tests/api/test_golden_legacy_release.py::test_real_legacy_v1_answers_keep_reviewed_semantics_and_frozen_source[golden-native/1]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 14.597
+        },
+        {
+          "node": "tests/api/test_golden_legacy_release.py::test_real_legacy_v1_answers_keep_reviewed_semantics_and_frozen_source[input-output-jsonl/1]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 8.738
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[end]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.354
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[is_not]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.806
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[not_in]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.714
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_native_membership_disagreement_cannot_attest_complete",
+          "phase": "call",
+          "outcome": "failed",
+          "seconds": 0.531
+        }
+      ],
+      "test_counts": {
+        "passed": 59,
+        "failed": 1,
+        "skipped": 0
+      },
+      "test_seconds": 835.593,
+      "pytest_exit_code": 1,
+      "opensearch_flush_failed_shards": 0,
+      "opensearch_stopped": true,
+      "postgresql_stopped": true,
+      "ports_closed": true,
+      "stop_complete": true,
+      "elapsed_seconds": 905.594,
+      "run": 2,
+      "scope": "Additive0022 migration and native P4 full selection; final test-fixture collision"
+    },
+    {
+      "type": "REAL_POSTGRESQL_OPENSEARCH_ISOLATED_SYNTHETIC",
+      "target_os_acceptance": false,
+      "postgresql_version": "16.15",
+      "opensearch_version": "2.19.6",
+      "opensearch_plugins": [
+        "analysis-nori",
+        "opensearch-index-management",
+        "opensearch-job-scheduler"
+      ],
+      "runtime_verification": {
+        "postgresql": {
+          "files": 20150,
+          "verified_bytes": 875067514
+        },
+        "opensearch": {
+          "files": 3040,
+          "verified_bytes": 455295346
+        },
+        "nori": {
+          "files": 5,
+          "verified_bytes": 7819817
+        }
+      },
+      "test_results": [
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[end]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 2.873
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[is_not]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.745
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_complete_window_membership_matches_actual_p2_authority[not_in]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.686
+        },
+        {
+          "node": "tests/unit/test_golden_builders.py::test_native_membership_disagreement_cannot_attest_complete",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 0.67
+        },
+        {
+          "node": "tests/api/test_golden_failure_reasons.py::test_full_release_failure_reason_survives_actual_job_http[unsupported_truth_unit]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 9.492
+        },
+        {
+          "node": "tests/api/test_golden_failure_reasons.py::test_full_release_failure_reason_survives_actual_job_http[truth_window_empty]",
+          "phase": "call",
+          "outcome": "passed",
+          "seconds": 10.444
+        }
+      ],
+      "test_counts": {
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0
+      },
+      "test_seconds": 104.797,
+      "pytest_exit_code": 0,
+      "opensearch_flush_failed_shards": 0,
+      "opensearch_stopped": true,
+      "postgresql_stopped": true,
+      "ports_closed": true,
+      "stop_complete": true,
+      "elapsed_seconds": 172.156,
+      "run": 3,
+      "scope": "Isolated membership fixture sequence and previously not-run failure-reason cases"
+    }
+  ],
+  "latest_per_node_counts": {
+    "passed": 62,
+    "failed": 0,
+    "skipped": 0
+  },
+  "previous_failures_preserved": true,
+  "target_ltsc_acceptance": false
+}

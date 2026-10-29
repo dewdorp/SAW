@@ -19,6 +19,15 @@ from saw.core.schemas.query import FIELD_RE, AggRequest, Filter, GroupMetric, Gr
 
 INDEXED_COLUMNS = {"event_id", "investigation_id", "evidence_id", "data_source"}
 ARRAY_FIELDS = {"tags", "param_names", "finding_ids"}
+MAX_HISTOGRAM_BUCKETS = 5000
+_INTERVALS = (1, 5, 10, 30, 60, 300, 600, 1800, 3600, 10800, 21600, 43200, 86400, 604800)
+
+
+def widened_interval(iv: int, span: float | None) -> int:
+    """The requested interval, or the smallest standard one keeping the bucket count bounded."""
+    if span is None or span / max(1, iv) <= MAX_HISTOGRAM_BUCKETS:
+        return iv
+    return next((x for x in _INTERVALS if x >= iv and span / x <= MAX_HISTOGRAM_BUCKETS), _INTERVALS[-1])
 
 
 class EventStorePort(Protocol):
@@ -112,6 +121,7 @@ class SQLiteEventStore:
               event_id TEXT PRIMARY KEY, investigation_id TEXT NOT NULL, evidence_id TEXT,
               data_source TEXT, ts TEXT, ts_epoch REAL, doc TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_ev_inv_ts ON events(investigation_id, ts_epoch, event_id);
+            CREATE INDEX IF NOT EXISTS ix_ev_inv_cursor ON events(investigation_id, COALESCE(ts_epoch,0), event_id);
             CREATE INDEX IF NOT EXISTS ix_ev_inv_src ON events(investigation_id, json_extract(doc,'$."src_ip"'));
             CREATE INDEX IF NOT EXISTS ix_ev_inv_tpl ON events(investigation_id, json_extract(doc,'$."uri_template"'));
             CREATE INDEX IF NOT EXISTS ix_ev_inv_evd ON events(investigation_id, evidence_id);
@@ -271,18 +281,35 @@ class SQLiteEventStore:
     def _page(self, inv: str, filters: list[Filter], time: TimeRange | None, batch: int, cursor: str | None,
               fields: list[str] | None = None):
         w, p = self._where(inv, filters, time)
-        if cursor:
-            cts, cid = decode_cursor(cursor)
-            w += " AND (COALESCE(ts_epoch,0), event_id) > (?, ?)"
-            p += [cts, cid]
         # projection inside SQLite: detectors ask for a few fields, parsing whole documents in Python dominated
         sel = "doc"
         if fields and all(FIELD_RE.match(f) for f in fields):
             sel = "json_object(" + ", ".join(f"'{f}', json(doc -> '{_jpath(f)}')" for f in fields) + ")"
-        rows = self._conn().execute(
-            f"SELECT {sel}, COALESCE(ts_epoch,0), event_id FROM events WHERE {w} "
-            f"ORDER BY COALESCE(ts_epoch,0), event_id LIMIT ?", p + [batch]
-        ).fetchall()
+        if cursor:
+            # _where emits trusted SQL; paths and values are bound, never literals.
+            # Number only its placeholders so both ranges share the old P+3 budget.
+            parts = w.split("?")
+            if len(parts) != len(p) + 1:
+                raise ValueError("unexpected SQL placeholder count")
+            w = "".join(f"{part}?{number}" for number, part in enumerate(parts[:-1], 1)) + parts[-1]
+        query = f"SELECT {sel} AS document, COALESCE(ts_epoch,0) AS cursor_ts, event_id FROM events WHERE {w}"
+        if cursor:
+            cts, cid = decode_cursor(cursor)
+            ts_arg, id_arg, batch_arg = (f"?{len(p) + offset}" for offset in (1, 2, 3))
+            # A tuple over an expression cannot seek both index keys. Split its
+            # disjoint ranges, bound each before merging, and keep one snapshot.
+            rows = self._conn().execute(
+                f"SELECT * FROM ({query} AND COALESCE(ts_epoch,0)={ts_arg} AND event_id>{id_arg} "
+                f"ORDER BY event_id LIMIT {batch_arg}) "
+                f"UNION ALL SELECT * FROM ({query} AND COALESCE(ts_epoch,0)>{ts_arg} "
+                f"ORDER BY COALESCE(ts_epoch,0), event_id LIMIT {batch_arg}) "
+                f"ORDER BY cursor_ts, event_id LIMIT {batch_arg}",
+                p + [cts, cid, batch],
+            ).fetchall()
+        else:
+            rows = self._conn().execute(
+                query + " ORDER BY COALESCE(ts_epoch,0), event_id LIMIT ?", p + [batch]
+            ).fetchall()
         nxt = encode_cursor([rows[-1][1], rows[-1][2]]) if len(rows) == batch else None
         return {"events": [orjson.loads(r[0]) for r in rows], "next_cursor": nxt}
 
@@ -313,21 +340,30 @@ class SQLiteEventStore:
                           f"WHERE {w}", cp * 5 + p).fetchone()
             return {"min": r[0], "max": r[1], "avg": r[2], "sum": r[3], "count": r[4]}
         if agg.type == "percentiles":
-            vals = [r[0] for r in c.execute(
-                f"SELECT {col} AS v FROM events WHERE {w} AND {col} IS NOT NULL ORDER BY v",
-                cp + p + cp).fetchall()]
+            # One indexed position lookup per percentile instead of loading the whole column into memory.
+            n = c.execute(f"SELECT COUNT({col}) FROM events WHERE {w}", cp + p).fetchone()[0]
             out = {}
             for pc in agg.percents:
-                out[str(pc)] = vals[min(len(vals) - 1, int(len(vals) * pc / 100))] if vals else None
+                if not n:
+                    out[str(pc)] = None
+                    continue
+                row = c.execute(f"SELECT {col} AS v FROM events WHERE {w} AND {col} IS NOT NULL ORDER BY v "
+                                "LIMIT 1 OFFSET ?", cp + p + cp + [min(n - 1, int(n * pc / 100))]).fetchone()
+                out[str(pc)] = row[0] if row else None
             return {"values": out}
         if agg.type == "date_histogram":
-            iv = agg.interval_sec or self._auto_interval(investigation_id, w, p)
+            iv = self._bounded_interval(w, p, agg.interval_sec or self._auto_interval(investigation_id, w, p))
             rows = c.execute(
                 f"SELECT CAST(ts_epoch / ? AS INTEGER) * ? AS b, COUNT(*) FROM events WHERE {w} "
                 f"AND ts_epoch IS NOT NULL GROUP BY b ORDER BY b", [iv, iv] + p
             ).fetchall()
             return {"interval_sec": iv, "buckets": [{"key": r[0], "count": r[1]} for r in rows]}
         raise ValueError(f"unsupported agg {agg.type}")
+
+    def _bounded_interval(self, w: str, p: list, iv: int) -> int:
+        """Never return more than MAX_HISTOGRAM_BUCKETS buckets: widen a too fine interval instead."""
+        lo, hi = self._conn().execute(f"SELECT MIN(ts_epoch), MAX(ts_epoch) FROM events WHERE {w}", p).fetchone()
+        return widened_interval(iv, None if lo is None else hi - lo)
 
     def _auto_interval(self, inv: str, w: str, p: list) -> int:
         lo, hi = self._conn().execute(f"SELECT MIN(ts_epoch), MAX(ts_epoch) FROM events WHERE {w}", p).fetchone()
@@ -382,7 +418,7 @@ class SQLiteEventStore:
                           split_field: str | None = None) -> dict:
         """Date histogram with per-bucket metrics (avg/max/sum/cardinality) and optional split series."""
         w, p = self._where(investigation_id, filters, time)
-        iv = interval_sec or self._auto_interval(investigation_id, w, p)
+        iv = self._bounded_interval(w, p, interval_sec or self._auto_interval(investigation_id, w, p))
         sel, sp = ["CAST(ts_epoch / ? AS INTEGER) * ? AS b"], [iv, iv]
         grp = "b"
         if split_field:

@@ -21,13 +21,23 @@ KST = timezone(timedelta(hours=9))
 CRIT = {"critical", "high", "medium", "low"}
 LIST_FIELDS = {"ip", "cidr", "domain", "expected_country", "expected_asn", "expected_uri"}
 JSON_FIELDS = {"expected_user_agent", "expected_access_time", "expected_request_rate", "batch_schedule", "known_exception"}
-FIELDS = ["company", "hostname", "domain", "ip", "cidr", "owner", "department", "environment", "internet_exposed",
+FIELDS = ["org_unit_id", "network", "company", "hostname", "domain", "ip", "cidr", "owner", "department", "environment", "internet_exposed",
           "data_classification", "expected_country", "expected_asn", "expected_user_agent", "expected_access_time",
           "expected_request_rate", "expected_uri", "batch_schedule", "known_exception", "authentication", "notes"]
 
 
 def _validate(data: dict) -> dict:
     d = {k: data[k] for k in FIELDS if k in data}
+    org_id = d.get("org_unit_id")
+    if org_id is not None:
+        if not isinstance(org_id, str) or len(org_id) > 36:
+            raise ValueError("asset org_unit_id must be a registry identity")
+        d["org_unit_id"] = org_id.strip() or None
+    network = d.get("network")
+    if network is not None:
+        if not isinstance(network, str) or len(network) > 128:
+            raise ValueError("asset network must be a string of at most 128 characters")
+        d["network"] = network.strip()
     for k in ("ip",):
         for v in d.get(k) or []:
             ipaddress.ip_address(v)
@@ -54,6 +64,11 @@ def upsert(s: Session, p: Principal, asset_id: str, service: str, criticality: s
         raise ValueError(f"criticality must be one of {sorted(CRIT)}")
     clean = _validate(data)
     a = s.execute(select(Asset).where(Asset.asset_id == asset_id)).scalar_one_or_none()
+    scoped_data = {**(a.data or {}), **clean} if a is not None else clean
+    if scoped_data.get("org_unit_id"):
+        from saw.source_context.service import org_by_id
+
+        org_by_id(s, scoped_data["org_unit_id"])
     if a is None:
         a = Asset(asset_id=asset_id, service=service, criticality=criticality, data=clean, source=source)
         s.add(a)
@@ -125,13 +140,43 @@ def _hours(spec: str | None) -> tuple[int, int] | None:
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-class AssetPortImpl:
-    """Port used by detectors (saw.detectors.base.DetectorContext.assets)."""
+def _scope_assets(s: Session, org_unit_id: str | None, network: str | None):
+    """Separate explicit registry scope from references without resolving names to IDs."""
+    from saw.source_context.models import OrgUnit
 
-    def __init__(self, s: Session):
-        self.assets = all_assets(s)
+    org = s.get(OrgUnit, org_unit_id) if isinstance(org_unit_id, str) and org_unit_id else None
+    if org is not None and org.state != "active":
+        org = None
+    scoped, references = [], []
+    for item in all_assets(s):
+        data = item.data or {}
+        asset_org, asset_network = data.get("org_unit_id"), data.get("network")
+        if asset_org:
+            if org is None or asset_org != org.id:
+                continue
+            if asset_network:
+                if not network:
+                    references.append((item, "network_unknown"))
+                    continue
+                if asset_network != network:
+                    continue
+            scoped.append(item)
+        elif not data.get("company"):
+            references.append((item, "legacy_unscoped"))
+        elif org is not None and data["company"] == org.display_name:
+            references.append((item, "legacy_company_only"))
+    # Prefer the explicit network policy over an organization-wide policy.
+    scoped.sort(key=lambda item: not bool((item.data or {}).get("network")))
+    return scoped, references
+
+
+class AssetPortImpl:
+    """Only explicit active organization/network scope may affect detector baselines."""
+
+    def __init__(self, s: Session, org_unit_id: str | None = None, network: str | None = None):
+        self.assets, _ = _scope_assets(s, org_unit_id, network)
         if not self.assets:
-            raise ImportError("no assets")  # detectors fall back to relative comparison
+            raise ImportError("no scoped assets")  # detectors fall back to relative comparison
 
     def match_path(self, path: str) -> dict | None:
         a = match(self.assets, path=path)
@@ -170,29 +215,40 @@ class AssetPortImpl:
         return out
 
 
-def context_for(s: Session, finding: dict | None, inv_entities: dict) -> list[dict]:
-    """Asset Context panel: Normal vs Current comparisons (docs/27 §5)."""
-    assets = all_assets(s)
+def context_for(s: Session, finding: dict | None, inv_entities: dict,
+                org_unit_id: str | None = None, network: str | None = None) -> list[dict]:
+    """Stable-ID comparisons; ambiguous legacy and unknown-network matches are references."""
+    scoped, references = _scope_assets(s, org_unit_id, network)
+    reference_status = {a.asset_id: status for a, status in references}
+    assets = scoped + [a for a, _ in references]
     if not assets:
         return []
     hits: dict[str, Asset] = {}
     paths = [e.split(":", 1)[1].split("?")[0].replace("<NUM>", "0") for e in (finding or {}).get("entities", []) if e.startswith("uri_template:")]
     ips = [e.split(":", 1)[1] for e in (finding or {}).get("entities", []) if e.startswith("ip:")] + inv_entities.get("dst_ips", [])
-    for pth in paths + inv_entities.get("paths", []):
-        a = match(assets, path=pth)
-        if a:
-            hits[a.asset_id] = a
-    for ip in ips:
-        a = match(assets, ip=ip)
-        if a:
-            hits[a.asset_id] = a
-    for h in inv_entities.get("hosts", []):
-        a = match(assets, host=h)
-        if a:
-            hits[a.asset_id] = a
+    # Reference matches cannot shadow an eligible stable-ID baseline or each other.
+    groups = [scoped] + [[a for a, state in references if state == status]
+                         for status in ("network_unknown", "legacy_company_only", "legacy_unscoped")]
+    for candidates in groups:
+        for pth in paths + inv_entities.get("paths", []):
+            a = match(candidates, path=pth)
+            if a:
+                hits[a.asset_id] = a
+        for ip in ips:
+            a = match(candidates, ip=ip)
+            if a:
+                hits[a.asset_id] = a
+        for h in inv_entities.get("hosts", []):
+            a = match(candidates, host=h)
+            if a:
+                hits[a.asset_id] = a
     out = []
     for a in list(hits.values())[:3]:
         d = to_dict(a)
+        if a.asset_id in reference_status:
+            out.append({**d, "reference_only": True, "scope_status": reference_status[a.asset_id], "comparisons": [],
+                        "batch_schedule": [{**b, "matches": False} for b in d.get("batch_schedule") or []]})
+            continue
         comps = []
         rate = (d.get("expected_request_rate") or {}).get("per_min")
         if finding and rate:
@@ -218,7 +274,7 @@ def context_for(s: Session, finding: dict | None, inv_entities: dict) -> list[di
             matches = bool(finding and any(e == f"ip:{b.get('src')}" for e in finding.get("entities", []))
                            or (b.get("uri") and any(p.startswith(b["uri"]) for p in paths)))
             batches.append({**b, "matches": matches})
-        out.append({**d, "comparisons": comps, "batch_schedule": batches})
+        out.append({**d, "reference_only": False, "scope_status": "matched", "comparisons": comps, "batch_schedule": batches})
     return out
 
 

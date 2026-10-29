@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
+from dataclasses import asdict
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -24,12 +26,22 @@ def _problem(status: int, title: str, detail: str, instance: str) -> JSONRespons
 
 
 def create_app(settings: Settings | None = None, synchronous_jobs: bool = False) -> FastAPI:
-    container.build(settings, synchronous_jobs=synchronous_jobs)
-    app = FastAPI(title="SAW API", version="0.1.0", openapi_url="/api/v1/openapi.json", docs_url="/api/v1/docs")
+    captured = container.build(settings, synchronous_jobs=synchronous_jobs)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield
+        finally:
+            container.close(captured)
+
+    app = FastAPI(title="SAW API", version="0.2.0", openapi_url="/api/v1/openapi.json",
+                  docs_url="/api/v1/docs", lifespan=lifespan)
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
-        resp = await call_next(request)
+        with container.activate(captured, captured.session_factory):
+            resp = await call_next(request)
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
         resp.headers["X-Frame-Options"] = "DENY"
@@ -42,6 +54,23 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
             "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'"
         ))
         return resp
+
+    from saw.event_generations.reads import ReadContextMiddleware
+    from saw.storage.generations import GenerationConflict, GenerationUnavailable, InvalidGenerationCursor
+
+    app.add_middleware(ReadContextMiddleware, captured=captured)
+
+    @app.exception_handler(GenerationUnavailable)
+    async def generation_unavailable(request: Request, _exc):
+        return _problem(503, "Unavailable", "선택한 자료를 현재 읽을 수 없습니다.", request.url.path)
+
+    @app.exception_handler(GenerationConflict)
+    async def generation_conflict(request: Request, _exc):
+        return _problem(409, "Conflict", "자료 상태가 변경되어 요청을 완료할 수 없습니다.", request.url.path)
+
+    @app.exception_handler(InvalidGenerationCursor)
+    async def generation_cursor(request: Request, _exc):
+        return _problem(400, "Bad request", "조회 위치가 만료되었거나 유효하지 않습니다.", request.url.path)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exc(request: Request, exc: StarletteHTTPException):
@@ -70,11 +99,16 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
 
     @app.get("/api/v1/health")
     def health():
-        c = container.get()
-        return {"status": "ok", "event_store": c.settings.event_store, "object_store": c.settings.object_store,
-                "job_runner": c.settings.job_runner}
+        from saw.workers.runner import InProcessRunner
+        c = captured
+        queue = asdict(c.runner.status()) if isinstance(c.runner, InProcessRunner) else None
+        healthy = queue is None or (queue["state"] == "running" and queue["fatal_code"] is None)
+        return JSONResponse({"status": "ok" if healthy else "unavailable",
+                             "event_store": c.settings.event_store, "object_store": c.settings.object_store,
+                             "job_runner": c.settings.job_runner, "queue": queue},
+                            status_code=200 if healthy else 503)
 
-    _mount_web(app, container.get().settings.web_dist)
+    _mount_web(app, captured.settings.web_dist)
     return app
 
 

@@ -114,7 +114,13 @@ export function IocCard({ r }: { r: any }) {
             {Object.entries(ic.related || {}).map(([k, v]: any) => (
               <div key={k} className="row wrap"><span className="muted" style={{ width: 140 }}>{k}</span>{v.slice(0, 3).map((x: any) => <span key={x.value} className="mono">{x.value} ({x.count})</span>)}</div>
             ))}
+            {ic.affiliate_separated && (ic.by_affiliate || []).map((g: any, i: number) => (
+              <div key={g.org_unit_id || i} className="ck-item" style={{ padding: "4px 8px" }}>
+                <b>관계사 {g.org_unit}</b> · 기록 {fmtNum(g.total_events)}건 · {fmtTime(g.first_seen)} ~ {fmtTime(g.last_seen)}
+                {g.previous_verdicts.map((v: any) => <div key={v.investigation_id}><Link to={`/inv/${v.investigation_id}`}>{v.display_id}</Link> · {v.verdict}</div>)}
+              </div>))}
             <b>PREVIOUS VERDICTS</b>
+            {ic.affiliate_separated && <span className="muted">내부(사설) 주소라 관계사별로만 표시합니다. 다른 관계사의 판단을 이 주소의 이력으로 합치지 않습니다.</span>}
             {ic.previous_verdicts.length ? ic.previous_verdicts.map((v: any) => (
               <div key={v.investigation_id}><Link to={`/inv/${v.investigation_id}`}>{v.display_id}</Link> · {v.verdict} · <span className="muted">{v.verdict_reason}</span></div>
             )) : <span className="muted">없음</span>}

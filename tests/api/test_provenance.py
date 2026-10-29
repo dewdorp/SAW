@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 
+from saw.core.application.provenance import pcap_engine_digest
 from saw.devtools.sample_data import scenario_ndr_meta_csv, scenario_tls_certs
+from saw.integrations.pcapkit import PRODUCER
 from saw.storage.db import session_scope
 from saw.storage.models import AuditEvent, ProcessingRun
 from tests.api.test_parser_library import SAMPLE, SPEC
@@ -21,14 +23,18 @@ def test_every_processing_leaves_a_verifiable_record(analyst):
     data = scenario_ndr_meta_csv(normal=20).encode("utf-8-sig")
     inv = analyst.post("/investigations", json={"title": "기록"}).json()
     _process(analyst, inv["id"], "ndr.csv", data)
-    _process(analyst, inv["id"], "tls.pcap", scenario_tls_certs(), "pcap")
+    pcap_data = scenario_tls_certs()
+    _process(analyst, inv["id"], "tls.pcap", pcap_data, "pcap")
     runs = analyst.get("/processing-runs").json()
     ndr = next(r for r in runs if r["parser_id"] == "ndr_meta_csv")
     assert ndr["actor"] == "analyst1" and ndr["input_sha256"] == hashlib.sha256(data).hexdigest()
     assert ndr["file_name"] == "ndr.csv" and ndr["investigation_title"] == "기록" and ndr["events"] > 0
     assert ndr["settings"]["pipeline"].startswith("saw.ingest/") and ndr["settings"]["encoding"] == "utf-8"
     assert len(ndr["parser_digest"]) == 64 and len(ndr["settings_digest"]) == 64 and len(ndr["run_digest"]) == 64
-    pcap = next(r for r in runs if r["parser_id"].startswith("pcap("))
+    pcap = next(r for r in runs if r["parser_id"] == "pcap")
+    assert pcap["parser_version"] == PRODUCER.rpartition("/")[2]
+    assert pcap["parser_digest"] == pcap_engine_digest()
+    assert pcap["input_sha256"] == hashlib.sha256(pcap_data).hexdigest()
     assert pcap["coverage"]["packets"] > 0 and len(pcap["parser_digest"]) == 64
     v = analyst.get(f"/processing-runs/{ndr['id']}/verify").json()
     assert v["ok"] is True and v["audit_record_found"] is True

@@ -4,18 +4,20 @@
 
 대상은 Windows 10 Enterprise LTSC 2019 x64, PowerShell 5.1, 폐쇄망의 공동 접속 서버다. 관리자 서비스 설치와 실제 대상 OS 인수는 개발기 시험과 구분한다.
 
+아래 예시의 `-ExecutionPolicy RemoteSigned`는 해당 PowerShell 프로세스에만 적용됩니다. 시스템·사용자 정책은 저장하지 않으며 조직 그룹 정책이 우선합니다. 인터넷 반입 표시(MOTW)나 서명 정책으로 실행이 차단되면 조직이 승인한 서명된 배포 매체와 절차를 확인한 뒤 진행하세요.
+
 ## C: 또는 D: 선택
 
 Windows PowerShell을 **관리자 권한으로 실행**하고 설치 매체 최상위 폴더로 이동한다. 관리자 계정으로 로그인한 것만으로는 충분하지 않다. 아래 호스트명과 분석가 대역은 예시이며 승인된 실제 값으로 바꾼다.
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallRoot "D:\SAW" -HostName "saw.corp.local" -AllowFrom "10.20.0.0/16"
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\install.ps1 -InstallRoot "D:\SAW" -HostName "saw.corp.local" -AllowFrom "10.20.0.0/16"
 ~~~
 
 C:에 설치하려면 InstallRoot를 C:\SAW로 바꾼다. 드라이브 여유 공간을 보고 입력으로 선택할 수도 있다.
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -ChooseInstallLocation -HostName "saw.corp.local" -AllowFrom "10.20.0.0/16"
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\install.ps1 -ChooseInstallLocation -HostName "saw.corp.local" -AllowFrom "10.20.0.0/16"
 ~~~
 
 D:\SAW처럼 절대 경로를 입력한다. D:\SOC\SAW처럼 중첩 경로를 쓰려면 상위 D:\SOC 폴더가 먼저 존재해야 한다. Enter는 표시된 기본 경로다. 드라이브 최상위 자체, 네트워크 공유, 링크·정션은 거부한다. 설치 매체와 설치 폴더는 겹치면 안 된다. 공백·한글 경로를 처리하며, 명령/설정 해석에 영향을 주는 일부 특수문자는 거부한다. 짧은 경로를 권한다. SYSTEM 계정으로 무인 설치할 때는 D:\SAW처럼 영문·숫자 경로를 사용한다. 한글 경로의 PostgreSQL 초기화 보완은 일반 관리자/사용자 세션에서만 임시 별칭을 사용하도록 제한한다.

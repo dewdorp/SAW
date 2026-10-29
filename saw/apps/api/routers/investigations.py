@@ -1,8 +1,11 @@
 from __future__ import annotations
+from saw.detection.derived_access import visible_findings
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saw.apps.api.deps import AuthContext, auth, db
@@ -15,7 +18,12 @@ router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 class InvIn(BaseModel):
     title: str = Field(min_length=1, max_length=256)
-    org_unit: str = ""
+    org_unit: str = Field("", max_length=64)
+    org_unit_id: str | None = Field(None, max_length=36)
+    # One affiliate + one declared period is the investigation unit. The UI requires both; the API keeps them
+    # optional so automation and earlier clients keep working, and the workbench flags a missing scope.
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 
 class MemberIn(BaseModel):
@@ -38,28 +46,39 @@ class CloseIn(BaseModel):
 
 def inv_out(s: Session, i: Investigation) -> dict:
     ev = s.execute(select(Evidence).where(Evidence.investigation_id == i.id)).scalars().all()
-    fc = dict(s.execute(select(Finding.risk_level, func.count()).where(Finding.investigation_id == i.id)
-                        .group_by(Finding.risk_level)).all())
+    from collections import Counter
+    rows = list(s.scalars(select(Finding).where(Finding.investigation_id == i.id)))
+    visible = visible_findings(s, s.info.get("principal"), rows)
+    fc = dict(Counter(f.risk_level for f in visible))
+    hidden = len(visible) != len(rows)
+    top = max((f for f in visible if f.status not in {"false_positive", "duplicate", "benign"}),
+              key=lambda f: f.risk_score, default=None)
+    risk_level = i.risk_override or (top.risk_level if top else "unknown") if hidden else i.risk_override or i.risk_level
+    risk_score = top.risk_score if hidden and top else None if hidden else i.risk_score
     return {
         "id": i.id, "display_id": i.display_id, "title": i.title, "status": i.status,
-        "risk_level": i.risk_override or i.risk_level, "risk_score": i.risk_score,
+        "org_unit": i.org_unit, "org_unit_id": i.org_unit_id,
+        "risk_level": risk_level, "risk_score": risk_score,
         "time_start": i.time_start, "time_end": i.time_end, "verdict": i.verdict,
+        "period_start": inv_svc.declared_period(i)[0], "period_end": inv_svc.declared_period(i)[1],
         "created_at": i.created_at, "closed_at": i.closed_at, "settings": i.settings,
         "evidence": [{"id": e.id, "kind": e.kind, "title": e.title, "status": e.status, "size": e.total_size,
-                      "file_count": e.file_count} for e in ev],
+                      "file_count": e.file_count, "context_snapshot_id": e.context_snapshot_id} for e in ev],
         "finding_counts": fc,
     }
 
 
 @router.post("", status_code=201)
 def create(body: InvIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit)
+    i = inv_svc.create(s, ctx.principal, body.title, body.org_unit, body.org_unit_id,
+                       body.period_start, body.period_end)
     return inv_out(s, i)
 
 
 @router.get("")
-def list_(ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    return [inv_out(s, i) for i in inv_svc.list_for(s, ctx.principal)]
+def list_(org_unit_id: str | None = None, before: str | None = None, limit: int = Query(50, ge=1, le=200),
+          ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return [inv_out(s, i) for i in inv_svc.list_for(s, ctx.principal, limit, org_unit_id=org_unit_id, before=before)]
 
 
 @router.get("/{inv_id}")
@@ -69,7 +88,11 @@ def get(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, 
 
 class SettingsIn(BaseModel):
     title: str | None = None
+    org_unit: str | None = Field(None, max_length=64)
+    org_unit_id: str | None = Field(None, max_length=36)
     clock_skew: dict[str, float] | None = None  # seconds per data_source (display/correlation only; raw unchanged)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
 
 
 @router.patch("/{inv_id}")
@@ -77,8 +100,15 @@ def patch(inv_id: str, body: SettingsIn, ctx: AuthContext = Depends(auth), s: Se
     from saw.core.application import audit
 
     i = inv_svc.require(s, ctx.principal, "investigation.write", inv_id)
+    if {"org_unit", "org_unit_id"} & body.model_fields_set:
+        from saw.source_context.service import set_investigation_org
+
+        i = set_investigation_org(s, ctx.principal, inv_id, body.org_unit, body.org_unit_id)
     if body.title:
         i.title = body.title[:256]
+    if {"period_start", "period_end"} & body.model_fields_set:
+        start, end = inv_svc.checked_period(body.period_start, body.period_end)
+        i.settings = inv_svc.period_settings(i.settings, start, end)
     if body.clock_skew is not None:
         if any(abs(v) > 86400 for v in body.clock_skew.values()):
             raise ValueError("clock skew must be within ±1 day")
@@ -98,6 +128,18 @@ def add_member(inv_id: str, body: MemberIn, ctx: AuthContext = Depends(auth), s:
 @router.post("/{inv_id}/close")
 def close(inv_id: str, body: CloseIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     from saw.core.application.guidance import FollowUp, build_closure_draft
+    from saw.core.domain.enums import BENIGN_VERDICTS
+    from saw.followups.service import benign_blockers
+
+    inv_svc.require(s, ctx.principal, "investigation.close", inv_id)
+    if body.verdict in BENIGN_VERDICTS:
+        # A reply about another period/target, or one that explains only part of the activity, is not an
+        # explanation of what was observed: the conclusion stays open until it is resolved or closed with limits.
+        blockers = benign_blockers(s, inv_id)
+        if blockers:
+            lines = "; ".join(f"'{b['question']}' — {b['reason']}" for b in blockers[:5])
+            raise ValueError(f"확인 요청 {len(blockers)}건이 해결되지 않아 정상·오탐으로 종결할 수 없습니다: {lines}. "
+                             "회신을 검증하거나, '증거 부족으로 추가 확인 필요'로 종결하거나, 해당 요청을 한계와 함께 닫으세요.")
     draft = build_closure_draft(s, ctx.principal, inv_id)
     extra = [FollowUp.model_validate({k: v for k, v in x.items() if k != "check_id"}).model_dump() for x in body.follow_up]
     draft["behavior_assessment"] = body.behavior_assessment.strip() or draft["behavior_assessment"]

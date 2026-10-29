@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from types import SimpleNamespace
+from copy import deepcopy
 from time import monotonic
 
 from sqlalchemy import select
@@ -15,7 +17,7 @@ from saw.core.application.identity import principal_of
 from saw.core.application.investigations import access_of
 from saw.core.schemas.query import Filter
 from saw.core.security.authz import can
-from saw.detection.service import Detection, DetectionVersion, has_passing_test
+from saw.detection.service import Detection, DetectionVersion
 from saw.detection.sigma_eval import (
     SigmaError,
     _get,
@@ -51,6 +53,8 @@ def _authorized(s: Session, det: Detection, version: DetectionVersion, inv_id: s
     if reviewer.id in (creator.id, author.id) or not can(principal_of(reviewer), "detection.approve"):
         return False
     source_inv = (det.source or {}).get("investigation_id")
+    if source_inv and source_inv != inv_id:
+        return False
     # Reviewed synthetic package definitions are shared content without private source investigations.
     if not source_inv and has_package_validation(s, det.id, version.version):
         return True
@@ -126,55 +130,112 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
     """A rule is settled only after complete evaluation or an intentional eligibility change.
 
     Ineligible/private rules are silently skipped; their titles, sources and rejection reasons do not cross scopes.
-    Runtime failures keep prior results and emit one visible coverage finding. No source values are logged.
+    Runtime failures keep prior results and emit a separate execution report. No source values are logged.
     """
-    deadline = monotonic() + MAX_SECONDS
-    existing = set(s.execute(select(Finding.detector_id).where(Finding.investigation_id == ctx.investigation_id,
-                                                               Finding.detector_id.startswith(PREFIX))).scalars())
-    existing_ids = {ident[len(PREFIX):] for ident in existing}
-    still_active = set(s.execute(select(Detection.id).where(Detection.id.in_(existing_ids),
-                                                          Detection.status.in_(["approved", "deployed"]))).scalars()) if existing_ids else set()
-    settled = (existing - {PREFIX + ident for ident in still_active}) | {COVERAGE_ID}
-    detections = list(s.execute(select(Detection).where(Detection.status.in_(["approved", "deployed"]))
-                               .order_by(Detection.id).limit(MAX_RULES + 1)).scalars())
+    budget = ctx.params.setdefault("sigma_runtime_budget", {"deadline": monotonic() + MAX_SECONDS,
+                                                          "evaluations": 0, "rules": 0})
+    deadline = min(monotonic() + MAX_SECONDS, budget["deadline"])
+    from saw.detection import governance as gov
+    from saw.core.application.investigations import Forbidden, NotFound
+    from saw.storage.models import Investigation
+    runtime = ctx.params.get("runtime_pin")
+    explicitly_inactive = set()
+    reports = ctx.params.setdefault("execution_reports", [])
+    if runtime is None:
+        # Internal compatibility entry point: pin once before event iteration.
+        # HTTP execution supplies its authenticated actor and already-frozen runtime set.
+        inv = s.get(Investigation, ctx.investigation_id)
+        actor = s.get(User, ctx.params.get("actor_id") or (inv.owner_id if inv else None))
+        pins = []
+        if actor and actor.status == "active":
+            p = principal_of(actor)
+            # Compatibility callers can prove a live inactive state explicitly.
+            # A missing bounded/runtime pin alone never authorizes retirement.
+            prior_finding = select(Finding.id).where(
+                Finding.detector_id == PREFIX + Detection.id,
+                Finding.investigation_id == ctx.investigation_id).exists()
+            inactive = s.scalars(select(Detection).where(
+                Detection.active_version_id.is_(None), prior_finding).order_by(Detection.id).limit(MAX_RULES))
+            for det in inactive:
+                try:
+                    source_inv = (det.source or {}).get("investigation_id")
+                    if source_inv and source_inv != ctx.investigation_id:
+                        continue
+                    gov._read_sources(s, p, [ctx.investigation_id, *gov._source_ids(s, "rule", det)])
+                    explicitly_inactive.add(PREFIX + det.id)
+                except (Forbidden, NotFound, ValueError):
+                    continue
+            for det in gov.runtime_candidates(s, p, ctx.investigation_id):
+                try:
+                    version = gov._version(s, "rule", det, det.active_version_id)
+                    approval = gov.validate_approval(s, p, "rule", det, version, det.active_approval_id)
+                    if not _authorized(s, det, version, ctx.investigation_id):
+                        continue
+                    pin = gov.pin_rule(s, p, det.id, version.id, {"kind": "group"})
+                    pin.update(approval_id=approval.id, validation_kind=approval.proof["method"])
+                    pin["source_investigation_ids"] = sorted(set(pin["source_investigation_ids"] + approval.source_investigation_ids))
+                    pins.append(pin)
+                    if len(pins) > MAX_RULES:
+                        break
+                except (Forbidden, NotFound, ValueError):
+                    continue
+    elif runtime.get("schema") == "det-runtime-set/1":
+        pins = deepcopy(runtime.get("rules", []))
+    elif runtime.get("schema") == "det-runtime-pin/1" and runtime.get("rule"):
+        pins = [deepcopy(runtime)]
+    else:
+        raise ValueError("trusted exact runtime pin required")
+    # An absent captured rule may be inaccessible or outside the capture budget.
+    # Absence is not a completed zero-match evaluation or a retirement instruction.
+    settled = {COVERAGE_ID} | explicitly_inactive
     out, reasons = [], Counter()
-    if len(detections) > MAX_RULES:
+    if len(pins) > MAX_RULES:
         reasons["budget"] += 1
     scanned_total = 0
     max_events = max(1, min(MAX_EVENTS, int(ctx.params.get("sigma_max_events", MAX_EVENTS))))
-    for det in detections[:MAX_RULES]:
+    for pin in pins[:MAX_RULES]:
+        if budget["rules"] >= 500 or budget["evaluations"] >= MAX_EVALUATIONS:
+            reasons["budget"] += 1
+            break
+        budget["rules"] += 1
+        item = pin["rule"]
+        det = SimpleNamespace(id=item["id"], display_id=item["display_id"])
+        version = SimpleNamespace(id=item["version_id"], version=item["version"], **item["payload"])
         ident = PREFIX + det.id
         if monotonic() >= deadline:
             reasons["budget"] += 1
             continue
+        if pin.get("context_scope", {"kind": "group"}) != {"kind": "group"} and ctx.params.get("runtime_scope") != pin["context_scope"]:
+            reports.append({"detector_id": ident, "status": "insufficient_data", "reason": "scoped_runtime_required",
+                            "effective_config": pin})
+            continue
         settled.add(ident)
-        version = s.execute(select(DetectionVersion).where(DetectionVersion.detection_id == det.id)
-                            .order_by(DetectionVersion.version.desc()).limit(1)).scalars().first()
-        if (version is None or version.version != det.current_version or version.format != "sigma"
-                or version.status_at_version not in {"approved", "deployed"} or not _authorized(s, det, version, ctx.investigation_id)):
+        if not pin["policy"]["values"].get("enabled", True):
+            reports.append({"detector_id": ident, "status": "disabled", "effective_config": pin, "match_count": 0})
             continue
-        package_validated = has_package_validation(s, det.id, version.version)
-        if not package_validated and not has_passing_test(s, det.id, version.version):
-            continue
-        if scanned_total >= MAX_EVALUATIONS or monotonic() >= deadline:
+        validation_kind = pin.get("validation_kind", "selected_truth_v1")
+        if budget["evaluations"] >= MAX_EVALUATIONS or monotonic() >= deadline:
             settled.discard(ident)
             reasons["budget"] += 1
             continue
         try:
             rule = compile_rule(version.logic)
             threshold = validate_threshold(version.threshold)
-            exceptions = [Filter(**item) for item in version.exceptions or []]
+            exception_groups = [[Filter(**item) for item in version.exceptions or []],
+                                [Filter(**item) for item in pin["policy"].get("exclusions", [])]]
+            exceptions = [item for group in exception_groups for item in group]
             if len(exceptions) > 32:
                 raise SigmaError("too many exceptions")
             for exception in exceptions:
                 local_field(exception.field)
         except (ValueError, TypeError):
+            settled.discard(ident)
             reasons["unsupported"] += 1
             continue
         sources = set(rule.data_sources) & ctx.data_sources
         if not sources:
             continue
-        if scanned_total >= MAX_EVALUATIONS or monotonic() >= deadline:
+        if budget["evaluations"] >= MAX_EVALUATIONS or monotonic() >= deadline:
             settled.discard(ident)
             reasons["budget"] += 1
             continue
@@ -182,16 +243,19 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
         scanned, excluded, hits = 0, set(), []
         metadata_bytes = 0
         try:
-            if exceptions:
-                for event in ctx.events.iterate(ctx.investigation_id, pre + exceptions, fields=["event_id"]):
-                    if len(excluded) >= max_events or monotonic() >= deadline:
-                        raise TimeoutError
-                    excluded.add(event["event_id"])
+            # Each exception list is a conjunction; rule and policy groups are excluded by union.
+            for group in exception_groups:
+                if group:
+                    for event in ctx.events.iterate(ctx.investigation_id, pre + group, fields=["event_id"]):
+                        if len(excluded) >= max_events or monotonic() >= deadline:
+                            raise TimeoutError
+                        excluded.add(event["event_id"])
             for event in ctx.events.iterate(ctx.investigation_id, pre):
-                if scanned >= max_events or scanned_total >= MAX_EVALUATIONS or monotonic() >= deadline or len(hits) >= MAX_HITS:
+                if scanned >= max_events or budget["evaluations"] >= MAX_EVALUATIONS or monotonic() >= deadline or len(hits) >= MAX_HITS:
                     raise TimeoutError
                 scanned += 1
                 scanned_total += 1
+                budget["evaluations"] += 1
                 if event.get("event_id") not in excluded and evaluate(rule, event):
                     fields = {"event_id", "timestamp", "src_ip", "dst_ip", *threshold.get("group_by", [])}
                     if threshold.get("distinct_field"):
@@ -204,7 +268,9 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
                     hits.append(kept)
             hits = apply_threshold(hits, threshold)
             if hits:
-                out.append(_finding(det, version, rule, hits, scanned, "package_fixture" if package_validated else "historical_replay"))
+                out.append(_finding(det, version, rule, hits, scanned, validation_kind))
+            reports.append({"detector_id": ident, "status": "complete", "input_count": scanned, "match_count": len(hits),
+                            "effective_config": pin, "match_unit": "event"})
         except TimeoutError:
             settled.discard(ident)
             reasons["budget"] += 1
@@ -213,5 +279,6 @@ def run_approved(s: Session, ctx: DetectorContext) -> tuple[list[FindingDraft], 
             reasons["failed"] += 1
             logger.warning("approved Sigma evaluation failed for rule %s", det.id)
     if reasons:
-        out.append(_coverage(reasons, scanned_total))
+        reports.append({"detector_id": "sigma.approved", "status": "partial", "input_count": scanned_total,
+                        "detail": dict(reasons), "match_count": None})
     return out, settled

@@ -50,7 +50,7 @@ def _run_ps(tmp_path, body: str) -> str:
 
     script = tmp_path / "t.ps1"
     script.write_bytes(b"\xef\xbb\xbf" + ('$ErrorActionPreference = "Stop"\n' + body).encode("utf-8"))
-    r = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+    r = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", str(script)],
                        capture_output=True, timeout=120)
     assert r.returncode == 0, (r.stdout + r.stderr).decode("utf-8", "replace")
     return r.stdout.decode("utf-8", "replace")

@@ -1,0 +1,67 @@
+{
+  "schema": "saw.qa.browser-checkpoint.v1",
+  "date": "2026-10-24",
+  "environment": "synthetic local development only; Windows 11, not LTSC acceptance",
+  "actual_browser": {
+    "url": "http://127.0.0.1:58374",
+    "normal_mfa": true,
+    "accounts": [
+      "claude-check",
+      "p4-release-check"
+    ],
+    "profile_creation": true,
+    "full_recalculation": {
+      "records": 21,
+      "sessions": 7
+    },
+    "development_release": {
+      "version_id": "42500f7a-082b-4f77-be65-7126aa015c77",
+      "independent_approval": true,
+      "download_bytes": 103010,
+      "zip_entries": 13,
+      "sha256": "756162547173c89c396570ef044611da2e329a482483762017037e8c8ee7b9d1",
+      "revoked_ui": true,
+      "download_button_disabled_after_revoke": true,
+      "http_download_after_revoke": 409
+    },
+    "holdout": {
+      "preparation": "normal HTTP/MFA API, not browser",
+      "attempt_id": "c457e863-2f4a-480f-ad66-33d3472c727a",
+      "input_browser_download": true,
+      "zip_entries": 11,
+      "input_jsonl_records": 1,
+      "answer_files_absent": true,
+      "external_test": "real synthetic ZIP structure inspector, not model",
+      "result_browser_registration": true,
+      "result_sha256": "30d4e66aec3f91ebff7159eb383841902560338bb23b9ea5aaed25721e1790ac",
+      "first_answer_request": "React blank page due NDJSON response interpreted as object; historical request kept",
+      "final_answer_after_fix": "visible escaped NDJSON text with app intact",
+      "final_input_accesses": 1,
+      "final_answer_accesses": 2
+    }
+  },
+  "restart": {
+    "source_receipt": "browser-p4-v3/restart-after.json",
+    "schema_before": "0021",
+    "schema_after": "0022",
+    "frozen_history_tables": 7,
+    "all_fingerprints_preserved": true,
+    "active_jobs": 0
+  },
+  "screenshots": [
+    "p4-profiles-20261024.png",
+    "p4-release-awaiting-20261023.png",
+    "p4-release-approved-20261024.png",
+    "p4-release-revoked-20261024.png",
+    "p4-holdout-result-20261024.png",
+    "p4-holdout-answers-20261024.png"
+  ],
+  "not_claimed": [
+    "LLM inference",
+    "training",
+    "model quality improvement",
+    "LTSC 2019",
+    "operating acceptance",
+    "new release publication"
+  ]
+}

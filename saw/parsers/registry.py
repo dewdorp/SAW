@@ -10,6 +10,7 @@ from saw.core.security.masking import mask_text
 from saw.parsers.base import RAW_MAX, BaseParser, Failed, Parsed, RawLine
 from saw.parsers.ndr import NdrMetaCsvParser
 from saw.parsers.network import SuricataEveParser, ZeekJsonParser, ZeekTsvParser
+from saw.parsers.security_csv import KoFirewallCsvParser, KoNdrCsvParser
 from saw.parsers.structured import (
     CloudflareParser,
     CsvParser,
@@ -23,7 +24,7 @@ from saw.parsers.web import ApacheParser, IISParser, NginxParser
 
 
 def builtin_parsers() -> list[BaseParser]:
-    return [NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
+    return [KoFirewallCsvParser(), KoNdrCsvParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
             SuricataEveParser(), CloudflareParser(), GenericJsonWafParser(),
             GenericWafParser(), JsonLinesParser(), SyslogParser(), CsvParser(), KeyValueParser()]
 
@@ -89,7 +90,8 @@ def detect(sample: list[str]) -> Detection:
 
 def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: str, evidence_id: str | None,
            file_id: str, source_file: str, object_key: str | None, assumed_tz: str,
-           slim_sources: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
+           slim_sources: set[str] | frozenset[str] = frozenset(),
+           context_snapshot: dict | None = None) -> dict[str, Any]:
     """slim_sources: data sources stored without raw_event (read back from the evidence file by raw_ref)."""
     f = dict(res.fields)
     tz_override = f.pop("_tz", None)  # analyst parser with a fixed source time zone
@@ -118,8 +120,8 @@ def to_ces(parser: BaseParser, rl: RawLine, res: Parsed, *, investigation_id: st
     if res.ext:
         ev["ext"] = {parser.product: {k: v for k, v in list(res.ext.items())[:200]}}
     if ev.get("timestamp_raw") is None:
-        ev["timestamp_quality"] = "ingest_time"
-    return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation)
+        ev["timestamp_quality"] = "missing"  # no time in the record; nothing (not even ingest time) is substituted
+    return finalize(ev, assumed_tz=tz_override or assumed_tz, observation=res.observation, context_snapshot=context_snapshot)
 
 
 def parse_text(text: str, *, investigation_id: str = "adhoc", parser_id: str | None = None,

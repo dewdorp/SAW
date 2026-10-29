@@ -13,9 +13,9 @@ from pathlib import Path
 from sqlalchemy import select
 
 from saw import container
-from saw.core.application import analysis, provenance
+from saw.core.application import analysis
 from saw.parsers.base import Parsed, Skip
-from saw.parsers.registry import detect, get_parser, iter_lines, sniff_encoding, to_ces
+from saw.parsers.registry import detect, iter_lines, sniff_encoding, to_ces
 from saw.storage.db import session_scope, utcnow
 from saw.storage.models import Evidence, EvidenceFile, Job
 from saw.workers.runner import task
@@ -80,11 +80,21 @@ def _job_update(job_id: str, **kw) -> None:
         j.stages = stages
         for k, v in kw.items():
             setattr(j, k, v)
+        if kw.get("state") in {"FAILED", "CANCELLED"}:
+            from saw.analysis_runs.models import AnalysisRun
+            from saw.analysis_runs.service import finish
+            for run in s.scalars(select(AnalysisRun).where(AnalysisRun.job_id == job_id,
+                                                          AnalysisRun.status == "running")):
+                finish(s, run, status=kw["state"].lower(),
+                       detail={"error_type": (kw.get("error") or {}).get("type", kw["state"])})
 
 
 def _cancelled(job_id: str) -> bool:
     with session_scope() as s:
         j = s.get(Job, job_id)
+        lease = _lease.get()
+        if j is not None and lease and lease[0] == job_id and (j.attempt or 0) != lease[1]:
+            raise StaleLease("job lease superseded")
         return j is None or bool(j.cancel_requested)
 
 
@@ -134,6 +144,9 @@ def ingest_run(job_id: str) -> None:
             with session_scope() as s:
                 f = s.get(EvidenceFile, fid)
                 existing = s.execute(select(EvidenceFile).where(EvidenceFile.parent_file_id == fid)).scalars().all()
+                if f.events_parsed > 0:
+                    leaves.append(fid)
+                    continue
                 f.type_detected = sniff(src)
                 if existing:  # idempotent re-run: reuse extracted children
                     leaves += [x.id for x in existing]
@@ -170,6 +183,8 @@ def ingest_run(job_id: str) -> None:
         for lid in leaves:
             with session_scope() as s:
                 f = s.get(EvidenceFile, lid)
+                if f.events_parsed > 0:
+                    continue
                 bucket = ORIGINAL if f.parent_file_id is None else EXTRACTED
                 path = c.objects.local_path(bucket, f.object_key)
                 if f.type_detected in ("pcap", "pcapng"):
@@ -208,7 +223,7 @@ def ingest_run(job_id: str) -> None:
         _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except Exception as e:  # noqa: BLE001
         log.error("ingest failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())
 
 
 def _register_iocs(s, inv_id: str, ev_id: str, path: Path, max_bytes: int = 5 * 1024 * 1024) -> int:
@@ -260,7 +275,7 @@ def _parser_tag(parser) -> str:
     return f"{parser.id}@{parser.version}"
 
 
-def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: dict) -> dict:
+def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: dict, *, sink=None, context_snapshot=None) -> dict:
     """Parse one text file into the event store. Coverage counts every physical line of the file.
 
     Restart recovery: events are emitted in a deterministic order, so the ones indexed before an interruption are
@@ -271,20 +286,28 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
 
     parser.reset()
     batch: list[dict] = []
+    batch_bytes = 0
     samples: list[dict] = []
     cov = {"lines": 0, "blank_lines": 0, "skipped_lines": 0, "failed_lines": 0, "continuation_lines": 0, "events": 0,
-           "rejected_events": int(resume.get("rejected", 0))}
+           "rejected_events": int(resume.get("rejected", 0)), "timestamp_missing": 0, "timestamp_invalid": 0}
     first_ts = last_ts = None
     enc = _file_encoding(path)
     size = max(1, path.stat().st_size)
     skip, expect = resume.get("emitted", 0), resume.get("last_event_id")
     emitted = 0
     slim = c.settings.raw_store == "auto"
+    sink = sink or c.events
+    if context_snapshot is None:
+        with session_scope() as context_session:
+            pinned_job = context_session.get(Job, job.job_id)
+            context_snapshot = (pinned_job.stages or {}).get("source_context")
 
     def lines():
         with open(path, "rb") as fh:
             for rl in iter_lines(iter(lambda: fh.read(1024 * 1024), b""), enc):
                 cov["lines"] += 1
+                if cov["lines"] % 500 == 0 and hasattr(sink, "check"):
+                    sink.check()
                 if rl.text.strip():
                     yield rl
                 else:
@@ -292,11 +315,11 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
 
     def store(events: list[dict]) -> int:
         """Only what the event store confirms counts as done; refused events are reported, never silently dropped."""
-        stored = c.events.index(events)
+        stored = sink.index(events)
         if stored < len(events):
             cov["rejected_events"] += len(events) - stored
             by_id = {e["event_id"]: e for e in events}
-            for err in getattr(c.events, "last_errors", []):
+            for err in getattr(sink, "last_errors", []):
                 if len(samples) >= 50:
                     break
                 ev = by_id.get(err.get("event_id")) or {}
@@ -314,11 +337,13 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
             # structured events keep fields + raw_ref; the line is read back from the evidence file on demand
             ev = to_ces(parser, rl, r, investigation_id=job.inv_id, evidence_id=job.ev_id, file_id=job.file_id,
                         source_file=job.name, object_key=f"{job.bucket}/{job.key}", assumed_tz=job.tz,
-                        slim_sources=SLIM_SOURCES if slim else frozenset())
+                        slim_sources=SLIM_SOURCES if slim else frozenset(), context_snapshot=context_snapshot)
             ts = ev.get("timestamp")
             if ts:
                 first_ts = ts if first_ts is None or ts < first_ts else first_ts
                 last_ts = ts if last_ts is None or ts > last_ts else last_ts
+            else:  # kept as an event, but it cannot take part in any time-based view
+                cov["timestamp_missing" if ev.get("timestamp_quality") == "missing" else "timestamp_invalid"] += 1
             cov["events"] += 1
             emitted += 1
             if emitted <= skip:
@@ -327,7 +352,13 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
                 continue
             if enc != "utf-8":
                 ev["raw_ref"]["enc"] = enc
+            from saw.storage.generations import canonical_event_bytes
+            event_bytes = len(canonical_event_bytes(ev))
+            if batch and batch_bytes + event_bytes > 10 * 1024 * 1024:
+                done_events += store(batch)
+                batch, batch_bytes = [], 0
             batch.append(ev)
+            batch_bytes += event_bytes
         else:
             cov["failed_lines"] += 1
             if len(samples) < 50:
@@ -335,7 +366,7 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
         if len(batch) >= BATCH:
             done_events += store(batch)
             last_id = batch[-1]["event_id"]
-            batch = []
+            batch, batch_bytes = [], 0
             el = max(0.001, time.time() - job.t0)
             frac = min(0.999, (job.idx + rl.offset / size) / max(1, job.nfiles))  # by bytes: honest on huge files
             _job_update(job.job_id, events_done=done_events, current_item=job.name,
@@ -351,75 +382,26 @@ def _parse_file(c, job: FileJob, parser, path: Path, done_events: int, resume: d
     if batch:
         done_events += store(batch)
     cov["events"] -= cov["rejected_events"]  # events = what can actually be searched
+    warnings = list(getattr(parser, "warnings", []) or [])
+    if cov["timestamp_missing"]:
+        warnings.append(f"시간 값이 없는 기록 {cov['timestamp_missing']}건은 검색은 되지만 시간 추이·순서 분석에서 빠집니다.")
+    if cov["timestamp_invalid"]:
+        warnings.append(f"시간 값을 해석할 수 없는 기록 {cov['timestamp_invalid']}건(예: 존재하지 않는 날짜)은 시간 추이·순서 분석에서 빠집니다.")
     return {"done_events": done_events, "ok": cov["events"], "failed": cov["failed_lines"] + cov["rejected_events"],
-            "samples": samples, "encoding": enc, "warnings": list(getattr(parser, "warnings", []) or []),
+            "samples": samples, "encoding": enc, "warnings": warnings,
             "coverage": cov, "first_ts": first_ts, "last_ts": last_ts}
 
 
 def parse_files(job_id: str, leaves: list[str], inv_id: str, ev_id: str, tz: str) -> None:
+    from saw.event_generations.producer import produce
     c = container.get()
-    _job_update(job_id, state="PARSING")
-    done_events = 0
-    pcap_files = []
-    t0 = time.time()
-    for idx, lid in enumerate(leaves):
-        with session_scope() as s:
-            f = s.get(EvidenceFile, lid)
-            if f.parse_status in ("skipped", "failed", "done"):
-                done_events += f.events_parsed if f.parse_status == "done" else 0
-                continue
-            if f.parser_id == "pcap":
-                pcap_files.append(lid)
-                continue
-            bucket = ORIGINAL if f.parent_file_id is None else EXTRACTED
-            key, disp, pid = f.object_key, f.display_name, f.parser_id
-            f.parse_status = "parsing"
-        parser = get_parser(pid)
-        path = c.objects.local_path(bucket, key)
-        job = FileJob(job_id, lid, bucket, key, disp, inv_id, ev_id, tz, idx, len(leaves), t0)
-        ckpt = _checkpoint(job_id)
-        resume = ckpt if ckpt.get("file") == lid and ckpt.get("parser") in (None, _parser_tag(parser)) else {}
-        started = utcnow()
-        try:
-            res = _parse_file(c, job, parser, path, done_events, resume)
-        except CheckpointMismatch:
-            log.warning("checkpoint for %s no longer matches the file/parser: re-indexing it from the start", disp)
-            res = _parse_file(c, job, parser, path, done_events, {})
-        done_events = res["done_events"]
-        ok, failed = res["ok"], res["failed"]
-        from datetime import datetime
-
-        with session_scope() as s:
-            f = s.get(EvidenceFile, lid)
-            f.events_parsed, f.events_failed = ok, failed
-            f.error_samples = res["samples"] + [{"coverage": res["coverage"]}]
-            f.parse_status = "degraded" if ok and failed / max(1, ok + failed) > 0.05 else ("done" if ok else "failed")
-            notes = list(res["warnings"])
-            if res["coverage"]["rejected_events"]:
-                notes.append(f"검색엔진이 {res['coverage']['rejected_events']:,}건의 저장을 거부함: 이 이벤트는 검색·탐지에서 빠짐")
-            if not ok:
-                notes.insert(0, "no lines parsed")
-            f.message = " · ".join(notes)[:1000]
-            f.parser_version = parser.version
-            if res["first_ts"]:
-                f.first_ts = datetime.fromisoformat(res["first_ts"].replace("Z", "+00:00"))
-                f.last_ts = datetime.fromisoformat(res["last_ts"].replace("Z", "+00:00"))
-            # provenance: who processed which input with which parser/settings, and the result fingerprint
-            provenance.record_run(s, job=s.get(Job, job_id), f=f, investigation_id=inv_id, parser_id=parser.id,
-                                  parser_version=parser.version, parser_fp=provenance.parser_digest(parser),
-                                  settings={"encoding": res["encoding"], "assumed_tz": tz,
-                                            "raw_store": c.settings.raw_store},
-                                  events=ok, failed=failed, coverage=res["coverage"], status=f.parse_status,
-                                  started_at=started)
-        pct = round(100 * (idx + 1) / max(1, len(leaves)))
-        _job_update(job_id, events_done=done_events, stage_parse={"pct": pct}, stage_index={"pct": pct})
-    _job_update(job_id, stage_parse={"pct": 100, "done": True}, stage_index={"pct": 100, "done": True},
-                state="INDEXING")
-    if pcap_files:
-        from saw.integrations.pcap import process_pcap_files
-
-        process_pcap_files(job_id, pcap_files, inv_id, ev_id)
-    analyze_job(job_id, inv_id, ev_id)
+    lease = _lease.get()
+    if lease is None or lease[0] != job_id:
+        raise StaleLease("producer requires a claimed job")
+    produce(c, job_id, lease[1])
+    _job_update(job_id, stage_parse={"pct": 100, "done": True}, stage_index={"pct": 100, "done": True})
+    with c.events.read_scope():
+        analyze_job(job_id, inv_id, ev_id)
 
 
 def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
@@ -432,11 +414,13 @@ def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
             j.stages = {**(j.stages or {}), "analyze": {"pct": round(frac * 100)}}
             s.commit()
 
-        analysis.run_all(s, inv_id, prog)
-        if ev_id:
-            s.get(Evidence, ev_id).status = "processed"
-    _job_update(job_id, state="COMPLETED", stage_analyze={"pct": 100, "done": True}, finished_at=utcnow(),
-                current_item="")
+        run = analysis.run_all(s, inv_id, prog, job_id=job_id)
+        run_status, run_id, run_summary = run.status, run.id, run.summary
+        # Publish the run and terminal job under the same investigation lock/transaction.
+        j = s.get(Job, job_id)
+        j.state, j.finished_at, j.current_item = "COMPLETED", utcnow(), ""
+        j.stages = {**(j.stages or {}), "analyze": {"pct": 100, "done": True,
+            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}}
 
 
 @task("ingest.resume")
@@ -454,7 +438,7 @@ def ingest_resume(job_id: str) -> None:
         _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except Exception as e:  # noqa: BLE001
         log.error("resume failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())
 
 
 @task("analyze.run")
@@ -465,8 +449,32 @@ def analyze_run(job_id: str) -> None:
         inv_id, ev_id = j.investigation_id, j.evidence_id
     try:
         analyze_job(job_id, inv_id, ev_id)
+    except Cancelled:
+        _job_update(job_id, state="CANCELLED", finished_at=utcnow())
     except StaleLease as e:
         log.warning("%s", e)
     except Exception as e:  # noqa: BLE001
         log.error("analyze failed: %s", traceback.format_exc())
-        _job_update(job_id, state="FAILED", error={"message": str(e)[:500]}, finished_at=utcnow())
+        _job_update(job_id, state="FAILED", error={"message": str(e)[:500], "type": type(e).__name__}, finished_at=utcnow())
+
+
+@task("reprocess.run")
+def reprocess_run(job_id: str) -> None:
+    c = container.get()
+    attempt = claim(job_id)
+    try:
+        from saw.event_generations.producer import produce
+        produce(c, job_id, attempt)
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            inv_id, ev_id = job.investigation_id, job.evidence_id
+        with c.events.read_scope():
+            analyze_job(job_id, inv_id, ev_id)
+    except Cancelled:
+        _job_update(job_id, state="CANCELLED", finished_at=utcnow())
+    except StaleLease as error:
+        log.warning("%s", error)
+    except Exception as error:  # noqa: BLE001
+        log.error("reprocess failed: %s", traceback.format_exc())
+        _job_update(job_id, state="FAILED", error={"type": type(error).__name__, "message": "재처리를 완료하지 못했습니다."},
+                    finished_at=utcnow())

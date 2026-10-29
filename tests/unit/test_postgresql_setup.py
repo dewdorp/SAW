@@ -16,7 +16,7 @@ def run_ps(tmp_path, body, timeout=90):
     assert HELPER.is_file(), "PostgreSQL resume/ACL helper missing"
     path=tmp_path / "postgresql-probe.ps1"
     path.write_text("$ErrorActionPreference='Stop'\n$env:PSModulePath=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules'\n[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)\n. " + q(HELPER) + "\n" + body, encoding="utf-8-sig")
-    done=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File",str(path)],capture_output=True,timeout=timeout)
+    done=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","RemoteSigned","-File",str(path)],capture_output=True,timeout=timeout)
     assert done.returncode == 0, (done.stdout+done.stderr).decode("utf-8","replace")
     return json.loads(done.stdout.decode("utf-8-sig"))
 

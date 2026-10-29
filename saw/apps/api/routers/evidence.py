@@ -15,10 +15,16 @@ from saw.core.application import audit
 from saw.core.application import evidence as svc
 from saw.core.application.investigations import NotFound, list_for, require
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    visible_findings,
+)
 from saw.storage.db import session_scope
 from saw.storage.models import Evidence, EvidenceFile, Job
 
 router = APIRouter(tags=["evidence"])
+
+
+from saw.source_context.schemas import ContextInput
 
 
 class EvidenceIn(BaseModel):
@@ -26,6 +32,7 @@ class EvidenceIn(BaseModel):
     title: str = ""
     tz: str | None = None
     classification: str = "internal"
+    source_context: ContextInput | None = None
 
 
 class UploadIn(BaseModel):
@@ -39,10 +46,31 @@ class ParserIn(BaseModel):
     parser_id: str
 
 
-def job_out(j: Job) -> dict:
+def job_out(j: Job, *, p=None) -> dict:
+    allowed = {"pct", "done", "eps", "eta_sec", "analysis_run_id", "status"}
+    stages = {name: {key: value for key, value in stage.items() if key in allowed}
+              for name, stage in (j.stages or {}).items()
+              if name in {"upload", "extract", "parse", "index", "analyze"} and isinstance(stage, dict)}
+    for key in ("analysis_run_id", "retry_of"):
+        if isinstance((j.stages or {}).get(key), str):
+            stages[key] = j.stages[key]
+    result = (j.stages or {}).get("behavior_result")
+    if isinstance(result, dict):
+        stages["behavior_result"] = {k: v for k, v in result.items() if k in {"id", "result_sha256"}}
+    if j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import can_manage, public_stage
+        stages = {"golden_export": public_stage(j, can_manage=p is not None and can_manage(p, j),
+                  can_retry=p is not None and p.user_id == j.requested_by and can_manage(p, j)),
+                  "retry_of": (j.stages or {}).get("retry_of")}
+    if j.kind == "report_export":
+        stages = {"report_export": (j.stages or {}).get("report_export"),
+                  "retry_of": (j.stages or {}).get("retry_of")}
+    error = j.error
+    if error and j.kind in {"ingest", "reprocess"}:
+        error = {"type": error.get("type", "ProcessingError"), "message": "처리를 완료하지 못했습니다."}
     return {"id": j.id, "investigation_id": j.investigation_id, "evidence_id": j.evidence_id, "kind": j.kind,
-            "state": j.state, "stages": j.stages, "events_total_est": j.events_total_est,
-            "events_done": j.events_done, "current_item": j.current_item, "error": j.error,
+            "state": j.state, "stages": stages, "events_total_est": j.events_total_est,
+            "events_done": j.events_done, "current_item": j.current_item, "error": error,
             "created_at": j.created_at, "started_at": j.started_at, "finished_at": j.finished_at,
             "cancel_requested": j.cancel_requested}
 
@@ -60,7 +88,10 @@ def file_out(f: EvidenceFile) -> dict:
 @router.post("/investigations/{inv_id}/evidence", status_code=201)
 def create_evidence(inv_id: str, body: EvidenceIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     e = svc.create_evidence(s, ctx.principal, inv_id, body.kind, body.title, body.tz, body.classification)
-    return {"id": e.id, "kind": e.kind}
+    if body.source_context is not None:
+        from saw.source_context.service import attach_evidence_context
+        attach_evidence_context(s, ctx.principal, e.id, body.source_context)
+    return {"id": e.id, "kind": e.kind, "context_snapshot_id": e.context_snapshot_id}
 
 
 @router.post("/uploads", status_code=201)
@@ -78,7 +109,7 @@ async def put_part(sid: str, n: int, request: Request, ctx: AuthContext = Depend
 
 @router.get("/uploads/{sid}")
 def upload_state(sid: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    u = svc._session_for(s, ctx.principal, sid)  # noqa: SLF001
+    u = svc._session_for(s, ctx.principal, sid)
     return {"id": u.id, "received": u.received_bytes, "declared": u.declared_size, "parts": sorted(int(k) for k in u.parts)}
 
 
@@ -95,6 +126,8 @@ def process(ev_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(d
         job, created = svc.start_processing(s, ctx.principal, ev_id, idempotency_key)
     except svc.IdempotencyConflict as e:
         raise HTTPException(409, str(e)) from None
+    if created:
+        job.stages = {**(job.stages or {}), "_queue_task": "ingest.run"}
     s.commit()
     if created:
         container.get().runner.submit("ingest.run", job_id=job.id)
@@ -119,43 +152,44 @@ def custody(ev_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(d
 
 @router.post("/evidence/{ev_id}/files/{fid}/parser")
 def set_parser(ev_id: str, fid: str, body: ParserIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
-    from saw.parsers.registry import get_parser
-
+    from saw.event_generations.service import request_reprocess
     e = s.get(Evidence, ev_id)
     f = s.get(EvidenceFile, fid)
     if e is None or f is None or f.evidence_id != ev_id:
         raise NotFound("file not found")
     require(s, ctx.principal, "investigation.write", e.investigation_id)
-    from saw.parsers.library import check_use
-
-    from saw.core.application.data_deletion import lock_investigation
-    lock_investigation(s, e.investigation_id)
-    s.refresh(f)
-    check_use(s, ctx.principal, body.parser_id)  # drafts: author only
-    get_parser(body.parser_id)  # validates
-    if f.parse_status in ("done", "degraded"):
-        # events are removed per evidence, so every parsed text file of it is parsed again (not only this one)
-        container.get().events.delete_by_evidence(e.investigation_id, ev_id)
-        for other in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id, EvidenceFile.id != fid,
-                                                          EvidenceFile.parse_status.in_(["done", "degraded"]))).scalars():
-            if other.parser_id and other.parser_id != "pcap":
-                other.parse_status = "pending"
-    f.parser_id, f.parse_status, f.message = body.parser_id, "pending", ""
+    # Initial parser selection resumes its waiting job; published results get a new immutable request.
+    waiting_job = s.scalar(select(Job).where(Job.evidence_id == ev_id, Job.state == "WAITING_INPUT")
+                          .order_by(Job.created_at.desc()).limit(1))
+    if waiting_job is not None and f.parse_status == "waiting_input":
+        from saw.parsers.library import check_use
+        from saw.parsers.registry import get_parser
+        check_use(s, ctx.principal, body.parser_id)
+        get_parser(body.parser_id)
+        f.parser_id, f.parse_status, f.message = body.parser_id, "pending", ""
+        s.flush()
+        waiting = s.scalars(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id,
+                             EvidenceFile.parse_status == "waiting_input")).all()
+        job = waiting_job
+        if not waiting:
+            job.state = "QUEUED"
+            job.stages = {**(job.stages or {}), "_queue_task": "ingest.resume"}
+        route = "ingest.resume"
+    else:
+        pins = None
+        if body.parser_id == "pcap":
+            from saw.integrations.pcap import runtime_pins
+            s.commit()
+            pins = runtime_pins()
+        job = request_reprocess(s, ctx.principal, ev_id, fid, body.parser_id, runtime_pins=pins)
+        waiting, route = [], "reprocess.run"
     audit.record(s, "evidence.parser_override", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="evidence_file", target_id=fid, investigation_id=e.investigation_id,
-                 detail={"parser_id": body.parser_id})
-    job = s.execute(select(Job).where(Job.evidence_id == ev_id).order_by(Job.created_at.desc())).scalars().first()
-    if job:  # the processing record names who re-processed, not who uploaded
-        job.stages = {**(job.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
-                                                          "action": "parser_override", "parser_id": body.parser_id}}
-    waiting = s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == ev_id,
-                                                   EvidenceFile.parse_status == "waiting_input")).scalars().all()
-    if job and not waiting:
-        job.state = "PARSING"
+                 detail={"parser_id": body.parser_id, "job_id": job.id})
     s.commit()
-    if job and not waiting:
-        container.get().runner.submit("ingest.resume", job_id=job.id)
-    return {"ok": True, "remaining_waiting": len(waiting)}
+    if not waiting:
+        container.get().runner.submit(route, job_id=job.id)
+    return {"ok": True, "remaining_waiting": len(waiting), "job_id": job.id}
 
 
 @router.get("/jobs")
@@ -164,14 +198,37 @@ def list_jobs(active: bool = False, ctx: AuthContext = Depends(auth), s: Session
     q = select(Job).where(Job.investigation_id.in_(inv_ids)).order_by(Job.created_at.desc()).limit(50)
     if active:
         q = q.where(Job.state.notin_(["COMPLETED", "FAILED", "CANCELLED"]))
-    return [job_out(j) for j in s.execute(q).scalars()]
+    from saw.core.application.investigations import Forbidden
+    visible = []
+    for j in s.execute(q).scalars():
+        if j.kind == "report_export":
+            from saw.reports.export_jobs import require_job
+            try:
+                require_job(s, ctx.principal, j)
+            except (Forbidden, NotFound):
+                continue
+        if j.kind == "golden_export":
+            from saw.knowledge.golden_jobs import require_job
+            try:
+                require_job(s, ctx.principal, j)
+            except (Forbidden, NotFound):
+                continue
+        visible.append(job_out(j, p=ctx.principal))
+    return visible
 
 
 def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
     j = s.get(Job, job_id)
     if j is None:
         raise NotFound("job not found")
-    require(s, ctx.principal, "investigation.read", j.investigation_id)
+    if j.kind == "report_export":
+        from saw.reports.export_jobs import require_job
+        require_job(s, ctx.principal, j)
+    elif j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import require_job
+        require_job(s, ctx.principal, j)
+    else:
+        require(s, ctx.principal, "investigation.read", j.investigation_id)
     s.refresh(j)
     return j
 
@@ -179,7 +236,7 @@ def _job_for(s: Session, ctx: AuthContext, job_id: str) -> Job:
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
-    out = job_out(j)
+    out = job_out(j, p=ctx.principal)
     if j.evidence_id:
         out["files"] = [file_out(f) for f in s.execute(select(EvidenceFile).where(
             EvidenceFile.evidence_id == j.evidence_id)).scalars()]
@@ -189,6 +246,9 @@ def get_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     j = _job_for(s, ctx, job_id)
+    if j.kind == "golden_export":
+        from saw.knowledge.golden_jobs import cancel
+        return job_out(cancel(s, ctx.principal, j), p=ctx.principal)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
     from saw.core.application.data_deletion import lock_investigation
     lock_investigation(s, j.investigation_id)
@@ -196,6 +256,12 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
     j.cancel_requested = True
     if j.state in ("QUEUED", "WAITING_INPUT", "UPLOADING"):
         j.state = "CANCELLED"
+        if j.kind == "report_export":
+            from saw.storage.db import utcnow
+            j.finished_at = utcnow()
+        if j.kind == "device_analysis":
+            from saw.analysis_runs.scoped import cancel_queued
+            cancel_queued(s, j)
     audit.record(s, "job.cancel", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  target_type="job", target_id=job_id, investigation_id=j.investigation_id)
     return job_out(j)
@@ -203,6 +269,22 @@ def cancel_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depen
 
 @router.post("/jobs/{job_id}/retry")
 def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    raw = s.get(Job, job_id)
+    if raw is not None and raw.kind == "golden_export":
+        from saw.knowledge.golden_jobs import retry
+        newer = retry(s, ctx.principal, raw)
+        s.commit()
+        if newer.state == "QUEUED" and newer.stages.get("input_state") == "input_ready":
+            container.get().runner.submit("golden_export.run", job_id=newer.id)
+        s.refresh(newer)
+        return job_out(newer, p=ctx.principal)
+    if raw is not None and raw.kind == "report_export":
+        from saw.reports.export_jobs import retry
+        newer = retry(s, ctx.principal, raw)
+        s.commit()
+        container.get().runner.submit("report_export.run", job_id=newer.id)
+        s.refresh(newer)
+        return job_out(newer)
     j = _job_for(s, ctx, job_id)
     require(s, ctx.principal, "investigation.write", j.investigation_id)
     from saw.core.application.data_deletion import lock_investigation
@@ -210,26 +292,58 @@ def retry_job(job_id: str, ctx: AuthContext = Depends(auth), s: Session = Depend
     s.refresh(j)
     if j.state not in ("FAILED", "CANCELLED", "WAITING_INPUT"):
         raise HTTPException(409, "Only failed, cancelled or waiting jobs can be retried")
+    if j.kind == "ingest":
+        published = bool((j.stages or {}).get("generation", {}).get("published"))
+        route = "analyze.run" if published else "ingest.resume"
+        newer = Job(investigation_id=j.investigation_id, evidence_id=j.evidence_id,
+                    kind="reanalyze" if published else "ingest", requested_by=ctx.principal.user_id,
+                    state="QUEUED", stages={"_queue_task": route, "retry_of": j.id,
+                        "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username}})
+        s.add(newer)
+        s.commit()
+        container.get().runner.submit(route, job_id=newer.id)
+        return job_out(newer, p=ctx.principal)
+    if j.kind == "reprocess":
+        from saw.event_generations.service import request_reprocess
+        selected = j.stages["generation_request"]["input"]["replacements"][0]
+        pins = None
+        if selected["parser"]["id"] == "pcap":
+            from saw.integrations.pcap import runtime_pins
+            s.commit()
+            pins = runtime_pins()
+        newer = request_reprocess(s, ctx.principal, selected["evidence_id"], selected["file_id"],
+                                  selected["parser"]["id"], runtime_pins=pins)
+        s.commit()
+        container.get().runner.submit("reprocess.run", job_id=newer.id)
+        return job_out(newer, p=ctx.principal)
     if j.kind == "behavior":
         from saw.behavior.service import ensure_source_idle
         ensure_source_idle(s, j.investigation_id)
+    elif j.kind == "device_analysis":
+        from saw.analysis_runs.scoped import _idle
+        _idle(s, j.investigation_id)
     for f in s.execute(select(EvidenceFile).where(EvidenceFile.evidence_id == j.evidence_id,
                                                   EvidenceFile.parse_status == "failed")).scalars():
         f.parse_status = "pending"
-    j.state, j.cancel_requested, j.error = "PARSING", False, {}
+    j.state, j.cancel_requested, j.error = "QUEUED", False, {}
     j.stages = {**(j.stages or {}), "requested": {"by": ctx.principal.user_id, "name": ctx.principal.username,
                                                   "action": "retry"}}
+    task_name = {"behavior": "behavior.run", "reanalyze": "analyze.run",
+                 "device_analysis": "device_analysis.run"}.get(j.kind, "ingest.resume")
+    j.stages = {**j.stages, "_queue_task": task_name}
     s.commit()
-    task_name = "behavior.run" if j.kind == "behavior" else "analyze.run" if j.kind == "reanalyze" else "ingest.resume"
     container.get().runner.submit(task_name, job_id=j.id)
     return job_out(j)
 
 
 @router.get("/jobs/{job_id}/events")
-async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(auth)):
+async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(auth),
+                     s: Session = Depends(db, scope="function")):
     """SSE progress stream (docs/10 §6)."""
-    with session_scope() as s:
-        _job_for(s, ctx, job_id)
+    # Authentication updates last_seen_at in this same function-scoped session.
+    # Commit it before the stream opens independent reader transactions.
+    _job_for(s, ctx, job_id)
+    s.commit()
 
     async def gen():
         last = None
@@ -241,7 +355,30 @@ async def job_events(job_id: str, request: Request, ctx: AuthContext = Depends(a
                 if j is None:
                     yield "event: end\ndata: {}\n\n"
                     return
-                payload = json.dumps(job_out(j), default=str)
+                if j.kind not in {"report_export", "golden_export"}:
+                    from saw.core.application.investigations import Forbidden
+                    try:
+                        container.get().events.authorize(s, j.investigation_id)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
+                if j.kind == "report_export":
+                    from saw.core.application.investigations import Forbidden
+                    from saw.reports.export_jobs import _actor, require_job
+                    try:
+                        require_job(s, _actor(s, ctx.principal.user_id), j)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
+                if j.kind == "golden_export":
+                    from saw.core.application.investigations import Forbidden
+                    from saw.knowledge.golden_jobs import actor, require_job
+                    try:
+                        require_job(s, actor(s, ctx.principal.user_id, session_id=ctx.session.id), j)
+                    except (Forbidden, NotFound):
+                        yield "event: end\ndata: {}\n\n"
+                        return
+                payload = json.dumps(job_out(j, p=ctx.principal), default=str)
                 state = j.state
             if payload != last:
                 yield f"event: progress\ndata: {payload}\n\n"
@@ -307,7 +444,7 @@ def recent_findings(ctx: AuthContext = Depends(auth), s: Session = Depends(db, s
     rows = s.execute(select(Finding).where(Finding.investigation_id.in_(ids))
                      .order_by(Finding.created_at.desc(), Finding.risk_score.desc()).limit(10)).scalars()
     return [{"id": f.id, "display_id": f.display_id, "title": f.title, "risk_level": f.risk_level,
-             "investigation_id": f.investigation_id, "time_start": f.time_start} for f in rows]
+             "investigation_id": f.investigation_id, "time_start": f.time_start} for f in visible_findings(s, ctx.principal, rows)]
 
 
 @router.get("/parsers")

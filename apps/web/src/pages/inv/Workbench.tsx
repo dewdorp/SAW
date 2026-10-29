@@ -7,6 +7,8 @@ import { Icon } from "../../components/ui";
 import { useInv, useInvTabs } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../../lib/format";
+import { AnalysisHistoryTab } from "./AnalysisHistoryTab";
+import { SourceContextTab } from "./SourceContextTab";
 import { AttackTab } from "./AttackTab";
 import { BehaviorTab } from "./BehaviorTab";
 import { ChecksTab } from "./ChecksTab";
@@ -21,23 +23,39 @@ import { HttpTab } from "./HttpTab";
 import { NetworkTab } from "./NetworkTab";
 import { NotesTab } from "./NotesTab";
 import { OverviewTab } from "./OverviewTab";
+import { InternalGoldenPanel } from "./InternalGoldenPanel";
+import { ScopePeriodEditor, ScopeSummary } from "./ScopeSummary";
 import { RawTab } from "./RawTab";
 import { RelationsTab } from "./RelationsTab";
 import { StatisticsTab } from "./StatisticsTab";
 import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
-const TABS: [string, string][] = [
-  ["overview", "개요"], ["statistics", "로그 통계"], ["behavior", "행위 분석"], ["findings", "탐지 결과"], ["story", "공격 스토리"], ["timeline", "타임라인"], ["relations", "관계 그래프"],
-  ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"],
-  ["raw", "원본 로그"], ["checks", "확인·검토"], ["notes", "메모"],
+/** Three work areas. Every earlier tab is still here; specialist views fold under "전문 분석". */
+type Area = { key: string; label: string; hint: string; tabs: [string, string][]; advanced?: [string, string][] };
+const AREAS: Area[] = [
+  { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명",
+    tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["statistics", "로그 통계"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
+  { key: "investigate", label: "② 조사", hint: "조사 제안과 근거, 직접 검색, 반복 행위 묶음, 시계열",
+    tabs: [["findings", "조사 제안"], ["raw", "로그 검색·원문"], ["behavior", "행위 묶음·시계열"], ["timeline", "타임라인"]],
+    advanced: [["story", "공격 스토리"], ["relations", "관계 그래프"], ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"]] },
+  { key: "decide", label: "③ 확인 및 판단", hint: "확인이 필요한 사항, 확인 요청과 회신, 판단 근거, 골든셋 저장",
+    tabs: [["checks", "확인 요청·검토"], ["golden", "골든셋 저장"], ["notes", "메모"]] },
 ];
+const TABS: [string, string][] = AREAS.flatMap((a) => [...a.tabs, ...(a.advanced || [])]);
+const areaOf = (tab: string) => AREAS.find((a) => [...a.tabs, ...(a.advanced || [])].some(([k]) => k === tab)) || AREAS[1];
+const SEARCH_FIELDS: [string, string][] = [["src_ip", "출발지 IP"], ["dst_ip", "목적지 IP"], ["dst_port", "목적지 포트"], ["uri", "URL 경로"],
+  ["hostname", "호스트명"], ["alert_name", "장비 공격명"], ["enforcement_action", "처리 결과"], ["session_id", "세션 ID"], ["user_agent", "User-Agent"],
+  ["method", "HTTP 메서드"], ["status_code", "응답 코드"], ["protocol", "프로토콜"], ["data_source", "로그 종류"]];
+const NUMERIC_FIELDS = new Set(["dst_port", "status_code"]);
 const FACETS = ["data_source", "src_cloud", "status_class", "ua_class", "src_geo_country", "method"];
 const FACET_KO: Record<string, string> = { data_source: "데이터 출처", src_cloud: "출발지 클라우드", status_class: "응답 코드", ua_class: "User-Agent 유형",
   src_geo_country: "출발지 국가", method: "HTTP 메서드" };
 const KIND_KO: Record<string, string> = { web_log: "웹 로그", waf_log: "WAF 로그", pcap: "PCAP", ioc_list: "IOC 목록", sec_log: "보안 로그",
   fw_log: "방화벽 로그", db_audit: "DB 감사", paste: "붙여넣기", http: "HTTP", file: "파일" };
 const STATUS_KO: Record<string, string> = { new: "신규", in_progress: "분석 중", closed: "종결", open: "진행 중" };
+const VERDICT_KO: Record<string, string> = { normal: "정상 업무로 확인", attack_attempt: "공격 시도 확인", compromise_confirmed: "침해·영향 확인",
+  insufficient_evidence: "증거 부족", data_quality_limited: "데이터 품질로 판단 제한", attack: "공격", false_positive: "오탐", unknown: "판단 보류" };
 
 export function Workbench() {
   const { id = "" } = useParams();
@@ -50,6 +68,8 @@ export function Workbench() {
   const [siem, setSiem] = useState(false);
   const [left, setLeft] = useState(() => window.innerWidth >= 1100);
   const [right, setRight] = useState(() => window.innerWidth >= 1350);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [search, setSearch] = useState({ field: "src_ip", op: "is", value: "" });
   const inv = useQuery({ queryKey: ["inv", id], queryFn: () => api.get(`/investigations/${id}`), refetchInterval: 10000 });
   const fq = { filters: ctx.filters, time: ctx.time };
   const sources = useQuery({ queryKey: ["agg", id, "data_source"], queryFn: () => api.post(`/investigations/${id}/query/aggregate`, { filters: [], agg: { type: "terms", field: "data_source", size: 20 } }) });
@@ -78,6 +98,7 @@ export function Workbench() {
   const enabled = (t: string) => (["dns", "tls", "conn"].includes(t) ? hasNet : t === "forensics" ? hasPcap : true);
   const fc = i.finding_counts || {};
   const total = Object.values(fc).reduce((a: number, b: any) => a + b, 0) as number;
+  const area = areaOf(ctx.tab);
   return (
     <div className="wb">
       <div className="wb-head col" style={{ gap: 8 }}>
@@ -87,7 +108,7 @@ export function Workbench() {
             <div className="row wrap" style={{ gap: 10, maxWidth: "100%" }}>
               <h2 className="ellipsis" style={{ fontSize: 19, maxWidth: 560 }} title={i.title}>{i.title}</h2>
               <Sev level={i.risk_level} score={i.risk_score} />
-              <span className="badge">{STATUS_KO[i.status] || i.status}{i.verdict ? ` · ${i.verdict}` : ""}</span>
+              <span className="badge">{STATUS_KO[i.status] || i.status}{i.verdict ? ` · ${VERDICT_KO[i.verdict] || i.verdict}` : ""}</span>
             </div>
           </div>
           <div className="grow" />
@@ -99,16 +120,39 @@ export function Workbench() {
           <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "조사 안내·참고 숨기기" : "조사 안내·참고 보기"}</button>
           {i.status !== "closed" && <button className="btn sm primary" onClick={() => setClosing(true)}>조사 종결</button>}
         </div>
-        <div className="row wrap small" style={{ gap: 16, color: "var(--fg-1)" }}>
+        <div className="row wrap small" role="group" aria-label="조사 범위" style={{ gap: 16, color: "var(--fg-1)" }}>
+          <span><span className="muted">관계사</span> <b>{i.org_unit || "미지정"}</b></span>
+          <span><span className="muted">조사 기간</span> {i.period_start ? <b>{fmtTime(i.period_start)} ~ {fmtTime(i.period_end)}</b> : <span className="tag warn">미지정</span>}</span>
           <span><span className="muted">관측 기간</span> {fmtTime(i.time_start)} ~ {fmtTime(i.time_end)}</span>
           <span><span className="muted">증거</span> {i.evidence.length}건</span>
           <span><span className="muted">탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
         </div>
+        {(!i.org_unit_id || !i.period_start) && <div role="note" className="small" style={{ color: "var(--warn)" }}>
+          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={() => qc.invalidateQueries({ queryKey: ["inv", id] })} />}
+        </div>}
+        <form className="row wrap small" role="search" aria-label="로그 직접 검색" style={{ gap: 6 }} onSubmit={(e) => {
+          e.preventDefault();
+          const raw = search.value.trim();
+          if (!raw) return;
+          const value = NUMERIC_FIELDS.has(search.field) && /^\d+$/.test(raw) ? Number(raw) : raw;
+          ctx.addFilter({ field: search.field, op: search.op as any, value });
+          setSearch({ ...search, value: "" });
+        }}>
+          <span className="muted">직접 검색</span>
+          <select className="input" aria-label="검색 필드" value={search.field} onChange={(e) => setSearch({ ...search, field: e.target.value })}>{SEARCH_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          <select className="input" aria-label="검색 조건" value={search.op} onChange={(e) => setSearch({ ...search, op: e.target.value })}>
+            <option value="is">같음</option><option value="is_not">다름</option><option value="contains">포함</option><option value="prefix">시작</option>
+          </select>
+          <input className="input" aria-label="검색 값" placeholder="값 입력 후 Enter" value={search.value} onChange={(e) => setSearch({ ...search, value: e.target.value })} style={{ width: 200 }} />
+          <button className="btn sm" type="submit">조건 추가</button>
+          <span className="muted">조사 제안과 무관하게 전체 로그에서 찾습니다. 찾은 기록은 원문에서 확인 기록으로 이 조사에 근거로 추가할 수 있습니다.</span>
+        </form>
         <div className="row wrap small">
           <span className="muted">필터</span>
           {ctx.filters.map((f, k) => (
             <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
-              {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건` : `${f.field} = ${JSON.stringify(f.value)}`} ×
+              {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건`
+                : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
             </span>
           ))}
           {ctx.time && <span className="tag" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)} ×</span>}
@@ -160,12 +204,22 @@ export function Workbench() {
           </div>
         </aside>}
         <section className="wb-center">
-          <div className="tabs" role="tablist">
-            {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={ctx.tab === k} disabled={!enabled(k)} title={!enabled(k) ? "PCAP 또는 네트워크 로그 증거가 필요합니다" : undefined} className={ctx.tab === k ? "active" : ""} onClick={() => ctx.set({ tab: k })}>{l}</button>)}
+          <nav className="row wrap" aria-label="작업 영역" style={{ gap: 6, marginBottom: 6 }}>
+            {AREAS.map((a) => <button key={a.key} className={`btn sm ${area.key === a.key && ctx.tab !== "entity" ? "primary" : ""}`} aria-pressed={area.key === a.key && ctx.tab !== "entity"} title={a.hint}
+              onClick={() => ctx.set({ tab: a.tabs[0][0] })}>{a.label}</button>)}
+            <span className="small muted" style={{ alignSelf: "center" }}>{area.hint}</span>
+          </nav>
+          <div className="tabs" role="tablist" aria-label={area.label}>
+            {[...area.tabs, ...(showAdvanced || area.advanced?.some(([k]) => k === ctx.tab) ? area.advanced || [] : [])].map(([k, l]) => <button key={k} role="tab" aria-selected={ctx.tab === k} disabled={!enabled(k)} title={!enabled(k) ? "PCAP 또는 네트워크 로그 증거가 필요합니다" : undefined} className={ctx.tab === k ? "active" : ""} onClick={() => ctx.set({ tab: k })}>{l}</button>)}
+            {area.advanced && <button className="ghost" aria-expanded={showAdvanced} onClick={() => setShowAdvanced(!showAdvanced)}>{showAdvanced ? "전문 분석 접기" : `전문 분석 ${area.advanced.length}개 펼치기`}</button>}
             {ctx.tab === "entity" && <button className="active">엔티티</button>}
           </div>
           <div className="tab-body">
+            {ctx.tab === "summary" && <ScopeSummary inv={id} />}
+            {ctx.tab === "golden" && <InternalGoldenPanel inv={id} />}
             {ctx.tab === "overview" && <OverviewTab inv={id} />}
+            {ctx.tab === "source-context" && <SourceContextTab inv={id} />}
+            {ctx.tab === "analysis-history" && <AnalysisHistoryTab key={id} inv={id} />}
             {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
             {ctx.tab === "behavior" && <BehaviorTab inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}

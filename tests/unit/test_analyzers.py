@@ -160,6 +160,15 @@ def test_parser_detection_and_ces():
     assert parse_text("\n".join(NGINX))["events"][0]["event_id"] == e["event_id"]
 
 
+def test_keyword_only_injection_in_decoded_parameters_is_tagged():
+    # Parameters arrive decoded, so an encoded UNION probe has only spaces left as "special" characters.
+    line = ('203.0.113.9 - - [05/Oct/2026:03:11:06 +0900] "GET /product/view?id=1%20UNION%20SELECT%20NULL,NULL '
+            'HTTP/1.1" 200 12 "-" "python-requests/2.31.0"')
+    assert "pattern:sqli" in parse_text(line + "\n" + line)["events"][0]["tags"]
+    plain = '203.0.113.9 - - [05/Oct/2026:03:11:06 +0900] "GET /search?q=blue%20shirt HTTP/1.1" 200 12 "-" "Mozilla/5.0"'
+    assert not any(str(t).startswith("pattern:") for t in parse_text(plain + "\n" + plain)["events"][0].get("tags") or [])
+
+
 def test_other_parsers():
     iis = ("#Software: Microsoft IIS\n#Fields: date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username "
            "c-ip cs(User-Agent) sc-status sc-bytes\n2026-10-05 03:11:04 10.0.0.5 GET /default.aspx id=1 443 - "

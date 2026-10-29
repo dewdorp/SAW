@@ -9,7 +9,8 @@ from saw.storage.eventstore import SQLiteEventStore
 
 GROUP_FIELDS = {"data_source": ["data_source"], "source_file": ["evidence_id", "source_file"],
                 "src_ip": ["src_ip"], "dst_ip": ["dst_ip"], "dst_port": ["dst_port"],
-                "src_dst": ["src_ip", "dst_ip"], "status_code": ["status_code"], "method": ["method"]}
+                "src_dst": ["src_ip", "dst_ip"], "status_code": ["status_code"], "method": ["method"],
+                "enforcement_action": ["enforcement_action"], "alert_name": ["alert_name"], "protocol": ["protocol"]}
 
 
 def bounds(store, inv_id, filters, time):

@@ -9,8 +9,8 @@ async function sha256(file: File): Promise<string | undefined> {
   return Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function uploadFiles(invId: string, kind: string, files: File[], onProgress: (p: UploadProgress[]) => void, title?: string): Promise<{ evidenceId: string; jobId: string }> {
-  const ev = await api.post(`/investigations/${invId}/evidence`, { kind, title: title || files.map((f) => f.name).slice(0, 3).join(", ") });
+export async function uploadFiles(invId: string, kind: string, files: File[], onProgress: (p: UploadProgress[]) => void, title?: string, sourceContext?: Record<string, unknown>): Promise<{ evidenceId: string; jobId: string }> {
+  const ev = await api.post(`/investigations/${invId}/evidence`, { kind, title: title || files.map((f) => f.name).slice(0, 3).join(", "), ...(sourceContext ? { source_context: sourceContext } : {}) });
   const prog: UploadProgress[] = files.map((f) => ({ file: f.name, sent: 0, total: f.size, done: false }));
   onProgress([...prog]);
   for (let i = 0; i < files.length; i++) {

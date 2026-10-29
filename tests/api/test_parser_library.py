@@ -5,10 +5,10 @@ import time
 
 import pytest
 
-from saw import container
 from saw.core.schemas.query import Filter
 from saw.parsers.base import Failed, Parsed, Skip
 from saw.parsers.custom import DefinedParser, ParserSpec, suggest
+from tests.api.test_generation_reprocessing import read_events
 from tests.api.test_phase5_bulk import upload
 
 # a synthetic appliance export: Korean headers, '|' delimited, key=value details in one cell, compact timestamps
@@ -107,9 +107,9 @@ def test_library_flow_draft_share_review_autodetect_export_import(analyst, senio
     inv2 = senior.post("/investigations", json={"title": "공용 파서"}).json()
     up2 = upload(senior, inv2["id"], "waf_x.txt", SAMPLE.encode("utf-8"), kind="auto")
     j2 = senior.get(f"/jobs/{senior.post(f'/evidence/{up2['evidence_id']}/process').json()['id']}").json()
-    assert j2["state"] == "COMPLETED" and j2["files"][0]["parser_id"] == "u:waf-x", j2
-    ev = container.get().events.search(inv2["id"], [Filter(field="data_source", value="waf")], limit=1)["events"][0]
-    assert ev["parser"] == "u:waf-x" and ev["parser_version"] == "1" and ev["timestamp"] == "2026-10-03T08:38:47.000Z"
+    assert j2["state"] == "COMPLETED" and j2["files"][0]["parser_id"] == "u:waf-x@1", j2
+    ev = read_events("senior1").search(inv2["id"], [Filter(field="data_source", value="waf")], limit=1)["events"][0]
+    assert ev["parser"] == "u:waf-x@1" and ev["parser_version"] == "1" and ev["timestamp"] == "2026-10-03T08:38:47.000Z"
     fs = {f["category"] for f in senior.get(f"/investigations/{inv2['id']}/findings").json()}
     assert "web.injection_like" in fs, fs
 

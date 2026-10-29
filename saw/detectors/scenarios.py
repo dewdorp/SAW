@@ -6,9 +6,10 @@ by start time, have to cover the steps of a scenario one after the other.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
+from ipaddress import ip_address
 from itertools import groupby
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,7 @@ import yaml
 from saw.detectors.base import AttackMap, FindingDraft, check, metric
 
 PACK = Path(__file__).parent / "packs" / "scenarios.yaml"
-DETECTOR_ID, VERSION = "scenario.flow", "1.1.0"
+DETECTOR_ID, VERSION = "scenario.flow", "1.2.0"
 RISK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 ADVICE = "\n\n### 확인·대응 권고 (분석가 판단 후 수행)\n"
 
@@ -118,12 +119,29 @@ def _walk(sc: Scenario, rows: list[dict], ip: str) -> list[dict] | None:
     return None
 
 
+def _valid_ip_entity(value):
+    if not str(value).startswith("ip:"):
+        return False
+    try:
+        ip_address(str(value)[3:])
+        return True
+    except ValueError:
+        return False
+
+
+def _eligible(f):
+    t0 = _ts(f.get("time_start"))
+    t1 = _ts(f.get("time_end") or f.get("time_start"))
+    return (t0 is not None and t1 is not None and t1 >= t0
+            and any(_valid_ip_entity(value) for value in f.get("entities") or []))
+
+
 def match(findings: list[dict]) -> list[FindingDraft]:
     """findings: dicts with id, display_id, title, category, stage, risk_level, success, entities, time_start, time_end
     (flows themselves and anything rated false positive / duplicate / benign are left out by the caller)."""
     by_ip: dict[str, list[dict]] = {}
     for f in findings:
-        if not f.get("time_start"):
+        if not _eligible(f):
             continue
         t0 = _ts(f["time_start"])
         t1 = _ts(f.get("time_end") or f["time_start"])
@@ -131,7 +149,7 @@ def match(findings: list[dict]) -> list[FindingDraft]:
             continue
         f = {**f, "t0": t0, "t1": t1}
         for e in f.get("entities") or []:
-            if str(e).startswith("ip:"):
+            if _valid_ip_entity(e):
                 by_ip.setdefault(str(e)[3:], []).append(f)
     out: dict[tuple[str, tuple[str, ...]], FindingDraft] = {}
     for ip, rows in by_ip.items():
@@ -175,3 +193,50 @@ def catalog() -> list[dict[str, Any]]:
              "steps": [{"name": st.name, "stages": list(st.stages), "categories": list(st.categories), "success": st.success}
                        for st in s.steps], "checks": list(s.checks), "max_span_seconds": s.max_span_seconds,
              "entity_role": s.entity_role, "strict_order": s.strict_order} for s in load()]
+
+
+# What an analyst should do next for each possible result, phrased as an action, not a verdict.
+GUIDANCE = {
+    "matched_candidate": "같은 상대의 탐지가 순서대로 이어진 후보입니다. 각 단계의 근거 이벤트에서 원문까지 내려가 확인하고, 아래 확인 항목을 수행하세요. 후보는 '이어서 보라'는 안내이며 침해 성공이 아닙니다.",
+    "no_chain": "단계별 근거는 있으나 하나의 흐름으로 이어지지 않았습니다. 시간창·주소 역할·순서 조건과 수집 범위를 확인하세요. 이어지지 않음이 정상이나 오탐 정답은 아닙니다.",
+    "insufficient_evidence": "흐름에 필요한 단계의 근거가 없습니다. 아래 '근거 없는 단계'의 누락 로그·필드와, 상위 탐지기의 실패·자료 부족·비활성 여부를 확인하세요. 근거 없음이 정상이나 오탐 정답은 아닙니다.",
+}
+
+
+def execution_report(findings: list[dict], drafts: list[FindingDraft]) -> dict:
+    """Describe this exact matcher input/output; no-chain never means normal.
+
+    Each scenario carries the authored explanation, analyst checks, and a status-specific
+    next step so the result is actionable in the product without a separate document.
+    """
+    from saw.core.application.provenance import digest
+
+    pack = load()
+    eligible = [row for row in findings if _eligible(row)]
+    results = []
+    for sc in pack:
+        steps = []
+        for step in sc.steps:
+            count = sum(step.fits(row) and (sc.entity_role == "any" or any(
+                _valid_ip_entity("ip:" + str(value))
+                and "ip:" + str(value) in (row.get("entities") or [])
+                for value in (row.get("entity_roles") or {}).get(sc.entity_role, [])))
+                for row in eligible)
+            steps.append({"name": step.name, "eligible_findings": count})
+        matched = sum(d.category == "scenario." + sc.id for d in drafts)
+        status = ("matched_candidate" if matched else "insufficient_evidence"
+                  if any(not step["eligible_findings"] for step in steps) else "no_chain")
+        results.append({"id": sc.id, "title": sc.title, "status": status, "match_count": matched,
+                        "steps": steps, "max_span_seconds": sc.max_span_seconds,
+                        "entity_role": sc.entity_role, "strict_order": sc.strict_order,
+                        "explain": sc.explain, "checks": list(sc.checks), "next_step": GUIDANCE[status],
+                        "missing_steps": [step["name"] for step in steps if not step["eligible_findings"]]})
+    return {"schema": "scenario-execution/1", "match_unit": "flow", "engine_version": VERSION,
+            "pack_sha256": digest([asdict(sc) for sc in pack]),
+            "counts": {"input_findings": len(findings), "eligible_findings": len(eligible),
+                       "excluded_findings": len(findings) - len(eligible)},
+            "max_results_per_scenario": MAX_PER_SCENARIO,
+            "scenarios": results,
+            "limitations": ["탐지 결과 사이의 시간·주소 연관 후보이며 인과관계나 침해 성공을 확정하지 않습니다.",
+                           "단계 근거 없음·무적중은 정상 또는 오탐 정답이 아닙니다. 상위 탐지기의 실패·자료 부족·비활성 상태를 함께 확인하세요.",
+                           "수집 범위·장비 시각·주소 익명화 대응이 검증되지 않으면 장비 간 동일 자산이나 공격 순서를 확정할 수 없습니다."]}

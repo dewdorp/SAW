@@ -1,13 +1,19 @@
+import { useMe } from "../App";
+import { principalKey } from "./golden/types";
+import { GoldenExportJob } from "./golden/GoldenExportJob";
+import {ReportExportJob} from "../components/reports/ReportExportJob";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/ui";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bar, ErrorBox, Loading, Panel } from "../components/common";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { fmtBytes, fmtNum, fmtTime } from "../lib/format";
 
 export function Jobs() {
-  const q = useQuery({ queryKey: ["jobs"], queryFn: () => api.get("/jobs"), refetchInterval: 5000 });
+  const me=useMe();
+  const q = useQuery({ queryKey: ["jobs",principalKey(me.data)], enabled:!!me.data, queryFn: () => api.get("/jobs"), refetchInterval: 5000 });
+  if(me.isLoading||q.isLoading)return <Loading/>;if(me.error||q.error)return <ErrorBox error={me.error||q.error}/>;
   return (
     <div className="page col">
       <PageHeader eyebrow="처리" title="작업 상태" desc="업로드한 증거의 압축 해제 → 파싱 → 색인 → 분석 진행 상황입니다." />
@@ -36,23 +42,33 @@ export function fmtEta(sec?: number | null): string {
 
 /** Job progress with SSE (docs/10 §6, wireframe 15). */
 export function JobDetail() {
+  const me=useMe();const {id=""}=useParams();
+  if(me.isLoading)return <Loading/>;if(me.error)return <ErrorBox error={me.error}/>;
+  const principal=principalKey(me.data);
+  return <JobDetailContent key={principal+":"+id} principal={principal}/>;
+}
+function JobDetailContent({principal}:{principal:string}) {
   const { id = "" } = useParams();
+  const navigate=useNavigate();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["job", id], queryFn: () => api.get(`/jobs/${id}`), refetchInterval: (qq) => (["COMPLETED", "FAILED", "CANCELLED"].includes((qq.state.data as any)?.state) ? false : 2000) });
+  const q = useQuery({ queryKey: ["job", id,principal], queryFn: () => api.get(`/jobs/${id}`), refetchInterval: (qq) => (["COMPLETED", "FAILED", "CANCELLED"].includes((qq.state.data as any)?.state) ? false : 2000) });
+  useEffect(()=>{if(q.error instanceof ApiError&&[403,404].includes(q.error.status)){setLive(null);qc.removeQueries({queryKey:["job",id,principal],exact:true});}},[q.error,id,principal,qc]);
   const [live, setLive] = useState<any | null>(null);
-  const parsers = useQuery({ queryKey: ["parsers"], queryFn: () => api.get("/parsers") });
+  const parsers = useQuery({ queryKey: ["parsers"], enabled: !!q.data && !["report_export", "golden_export"].includes(q.data.kind), queryFn: () => api.get("/parsers") });
   useEffect(() => {
     const es = new EventSource(`/api/v1/jobs/${id}/events`);
     es.addEventListener("progress", (e) => setLive(JSON.parse((e as MessageEvent).data)));
-    es.addEventListener("end", () => { es.close(); qc.invalidateQueries({ queryKey: ["job", id] }); });
+    es.addEventListener("end", () => { es.close(); qc.invalidateQueries({ queryKey: ["job", id,principal] }); });
     es.onerror = () => es.close();
     return () => es.close();
-  }, [id, qc]);
-  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${id}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
-  const retry = useMutation({ mutationFn: () => api.post(`/jobs/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
-  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id] }) });
+  }, [id, principal, qc]);
+  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${id}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
+  const retry = useMutation({ mutationFn: () => api.post(`/jobs/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", id,principal] }) });
+  const setParser = useMutation({ mutationFn: ({ fid, pid }: { fid: string; pid: string }) => api.post(`/evidence/${q.data.evidence_id}/files/${fid}/parser`, { parser_id: pid }), onSuccess: (result) => { qc.invalidateQueries({ queryKey: ["job", id,principal] }); qc.invalidateQueries({ queryKey: ["jobs"] }); if (result.job_id) navigate("/jobs/" + encodeURIComponent(result.job_id)); } });
   if (q.isLoading) return <Loading />;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
+  if(q.data.kind === "report_export") return <div className="page col"><ReportExportJob id={id} initial={q.data} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
+  if(q.data.kind === "golden_export") return <div className="page col"><GoldenExportJob key={id} id={id} initial={q.data} initialPrincipal={principal} onRetry={job=>navigate(`/jobs/${job.id}`)}/></div>;
   const j = { ...q.data, ...(live || {}) };
   const files = q.data.files || [];
   const leaves = files.filter((f: any) => !files.some((c: any) => c.parent_file_id === f.id));
@@ -72,7 +88,8 @@ export function JobDetail() {
         <span className="muted">현재: {j.current_item || "–"}</span></div>
       {j.state === "ANALYZING" && <div className="notice small">색인이 끝나 조사 화면에서 검색·원본 보기를 바로 할 수 있습니다. 탐지 분석은 뒤에서 계속 진행됩니다.</div>}
       <Panel title="단계">
-        {STAGES.map((s) => {
+        {j.kind === "reprocess" && <p className="muted small">보관된 원본으로 다시 처리합니다. 업로드와 압축 해제는 반복하지 않습니다.</p>}
+        {(j.kind === "reprocess" ? STAGES.slice(2) : STAGES).map((s) => {
           const st = j.stages?.[s] || {};
           const p = st.done ? 100 : st.pct ?? 0;
           return <div key={s} className="row small"><span style={{ width: 70 }}>{STAGE_LABEL[s]}</span><div className="grow"><Bar value={p} max={100} /></div><span style={{ width: 70 }}>{st.done ? "✓" : st.pct !== undefined && st.pct !== null ? `${p}%` : "대기"}</span></div>;
@@ -96,7 +113,7 @@ export function JobDetail() {
       )}
       {j.state === "COMPLETED" && leaves.some((f: any) => f.type === "text" && f.parser_id && f.parser_id !== "ioc_list") && (
         <Panel title="다른 파서로 다시 처리">
-          <div className="muted small">형식이 제대로 해석되지 않았다면 다른 파서를 고르거나 새로 만들어 이 증거를 다시 처리하세요. 기존 이벤트는 지우고 다시 만듭니다.</div>
+          <div className="muted small">형식이 제대로 해석되지 않았다면 다른 파서를 고르거나 새로 만들어 이 증거를 다시 처리하세요. 기존 결과와 분석 이력은 보존합니다. 새 결과 저장을 확인하면 최신 결과로 전환합니다. 전환 전 실패하거나 취소되면 기존 결과를 유지합니다. 전환 후 탐지 분석만 실패하거나 취소될 수 있으며, 이때 저장된 새 결과는 유지됩니다.</div>
           {leaves.filter((f: any) => f.type === "text" && f.parser_id && f.parser_id !== "ioc_list").map((f: any) => (
             <div key={f.id} className="row wrap small"><span className="mono">{f.name}</span><span className="muted">현재: {f.parser_id}</span>
               <ParserSelect parsers={parsers.data} label="다시 처리할 파서…" onPick={(pid) => setParser.mutate({ fid: f.id, pid })} />
@@ -109,18 +126,28 @@ export function JobDetail() {
         <table className="t"><thead><tr><th>파일</th><th>크기</th><th>형식</th><th>파서</th><th>상태</th><th className="num">이벤트</th><th className="num">실패</th><th>메시지</th></tr></thead>
           <tbody>{files.map((f: any) => (
             <tr key={f.id}><td className="mono ellipsis" style={{ maxWidth: 300 }}>{f.parent_file_id ? "  └ " : ""}{f.name}</td><td>{fmtBytes(f.size)}</td><td>{f.type}</td><td>{f.parser_id || "?"}</td>
-              <td>{f.status === "done" ? "✓ 완료" : f.status === "failed" ? "✗ 실패" : f.status === "degraded" ? "⚠ 일부 실패" : f.status}</td><td className="num">{fmtNum(f.events_parsed)}</td><td className="num">{fmtNum(f.events_failed)}</td><td className="small ellipsis" style={{ maxWidth: 280 }}>{f.message}</td></tr>))}</tbody></table>
+              <td>{f.status === "done" ? (f.message ? "✓ 완료 · 확인할 점 있음" : "✓ 완료") : f.status === "failed" ? "✗ 실패" : f.status === "degraded" ? "⚠ 일부 실패" : f.status}</td><td className="num">{fmtNum(f.events_parsed)}</td><td className="num">{fmtNum(f.events_failed)}</td><td className="small ellipsis" style={{ maxWidth: 280 }} title={f.message}>{f.message}</td></tr>))}</tbody></table>
       </Panel>
+      {files.some((f: any) => f.message && f.message !== "no lines parsed") && (
+        <Panel title="파일별 확인할 점 — 읽기는 했지만 분석에 쓰지 못했거나 정리한 내용">
+          {files.filter((f: any) => f.message && f.message !== "no lines parsed").map((f: any) => (
+            <div key={f.id} className="small" style={{ marginBottom: 6 }}><b className="mono">{f.name}</b>
+              {String(f.message).split(" · ").map((m: string, i: number) => <div key={i}>⚠ {m}</div>)}</div>))}
+          <div className="small muted">파일을 읽었거나 행 수를 셌다는 것만으로 분석에 필요한 의미가 모두 보존된 것은 아닙니다. 위 항목은 원문을 보존한 채 분석 값으로 쓰지 않은 부분입니다.</div>
+        </Panel>
+      )}
       {leaves.some((f: any) => f.coverage) && (
         <Panel title="처리 범위 — 파일의 모든 줄이 어디로 갔는지">
-          <table className="t"><thead><tr><th>파일</th><th className="num">전체 줄</th><th className="num">이벤트</th><th className="num">이어진 줄</th><th className="num">머리글·합쳐진 줄</th><th className="num">빈 줄</th><th className="num">실패</th><th className="num">저장 거부</th><th className="num">분석 비율</th></tr></thead>
+          <table className="t"><thead><tr><th>파일</th><th className="num">전체 줄</th><th className="num">이벤트</th><th className="num">이어진 줄</th><th className="num">머리글·합쳐진 줄</th><th className="num">빈 줄</th><th className="num">실패</th><th className="num">저장 거부</th><th className="num">시간 없음·해석 불가</th><th className="num">분석 비율</th></tr></thead>
             <tbody>{leaves.filter((f: any) => f.coverage).map((f: any) => {
               const c = f.coverage;
               const used = c.lines ? (c.events + c.continuation_lines + c.skipped_lines) / Math.max(1, c.lines - c.blank_lines) : 0;
               return <tr key={f.id}><td className="mono ellipsis" style={{ maxWidth: 260 }}>{f.name}</td><td className="num">{fmtNum(c.lines)}</td><td className="num">{fmtNum(c.events)}</td>
                 <td className="num">{fmtNum(c.continuation_lines || 0)}</td><td className="num">{fmtNum(c.skipped_lines)}</td><td className="num">{fmtNum(c.blank_lines)}</td>
                 <td className="num">{c.failed_lines ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.failed_lines)}</b> : 0}</td>
-                <td className="num">{c.rejected_events ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.rejected_events)}</b> : 0}</td><td className="num">{(used * 100).toFixed(used < 1 ? 2 : 0)}%</td></tr>;
+                <td className="num">{c.rejected_events ? <b style={{ color: "var(--bad)" }}>{fmtNum(c.rejected_events)}</b> : 0}</td>
+                <td className="num">{(c.timestamp_missing || 0) + (c.timestamp_invalid || 0) ? <b style={{ color: "var(--warn)" }}>{fmtNum((c.timestamp_missing || 0) + (c.timestamp_invalid || 0))}</b> : 0}</td>
+                <td className="num">{(used * 100).toFixed(used < 1 ? 2 : 0)}%</td></tr>;
             })}</tbody></table>
           <div className="muted small">머리글·합쳐진 줄: CSV 머리글, 요청 이벤트에 합쳐진 응답 행(NDR) 등. 실패한 줄은 아래 표본에서 원인을 확인하세요. 저장 거부: 읽기는 했지만 검색엔진이 받지 않아 검색·탐지에 포함되지 않은 이벤트입니다.</div>
         </Panel>

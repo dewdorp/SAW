@@ -3,8 +3,34 @@ from sqlalchemy import select
 
 from saw import container
 from saw.storage.db import session_scope
-from saw.storage.models import AuditEvent, Case, CaseRevision, Evidence, EvidenceFile, Investigation, Job, UploadSession
+from saw.storage.models import (
+    AuditEvent,
+    Case,
+    CaseRevision,
+    Evidence,
+    EvidenceFile,
+    Investigation,
+    Job,
+    UploadSession,
+)
 from tests.api.test_phase5_bulk import upload
+
+
+def current_events(iid):
+    from saw.event_generations.reads import actor_scope, read_scope
+    from saw.storage.models import User
+    with session_scope() as s:
+        uid = s.scalar(select(User.id).where(User.username == "analyst1"))
+    with actor_scope(uid), read_scope():
+        return list(container.get().events.iterate(iid, []))
+
+
+def assert_generation_cleanup(iid):
+    from saw.event_generations.models import EventGeneration, InvestigationHead
+    with session_scope() as s:
+        assert s.get(InvestigationHead, iid) is None
+        assert not list(s.scalars(select(EventGeneration.id).where(EventGeneration.investigation_id == iid)))
+    assert container.get().legacy_events.count(iid) == 0
 
 
 def target(analyst, *, process=True):
@@ -50,7 +76,7 @@ def test_bundle_deletion_removes_events_and_bytes_but_keeps_audit(analyst, admin
     assert r.status_code == 200, r.text
     assert r.json()["state"] == "COMPLETED"
     assert not any(x.exists() for x in paths)
-    assert container.get().events.count(inv["id"]) == 0
+    assert current_events(inv["id"]) == []
     with session_scope() as s:
         assert s.get(Evidence, ev["evidence_id"]) is None
         assert s.get(Investigation, inv["id"]) is not None
@@ -92,7 +118,7 @@ def test_case_retains_snapshots_but_all_routes_reject(analyst, admin):
 
 
 def test_partial_object_failure_is_retryable_and_blocks_access(analyst, admin, monkeypatch):
-    inv, ev = target(analyst)
+    inv, _ev = target(analyst)
     p = preview(admin, "investigation", inv["id"])
     store = container.get().objects
     original = store.delete
@@ -114,7 +140,7 @@ def test_partial_object_failure_is_retryable_and_blocks_access(analyst, admin, m
 
 def test_shared_object_and_knowledge_reference_block(analyst, admin):
     from saw.knowledge.models import Experience
-    inv, ev = target(analyst)
+    _inv, ev = target(analyst)
     other, other_ev = target(analyst)
     with session_scope() as s:
         f = s.scalar(select(EvidenceFile).where(EvidenceFile.evidence_id == ev["evidence_id"]))
@@ -136,7 +162,7 @@ def test_investigation_deletion_preserves_other_investigation_and_removes_notes(
     p = preview(admin, "investigation", inv["id"])
     assert not p["blockers"] and p["counts"]["notes"] == 1
     assert execute(admin, p).json()["state"] == "COMPLETED"
-    assert container.get().events.count(other["id"]) == 1
+    assert len(current_events(other["id"])) == 1
     assert analyst.get(f"/investigations/{other['id']}").status_code == 200
     with session_scope() as s:
         assert not list(s.scalars(select(Note).where(Note.investigation_id == inv["id"])))
@@ -159,14 +185,18 @@ def test_llm_output_is_discarded_after_evidence_cleanup(analyst, admin, monkeypa
     from saw.llm import service
     from tests.api.test_ai_context_boundary import CapturingProvider
     inv, ev = target(analyst)
+    cleanup = {}
     class DeletingProvider(CapturingProvider):
         def generate(self, req):
             p = preview(admin, "evidence", ev["evidence_id"])
-            assert execute(admin, p).json()["state"] == "COMPLETED"
+            cleanup.update(execute(admin, p).json())
+            assert cleanup["state"] in {"COMPLETED", "FAILED"}
             return super().generate(req)
     monkeypatch.setattr(service, "provider", lambda: DeletingProvider())
     result = analyst.post("/ai/actions", json={"investigation_id": inv["id"], "action": "ask"})
-    assert result.status_code == 403, result.text
+    assert result.status_code == (409 if cleanup["state"] == "FAILED" else 403), result.text
+    # Windows may retain a pinned SQLite handle until the AI request scope exits.
+    assert admin.post(f"/admin/data/deletions/{cleanup['id']}/retry").json()["state"] == "COMPLETED"
     with session_scope() as s:
         assert not list(s.scalars(select(service.LlmInteraction).where(service.LlmInteraction.investigation_id == inv["id"])))
 
@@ -182,29 +212,31 @@ def test_referenced_case_must_be_disposed_before_investigation(analyst, admin):
 def test_index_failure_keeps_original_until_retry(analyst, admin, monkeypatch):
     inv, ev = target(analyst)
     p = preview(admin, "investigation", inv["id"])
-    es = container.get().events
+    es = container.get().legacy_events
     with session_scope() as s:
         f = s.scalar(select(EvidenceFile).where(EvidenceFile.evidence_id == ev["evidence_id"]))
         path = container.get().objects.local_path("saw-evidence-original", f.object_key)
+    assert len(current_events(inv["id"])) == 1
     original = es.delete_by_investigation
     monkeypatch.setattr(es, "delete_by_investigation", lambda *_: (_ for _ in ()).throw(RuntimeError("synthetic failure")))
     r = execute(admin, p).json()
     assert r["state"] == "FAILED" and r["step"] == "planned"
-    assert path.exists() and es.count(inv["id"]) == 1
+    assert path.exists()
+    assert analyst.get(f"/investigations/{inv['id']}").status_code == 409
     monkeypatch.setattr(es, "delete_by_investigation", original)
     assert admin.post(f"/admin/data/deletions/{r['id']}/retry").json()["state"] == "COMPLETED"
 
 
 def test_read_denial_is_preserved_during_failed_cleanup(analyst, admin, senior, monkeypatch):
     inv, _ = target(analyst)
-    monkeypatch.setattr(container.get().events, "delete_by_investigation", lambda *_: (_ for _ in ()).throw(RuntimeError("fail")))
+    monkeypatch.setattr(container.get().legacy_events, "delete_by_investigation", lambda *_: (_ for _ in ()).throw(RuntimeError("fail")))
     assert execute(admin, preview(admin, "investigation", inv["id"])).json()["state"] == "FAILED"
     assert senior.get(f"/investigations/{inv['id']}").status_code == 403
     assert admin.get(f"/investigations/{inv['id']}").status_code == 403
 
 
 def test_new_hold_before_retry_blocks_remaining_file_deletion(analyst, admin, monkeypatch):
-    inv, ev = target(analyst)
+    _inv, ev = target(analyst)
     store = container.get().objects
     original = store.delete
     monkeypatch.setattr(store, "delete", lambda *_: (_ for _ in ()).throw(OSError("fail")))
@@ -220,8 +252,9 @@ def test_new_hold_before_retry_blocks_remaining_file_deletion(analyst, admin, mo
 
 
 def test_cancelled_worker_cannot_reenter_and_resurrect_deleted_data(analyst, admin):
-    from saw.workers import pipeline
     from pytest import raises
+
+    from saw.workers import pipeline
     inv, ev = target(analyst, process=False)
     with session_scope() as s:
         job = s.scalar(select(Job).where(Job.evidence_id == ev["evidence_id"]))
@@ -266,7 +299,9 @@ def test_case_reserved_states_are_admin_only(analyst):
 def test_sqlite_audit_and_investigation_lock_order_allows_two_writers(analyst, monkeypatch):
     import threading
     from concurrent.futures import ThreadPoolExecutor
+
     from sqlalchemy import text
+
     from saw.core.application import audit
     from saw.core.application.data_deletion import lock_investigation
     from saw.storage.db import get_sessionmaker
@@ -305,6 +340,7 @@ def test_sqlite_audit_and_investigation_lock_order_allows_two_writers(analyst, m
 def test_claimed_worker_cannot_be_marked_terminal_before_it_stops(analyst, admin, monkeypatch):
     import threading
     from concurrent.futures import ThreadPoolExecutor
+
     from saw.workers import pipeline
     inv, ev = target(analyst, process=False)
     with session_scope() as s:
@@ -330,13 +366,13 @@ def test_claimed_worker_cannot_be_marked_terminal_before_it_stops(analyst, admin
             release.set()
         worker.result(timeout=10)
     assert execute(admin, preview(admin, "investigation", inv["id"])).json()["state"] == "COMPLETED"
-    assert container.get().events.count(inv["id"]) == 0
+    assert_generation_cleanup(inv["id"])
 
 
 def test_retry_rechecks_events_after_file_failure(analyst, admin, monkeypatch):
     inv, _ = target(analyst)
-    es, store = container.get().events, container.get().objects
-    event = next(es.iterate(inv["id"], []))
+    es, store = container.get().legacy_events, container.get().objects
+    event = current_events(inv["id"])[0]
     original = store.delete
     monkeypatch.setattr(store, "delete", lambda *_: (_ for _ in ()).throw(OSError("synthetic")))
     result = execute(admin, preview(admin, "investigation", inv["id"])).json()
@@ -365,6 +401,7 @@ def test_cancel_refreshes_job_after_investigation_lock(analyst, monkeypatch):
         return original(s, p, permission, investigation_id)
     monkeypatch.setattr(route, "require", claim_before_lock)
     from types import SimpleNamespace
+
     from saw.core.domain.enums import Role
     from saw.core.security.authz import Principal
     with session_scope() as s:
@@ -376,8 +413,8 @@ def test_cancel_refreshes_job_after_investigation_lock(analyst, monkeypatch):
 
 
 def test_retry_records_executing_admin_without_changing_requester(analyst, admin, app, monkeypatch):
-    from tests.conftest import Api, make_user
     from saw.storage.models import DataDeletion, User
+    from tests.conftest import Api, make_user
     inv, _ = target(analyst)
     store = container.get().objects
     original = store.delete

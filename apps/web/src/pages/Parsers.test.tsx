@@ -20,7 +20,8 @@ const PREVIEW = {
 const ui = (
   <Routes>
     <Route path="/parsers/*" element={<Parsers />} />
-    <Route path="/jobs/:id" element={<div>job page</div>} />
+    <Route path="/jobs/new-job" element={<div>new job page</div>} />
+    <Route path="/jobs/j1" element={<div>old job page</div>} />
   </Routes>
 );
 
@@ -33,7 +34,7 @@ describe("parser wizard", () => {
       "POST /parser-library/suggest": [200, SUGGEST],
       "POST /parser-library/preview": [200, PREVIEW],
       "POST /parser-library": [201, { id: "u:waf-x", pinned_id: "u:waf-x@1", slug: "waf-x", version: 1, status: "draft" }],
-      "POST /evidence/e1/files/f1/parser": [200, { ok: true }],
+      "POST /evidence/e1/files/f1/parser": [200, { ok: true, job_id: "new-job" }],
     });
     renderUI(ui, { route: "/parsers/new?ev=e1&file=f1&job=j1" });
     expect(await screen.findByText(/작업 화면에서 왔습니다/)).toBeTruthy();
@@ -47,7 +48,7 @@ describe("parser wizard", () => {
     expect(await screen.findByText("이 샘플에서 자동 감지됨")).toBeTruthy();
     expect(screen.getByText("198.51.100.7")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "초안으로 저장하고 이 파일 다시 처리" }));
-    expect(await screen.findByText("job page")).toBeTruthy();
+    expect(await screen.findByText("new job page")).toBeTruthy();
     const saved = api.find("POST", "/parser-library")[0].body;
     expect(saved.name).toBe("waf_x");
     expect(saved.spec.delimiter).toBe("|");

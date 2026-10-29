@@ -15,6 +15,12 @@ from saw.core.application.ids import next_display_id
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    require_investigation_results,
+    require_snapshot,
+    source_ids,
+    visible_snapshot,
+)
 from saw.knowledge.features import from_findings
 from saw.knowledge.models import Experience, KnowledgeRevision
 from saw.storage.db import utcnow
@@ -42,6 +48,10 @@ def _clean(data: dict) -> dict:
 
 
 def to_dict(e: Experience, include_working: bool = True) -> dict:
+    from sqlalchemy.orm import object_session
+    session = object_session(e)
+    if session is not None:
+        require_snapshot(session, session.info.get("principal"), [e.data, e.approved_data])
     d = {"id": e.id, "display_id": e.display_id, "status": e.status, "rev": e.rev, "approved_rev": e.approved_rev,
          "analyst": e.analyst_name, "analyst_id": e.analyst_id, "reviewer": e.reviewer_name, "review_comment": e.review_comment,
          "expires_at": e.expires_at, "last_reviewed_at": e.last_reviewed_at, "deprecated": e.deprecated,
@@ -50,6 +60,13 @@ def to_dict(e: Experience, include_working: bool = True) -> dict:
          "approved": e.approved_data}
     if include_working:
         d["data"] = e.data
+    if session is not None:
+        from saw.knowledge.golden_v2 import experience_is_holdout
+        if experience_is_holdout(session, e.id):
+            d.update(approved=None, review_comment="", answers_access={
+                "available": False, "requires_holdout_attempt": True})
+            if include_working:
+                d["data"] = {}
     return d
 
 
@@ -61,9 +78,19 @@ def create(s: Session, p: Principal, data: dict, source_inv: str | None = None) 
         require(s, p, "investigation.read", source_inv)
     d = _clean(data)
     if source_inv:
+        require_investigation_results(s, p, source_inv)
+        deps = set()
+        for finding in s.scalars(select(Finding).where(Finding.investigation_id == source_inv)):
+            deps.update(source_ids(finding))
+        if deps:
+            d["_source_investigation_ids"] = sorted(deps)
+    if source_inv:
         from saw.behavior.service import closure_references
         source = s.get(Investigation, source_inv)
         d["behavior_results"] = (source.close_detail or {}).get("behavior_results", closure_references(s, source_inv))
+    if source_inv:
+        from saw.knowledge.golden_context import capture
+        d["golden_capture"] = capture(s, p, source_inv, d)
     if not d.get("title"):
         raise ValueError("title is required")
     e = Experience(display_id=next_display_id(s, "EXP", daily=False, width=4), data=d, analyst_id=p.user_id,
@@ -92,7 +119,8 @@ def draft_from_investigation(s: Session, p: Principal, inv: Investigation) -> Ex
              for c in recorded if c is not None and c.investigation_id == inv.id]
     steps += [{"step": text, "source": "analyst_close_entry"} for text in detail.get("checks", []) if text]
     verdict = inv.verdict or "unknown"
-    category = {"attack": "attack", "false_positive": "false_positive", "normal": "benign_pattern"}.get(verdict, "operational")
+    category = {"attack": "attack", "attack_attempt": "attack", "compromise_confirmed": "attack",
+                "false_positive": "false_positive", "normal": "benign_pattern"}.get(verdict, "operational")
     observables = []
     for f in fs[:5]:
         for ent in f["entities"][:4]:
@@ -125,11 +153,16 @@ def _get(s: Session, eid: str) -> Experience:
     e = s.get(Experience, eid)
     if e is None:
         raise NotFound("experience not found")
+    require_snapshot(s, s.info.get("principal"), [e.data, e.approved_data])
     return e
 
 
 def visible(e: Experience, p: Principal) -> bool:
     """Drafts are private to their author until approved (docs/25 §2 safety)."""
+    from sqlalchemy.orm import object_session
+    session = object_session(e)
+    if session is not None and not visible_snapshot(session, p, [e.data, e.approved_data]):
+        return False
     return e.approved_data is not None or e.analyst_id == p.user_id or can(p, "knowledge.approve")
 
 
@@ -140,6 +173,9 @@ def update(s: Session, p: Principal, eid: str, data: dict) -> Experience:
     if e.analyst_id != p.user_id and not can(p, "knowledge.approve"):
         raise Forbidden("only the author or a reviewer can edit")
     e.data = {**e.data, **_clean(data)}
+    if e.source_investigation_id:
+        from saw.knowledge.golden_context import capture
+        e.data = {**e.data, "golden_capture": capture(s, p, e.source_investigation_id, e.data)}
     e.rev += 1
     e.status = "draft"  # approved copy (approved_data) stays live until re-approval
     e.updated_at = utcnow()
@@ -169,6 +205,7 @@ def _contributors(s: Session, e: Experience) -> set[str]:
     names = {actor for actor, note in rows if (note or "").startswith(("created", "edited", "auto-draft"))}
     from saw.storage.models import User
     ids = {r.get(key) for r in (e.data or {}).get("behavior_results", []) for key in ("created_by", "check_author_id")} - {None}
+    ids |= set((e.data or {}).get("golden_capture", {}).get("contributor_ids", []))
     return names | set(s.scalars(select(User.username).where(User.id.in_(ids))))
 
 
@@ -218,9 +255,13 @@ def deprecate(s: Session, p: Principal, eid: str, reason: str) -> Experience:
 
 
 def revisions(s: Session, eid: str) -> list[dict]:
+    from saw.knowledge.golden_v2 import experience_is_holdout
+    if experience_is_holdout(s, eid):
+        return []
     return [{"rev": r.rev, "status": r.status, "actor": r.actor, "note": r.note, "at": r.at, "data": r.data}
             for r in s.execute(select(KnowledgeRevision).where(KnowledgeRevision.kind == "experience",
-                                                               KnowledgeRevision.ref_id == eid).order_by(KnowledgeRevision.at)).scalars()]
+                                                               KnowledgeRevision.ref_id == eid).order_by(KnowledgeRevision.at)).scalars()
+            if visible_snapshot(s, s.info.get("principal"), r.data)]
 
 
 def fp_conflicts(s: Session, p: Principal, conditions: list[dict]) -> dict:
@@ -238,7 +279,9 @@ def fp_conflicts(s: Session, p: Principal, conditions: list[dict]) -> dict:
         return {"matches": 0, "investigations": []}
     es = container.get().events
     total, invs = 0, []
-    for inv in s.execute(select(Investigation).where(Investigation.verdict == "attack")).scalars():
+    from saw.core.domain.enums import ATTACK_VERDICTS
+
+    for inv in s.execute(select(Investigation).where(Investigation.verdict.in_(sorted(ATTACK_VERDICTS)))).scalars():
         n = es.count(inv.id, flt)
         if n:
             total += n
@@ -255,7 +298,9 @@ def _index_knowledge(e: Experience, s: Session) -> None:
 
 def list_for(s: Session, p: Principal, status: str | None = None, q: str | None = None) -> list[Experience]:
     rows = s.execute(select(Experience).order_by(Experience.updated_at.desc())).scalars().all()
-    out = [e for e in rows if visible(e, p)]
+    from saw.knowledge.golden_v2 import holdout_references
+    hidden = holdout_references(s)["experience"]
+    out = [e for e in rows if e.id not in hidden and visible(e, p)]
     if status == "review_queue":
         out = [e for e in out if e.status == "review" and e.analyst_id != p.user_id]
     elif status:

@@ -52,7 +52,7 @@ def test_private_state_and_weights_never_enter_inventory(tmp_path, rel):
 def test_powershell_verifier_agrees_without_python(tmp_path):
     root = minimal(tmp_path / "bundle")
     seal(root, {})
-    cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+    cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File",
            str(ROOT / "deploy/windows/verify-bundle.ps1"), "-BundleDir", str(root)]
     ok = subprocess.run(cmd, capture_output=True, timeout=30)
     assert ok.returncode == 0, (ok.stdout + ok.stderr).decode(errors="replace")
@@ -76,9 +76,20 @@ def test_public_guides_are_required_and_copied_with_start_here(tmp_path, monkeyp
         path = source / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rel, encoding="utf-8")
+    original_guide = ("# 합성 설치 안내\n\n원본 안내 본문을 보존합니다.\n"
+                      "[전체 설치](INSTALL-WINDOWS.md)\n"
+                      "[외부 문서](https://example.invalid/guide)\n"
+                      "[현재 절](#확인)\n")
+    (source / "docs/INSTALL-RECOVERY-2026-10-18.md").write_text(original_guide, encoding="utf-8")
     monkeypatch.setattr(build_release, "ROOT", source)
     build_release.copy_public_guides(out)
-    assert (out / "START-HERE.md").read_text() == "docs/INSTALL-RECOVERY-2026-10-18.md"
+    updater_preface = ("# 기존 설치 업데이트\n\n"
+                       "기존 계정과 자료를 유지하려면 UPDATE-SAW.cmd를 실행하고 "
+                       "[9항목 점검·복구 안내](app/docs/UPDATER-STABILIZATION-GUIDE-20261019.html)를 확인하세요. "
+                       "GitHub Source code ZIP은 설치 매체가 아닙니다.\n\n")
+    rebased_guide = original_guide.replace("](INSTALL-WINDOWS.md)", "](app/docs/INSTALL-WINDOWS.md)")
+    assert (out / "START-HERE.md").read_text(encoding="utf-8") == updater_preface + rebased_guide
+    assert (out / "app/docs/INSTALL-RECOVERY-2026-10-18.md").read_text(encoding="utf-8") == original_guide
     assert all((out / "app" / rel).is_file() for rel in build_release.PUBLIC_DOCS)
     (source / build_release.PUBLIC_DOCS[-1]).unlink()
     with pytest.raises(BundleError, match="public guide missing"):
@@ -122,6 +133,8 @@ def test_shipped_guides_keep_local_links_inside_complete_media(tmp_path):
     import re
     from saw.devtools import build_release
     root = tmp_path / "media"
+    build_release.copy_app_sources(root)
+    build_release.copy_windows_sources(root)
     build_release.copy_public_guides(root)
     for source in root.rglob("*.md"):
         for link in re.findall(r"\]\(([^)]+)\)", source.read_text(encoding="utf-8")):
@@ -211,7 +224,7 @@ def desktop_media(root):
 
 def run_powershell_verifier(root):
     return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File",
          str(ROOT / "deploy/windows/verify-bundle.ps1"), "-BundleDir", str(root)],
         capture_output=True, timeout=30, check=False,
     )
@@ -329,3 +342,49 @@ def test_desktop_operator_guide_is_copied_by_public_allowlist(tmp_path, monkeypa
     monkeypatch.setattr(build_release, "ROOT", source)
     build_release.copy_public_guides(out)
     assert (out / "app" / required_guide).read_text(encoding="utf-8") == "public example: " + required_guide
+
+
+@pytest.mark.parametrize("version",[None,True,0,2,"1"])
+def test_inspection_contract_rejects_invalid_version(version):
+    from saw.devtools.release_manifest import _required, REQUIRED, INSPECTION_REQUIRED
+    rows=[{"path":p} for p in {*REQUIRED.values(),*INSPECTION_REQUIRED.values()}]
+    with pytest.raises(BundleError):
+        _required(rows,{"updater_inspection":version})
+
+def test_inspection_contract_requires_diagnostics_and_native_checker():
+    from saw.devtools.release_manifest import _required, REQUIRED, INSPECTION_REQUIRED
+    rows=[{"path":p} for p in REQUIRED.values()]
+    with pytest.raises(BundleError):
+        _required(rows,{"updater_inspection":1})
+    rows.extend({"path":p} for p in INSPECTION_REQUIRED.values())
+    assert set(INSPECTION_REQUIRED.values())<=set(_required(rows,{"updater_inspection":1}).values())
+
+@pytest.mark.parametrize("missing", [None, "docs/samples/security-csv/ndr-normal.csv", "docs/images/security-csv-20261025/csv-readiness.png"])
+def test_security_csv_public_media_copies_exact_bytes_and_rejects_missing_inputs(tmp_path, monkeypatch, missing):
+    from saw.devtools import build_release
+    public_csv = (
+        "docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md",
+        *(f"docs/samples/security-csv/{name}.csv" for name in (
+            "fw-mixed-devices", "ndr-potential-chain", "ndr-normal", "ndr-label-only", "ndr-missing-response")),
+        *(f"docs/images/security-csv-20261025/{name}.png" for name in (
+            "csv-upload", "csv-fw-complete", "csv-ndr-complete", "csv-readiness", "csv-ndr-fields", "csv-scenarios", "csv-old-run")),
+    )
+    source, out = tmp_path / "source", tmp_path / "out"
+    for rel in set(build_release.PUBLIC_DOCS) | set(public_csv):
+        path = source / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"public synthetic fixture\x00\xff\r\n" + rel.encode("utf-8"))
+    unlisted = source / "docs/samples/security-csv/unapproved-original.csv"
+    unlisted.write_bytes(b"synthetic private input must not ship")
+    # This guide is decoded by the root entry-point generator.
+    (source / "docs/INSTALL-RECOVERY-2026-10-18.md").write_text("# synthetic guide", encoding="utf-8")
+    monkeypatch.setattr(build_release, "ROOT", source)
+    if missing:
+        (source / missing).unlink()
+        with pytest.raises(BundleError, match="public guide missing"):
+            build_release.copy_public_guides(out)
+    else:
+        build_release.copy_public_guides(out)
+        for rel in public_csv:
+            assert (out / "app" / rel).read_bytes() == (source / rel).read_bytes()
+        assert not (out / "app/docs/samples/security-csv/unapproved-original.csv").exists()

@@ -4,6 +4,7 @@ self-contained HTML report and CSV exports. All reads are scoped to the investig
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import io
 import re
@@ -23,10 +24,14 @@ from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import require
 from saw.core.schemas.query import AggRequest, Filter
 from saw.core.security.masking import mask_text
+from saw.detection.derived_access import (
+    visible_findings,
+)
 from saw.integrations.pcap import ARTIFACTS, files_key
 from saw.integrations.pcapkit.extract import session_streams
 from saw.integrations.pcapkit.reader import PcapError
-from saw.storage.models import Evidence, EvidenceFile, Finding, Investigation
+from saw.storage.generations import GenerationUnavailable
+from saw.storage.models import Finding, Investigation
 
 router = APIRouter(prefix="/investigations/{inv_id}/forensics", tags=["forensics"])
 FILES = Filter(field="data_source", value="zeek_files")
@@ -42,16 +47,18 @@ def _ext(e: dict) -> dict:
 
 def _net_findings(s: Session, inv_id: str) -> list[Finding]:
     rows = s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars().all()
-    return [f for f in rows if f.category.startswith(NET_CATS) and f.status not in ("false_positive", "duplicate")]
+    return [f for f in visible_findings(s, s.info.get("principal"), rows) if f.category.startswith(NET_CATS) and f.status not in ("false_positive", "duplicate")]
 
 
 def _captures(s: Session, inv_id: str) -> list[dict]:
     out = []
-    q = select(EvidenceFile, Evidence).join(Evidence, Evidence.id == EvidenceFile.evidence_id).where(
-        Evidence.investigation_id == inv_id, EvidenceFile.parser_id.like("pcap%"))
-    for f, e in s.execute(q).all():
+    from types import SimpleNamespace
+    for fields in container.get().events.file_state(s, inv_id):
+        f = SimpleNamespace(**fields)
+        if not (f.parser_id or '').startswith('pcap'):
+            continue
         summ = next((x.get("pcap_summary") for x in (f.error_samples or []) if isinstance(x, dict) and "pcap_summary" in x), None)
-        out.append({"evidence_id": e.id, "file_id": f.id, "name": f.display_name, "size": f.size, "sha256": f.sha256,
+        out.append({"evidence_id": f.evidence_id, "file_id": f.id, "name": f.display_name, "size": f.size, "sha256": f.sha256,
                     "engine": f.parser_id, "status": f.parse_status, "events": f.events_parsed, "note": f.message,
                     "summary": summ})
     return out
@@ -99,8 +106,10 @@ def summary(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(
 
 @router.get("/files")
 def files(inv_id: str, category: str | None = None, masquerade: bool | None = None, limit: int = Query(500, le=5000),
-          ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+          ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     require(s, ctx.principal, "investigation.read", inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     flt = [FILES]
     if category:
         flt.append(Filter(field="ext.zeek.category", value=category))
@@ -125,22 +134,49 @@ def files(inv_id: str, category: str | None = None, masquerade: bool | None = No
 
 @router.get("/files/{sha256}/download")
 def download_file(inv_id: str, sha256: str, request: Request, ctx: AuthContext = Depends(auth),
-                  s: Session = Depends(db, scope="function")):
+                  s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Extracted object as an inert attachment. Risky types get a `.infected` suffix (never served inline)."""
     require(s, ctx.principal, "investigation.write", inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     if not re.fullmatch(r"[0-9a-f]{64}", sha256):
         raise HTTPException(400, "invalid sha256")
     es = container.get().events
     ev = es.search(inv_id, [FILES, Filter(field="hash", value=sha256)], limit=1)["events"]
     obj = container.get().objects
-    if not ev or not obj.exists(ARTIFACTS, files_key(inv_id, sha256)):
+    if not ev:
         raise HTTPException(404, "extracted file not found in this investigation")
+    bucket, key = ARTIFACTS, files_key(inv_id, sha256)
+    with es.open_view(inv_id) as view:
+        if not view.ref.legacy:
+            candidates = {(r['bucket'], r['key']) for f in es.file_state(s, inv_id)
+                          for r in f.get('raw_objects', [])
+                          if (r['key'].endswith('/files/' + sha256)
+                              or r['key'] == f'{inv_id}/extracted-files/{sha256}') and r['sha256'] == sha256}
+            if not candidates:
+                raise GenerationUnavailable('generation_raw_unavailable')
+            bucket, key = min(candidates)
+        elif not obj.exists(bucket, key):
+            raise HTTPException(404, "extracted file not found in this investigation")
     x = _ext(ev[0])
     risky = x.get("category") in RISKY or x.get("masquerade")
     base = re.sub(r"[^A-Za-z0-9._-]", "_", x.get("filename") or "file")[:80]
     name = f"{sha256[:16]}_{base}" + (".infected" if risky else "")
-    with obj.open(ARTIFACTS, files_key(inv_id, sha256)) as fh:
-        data = fh.read()
+    data = bytearray()
+    try:
+        with es.open_view(inv_id) as view, obj.open(bucket, key) as fh:
+            while True:
+                es.check_read(view.ref)
+                chunk = fh.read(1024 * 1024)
+                es.check_read(view.ref)
+                if not chunk:
+                    break
+                data.extend(chunk)
+    except OSError:
+        raise GenerationUnavailable('generation_raw_unavailable') from None
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise GenerationUnavailable('generation_raw_unavailable')
+    data = bytes(data)
     audit.record(s, "forensics.file_download", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  actor_ip=client_ip(request), target_type="file", target_id=sha256, investigation_id=inv_id,
                  detail={"filename": x.get("filename"), "category": x.get("category"), "risky": bool(risky)})
@@ -213,18 +249,22 @@ def _render(b: bytes, limit: int) -> dict:
 
 @router.get("/sessions/{event_id}/stream")
 def stream(inv_id: str, event_id: str, request: Request, limit: int = Query(65536, le=262144),
-           ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+           ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Reassembled client/server payload of the event's TCP session (masked text or hex), like 'Follow TCP Stream'."""
     require(s, ctx.principal, "investigation.read", inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     ev, _f, src, t0, t1 = resolve_session(s, inv_id, event_id)
     try:
-        with open(src, "rb") as fh:
+        with container.get().events.open_local_raw(inv_id, src) as fh:
             st = session_streams(fh, (ev["src_ip"], int(ev["src_port"])), (ev["dst_ip"], int(ev["dst_port"])), t0, t1, cap=limit)
     except PcapError as x:
         raise HTTPException(422, f"PCAP 읽기 실패: {x}") from None
     audit.record(s, "forensics.stream_view", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
                  actor_ip=client_ip(request), target_type="event", target_id=event_id, investigation_id=inv_id,
                  detail={"packets": st["packets"]})
+    with container.get().events.open_view(inv_id) as view:
+        container.get().events.check_read(view.ref)
     return {"client": st["client"], "server": st["server"], "packets": st["packets"],
             "client_view": _render(st["client_data"], limit), "server_view": _render(st["server_data"], limit),
             "client_bytes": len(st["client_data"]), "server_bytes": len(st["server_data"]),

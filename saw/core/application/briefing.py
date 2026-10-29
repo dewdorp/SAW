@@ -22,9 +22,20 @@ from saw.core.application import audit
 from saw.core.application.investigations import list_for, require
 from saw.core.schemas.query import AggRequest
 from saw.core.security.authz import Principal
+from saw.detection.derived_access import (
+    require_investigation_results,
+)
 from saw.storage.db import utcnow
 from saw.storage.models import (
-    AuditEvent, Briefing, Evidence, EvidenceFile, Finding, Investigation, InvestigationMember, Job, User,
+    AuditEvent,
+    Briefing,
+    Evidence,
+    EvidenceFile,
+    Finding,
+    Investigation,
+    InvestigationMember,
+    Job,
+    User,
 )
 
 KST = ZoneInfo("Asia/Seoul")
@@ -33,8 +44,10 @@ FIELD_MAX = 4000
 RISK_ORDER = ["critical", "high", "medium", "low", "info"]
 RISK_KO = {"critical": "매우 높음", "high": "높음", "medium": "보통", "low": "낮음", "info": "참고"}
 STATUS_KO = {"open": "접수", "new": "접수", "in_progress": "분석 중", "pending_review": "검토 대기", "closed": "종결"}
-VERDICT_KO = {"attack": "공격으로 판정", "normal": "정상 활동으로 판정", "false_positive": "오탐으로 판정",
-              "unknown": "판단 보류"}
+VERDICT_KO = {"normal": "정상 업무로 확인", "attack_attempt": "공격 시도 확인(성공 미확인)",
+              "compromise_confirmed": "침해·실제 영향 확인", "insufficient_evidence": "증거 부족 · 추가 확인 필요",
+              "data_quality_limited": "데이터 품질로 판단 제한",
+              "attack": "공격으로 판정", "false_positive": "오탐으로 판정", "unknown": "판단 보류"}
 SOURCE_KO = {"web": "웹 서버·NDR 요청 기록", "waf": "웹 방화벽 기록", "zeek_conn": "네트워크 연결 기록", "zeek_dns": "DNS 조회 기록",
              "zeek_ssl": "암호화 통신(TLS) 기록", "zeek_http": "패킷 속 HTTP 기록", "zeek_files": "패킷 속 전송 파일",
              "suricata": "침입 탐지 경보", "pcap_auth": "패킷 속 로그인 기록", "pcap_arp": "ARP 기록", "ndr_http": "NDR 응답 기록",
@@ -210,6 +223,8 @@ def build(s: Session, inv: Investigation, mask: bool = True) -> dict[str, Any]:
                       .where(Evidence.investigation_id == inv.id)).scalars().all()
     parents = {f.parent_file_id for f in files if f.parent_file_id}
     leaves = [f for f in files if f.id not in parents]
+    if s.info.get("principal") is not None:
+        require_investigation_results(s, s.info["principal"], inv.id)
     findings = [f for f in s.execute(select(Finding).where(Finding.investigation_id == inv.id)
                                      .order_by(Finding.risk_score.desc())).scalars()
                 if f.status not in ("false_positive", "duplicate")]
@@ -276,7 +291,6 @@ def build(s: Session, inv: Investigation, mask: bool = True) -> dict[str, Any]:
     elif detail.get("detection_idea"):
         todo.append(f"재발 탐지 방안 검토: {detail['detection_idea']}")
     from saw.core.application import checks as check_svc
-
     from saw.core.application import reviews as review_svc
 
     chk = check_svc.summary(s, inv.id)
@@ -407,6 +421,15 @@ def board(s: Session, p: Principal, days: int = 30) -> dict[str, Any]:
     now = utcnow()
     since = now - timedelta(days=days)
     invs = list_for(s, p, 1000)
+    visible = []
+    from saw.core.application.investigations import Forbidden, NotFound
+    for inv in invs:
+        try:
+            require_investigation_results(s, p, inv.id)
+        except (Forbidden, NotFound):
+            continue
+        visible.append(inv)
+    invs = visible
     ids = [i.id for i in invs]
     names = _names(s, list({i.owner_id for i in invs}))
     highs: dict[str, int] = {}

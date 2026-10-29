@@ -1,3 +1,7 @@
+import { ReleaseList, ReleaseWorkspace } from "./golden/ReleaseWorkspace";
+import { ReleaseForm } from "./golden/ReleaseForm";
+import { GoldenProfiles } from "./golden/GoldenProfiles";
+import { HoldoutAttempts, HoldoutAttemptDetail, HoldoutAttemptForm } from "./golden/HoldoutAttempts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/ui";
 import { useState } from "react";
@@ -8,19 +12,31 @@ import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import { GoldenCases, GoldenReview, type GoldenChoice } from "./Golden";
 
-const TABS: [string, string][] = [["/knowledge", "SOC 경험"], ["/knowledge/review", "승인 대기"], ["/knowledge/assets", "자산 정보"],
+const TABS: [string, string][] = [["/knowledge/golden", "정답 사례"], ["/knowledge/releases", "반출 패키지"], ["/knowledge/profiles", "반출 프로필"], ["/knowledge/holdout-attempts", "평가 사용 이력"], ["/knowledge", "SOC 경험"], ["/knowledge/review", "승인 대기"], ["/knowledge/assets", "자산 정보"],
   ["/knowledge/fp", "오탐 규칙"], ["/knowledge/playbooks", "점검 절차"], ["/knowledge/similar", "유사 사례 검색"]];
 
 export function Knowledge() {
   const loc = useLocation();
+  const principal = useMe();
+  if(principal.isLoading) return <Loading />;
+  if(principal.error) return <ErrorBox error={principal.error} />;
   return (
     <div className="page col">
       <PageHeader eyebrow="지식" title="SOC 지식" desc="승인된 대응 경험(SOC Experience)과 자산 정보입니다. 작성자와 다른 사람이 승인해야 반영됩니다." />
       <div className="tabs">{TABS.map(([to, l]) => <Link key={to} to={to}><button className={loc.pathname === to ? "active" : ""}>{l}</button></Link>)}</div>
-      <Routes>
+      <Routes key={JSON.stringify([principal.data?.id, principal.data?.permissions])}>
+        <Route path="golden" element={<GoldenCases />} />
+        <Route path="releases" element={<ReleaseList />} />
+        <Route path="releases/new" element={<ReleaseForm key="new" />} />
+        <Route path="releases/:id" element={<ReleaseWorkspace />} />
+        <Route path="releases/:id/versions/:versionId" element={<ReleaseWorkspace />} />
+        <Route path="profiles" element={<GoldenProfiles />} />
+        <Route path="holdout-attempts" element={<HoldoutAttempts />} />
+        <Route path="holdout-attempts/new" element={<HoldoutAttemptForm />} />
+        <Route path="holdout-attempts/:id" element={<HoldoutAttemptDetail />} />
         <Route index element={<ExperienceList />} />
         <Route path="review" element={<ExperienceList queue />} />
-        <Route path="exp/:id" element={<ExperienceEditor />} />
+        <Route path="exp/:id" element={<ExperienceEditorKey />} />
         <Route path="assets" element={<Assets />} />
         <Route path="fp" element={<FpRules />} />
         <Route path="playbooks" element={<Playbooks />} />
@@ -75,17 +91,18 @@ function ListEditor({ label, items, onChange, keys }: { label: string; items: an
   );
 }
 
+function ExperienceEditorKey() { const { id } = useParams(); return <ExperienceEditor key={id} />; }
 function ExperienceEditor() {
   const { id = "" } = useParams();
   const me = useMe();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["exp", id], queryFn: () => api.get(`/experiences/${id}`) });
-  const revs = useQuery({ queryKey: ["exp-revs", id], queryFn: () => api.get(`/experiences/${id}/revisions`) });
+  const q = useQuery({ queryKey: ["exp", id, me.data?.id, me.data?.permissions], queryFn: () => api.get(`/experiences/${id}`) });
+  const revs = useQuery({ queryKey: ["exp-revs", id, me.data?.id, me.data?.permissions], queryFn: () => api.get(`/experiences/${id}/revisions`) });
   const [d, setD] = useState<any | null>(null);
   const [comment, setComment] = useState("");
   const [ack, setAck] = useState(false);
   const [goldenChoice, setGoldenChoice] = useState<GoldenChoice>({ valid: true });
-  const inval = () => { qc.invalidateQueries({ queryKey: ["exp", id] }); qc.invalidateQueries({ queryKey: ["exp-revs", id] }); qc.invalidateQueries({ queryKey: ["golden", id] }); setD(null); };
+  const inval = () => { qc.invalidateQueries({ queryKey: ["exp", id, me.data?.id, me.data?.permissions] }); qc.invalidateQueries({ queryKey: ["exp-revs", id, me.data?.id, me.data?.permissions] }); qc.invalidateQueries({ queryKey: ["golden", id] }); setD(null); };
   const save = useMutation({ mutationFn: () => api.patch(`/experiences/${id}`, { data: d }), onSuccess: inval });
   const act = useMutation({ mutationFn: (a: string) => api.post(`/experiences/${id}/${a}`, { comment, ack_fp_conflicts: ack, ...(a === "approve" && goldenChoice.payload ? { golden: goldenChoice.payload } : {}) }), onSuccess: inval });
   if (q.isLoading) return <Loading />;

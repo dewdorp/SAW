@@ -3,7 +3,16 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBox } from "../../components/common";
 import { api } from "../../lib/api";
 
-const VERDICTS: [string, string][] = [["attack", "공격"], ["normal", "정상 활동"], ["false_positive", "오탐"], ["unknown", "판단 보류"]];
+// Conclusions an analyst records. An alert name, device severity, HTTP 200 or a firewall "allow" alone never decides one.
+const VERDICTS: [string, string, string][] = [
+  ["normal", "정상 업무로 확인", "관측 범위와 일치하는 업무 근거(작업 기록·담당자 확인)가 있을 때"],
+  ["attack_attempt", "공격 시도 확인", "공격성 요청·행위는 확인되지만 성공·영향은 확인하지 못했을 때"],
+  ["compromise_confirmed", "침해·실제 영향 확인", "해당 요청·자산·시간에 연결된 결과 증거(서버·인증·전송 기록 등)가 있을 때"],
+  ["insufficient_evidence", "증거 부족 · 추가 확인 필요", "회신이 없거나 범위가 다르거나 필요한 근거가 없을 때"],
+  ["data_quality_limited", "데이터 품질로 판단 제한", "수집 공백·파싱 문제·시각 불일치로 판단할 수 없을 때"],
+  ["false_positive", "탐지 오탐", "탐지 조건 자체가 잘못 적용된 경우"],
+];
+const ATTACK = new Set(["attack", "attack_attempt", "compromise_confirmed"]);
 
 /** Investigation close → five-point check → verdict → experience draft (docs/32 §4). Nothing here blocks the close:
  *  open points are shown so that they are closed knowingly, and limits are written down instead of hidden. */
@@ -48,12 +57,13 @@ export function CloseDialog({ inv, onClose }: { inv: any; onClose: () => void })
               </div>))}
             <ErrorBox error={pre.error} />
           </div>
-          <div className="row wrap">판정
-            {VERDICTS.map(([v, l]) => (
-              <label key={v} className="row small"><input type="radio" name="v" checked={verdict === v} onChange={() => setVerdict(v)} />{l}</label>
+          <fieldset className="col" style={{ gap: 2 }}><legend className="small"><b>판단</b></legend>
+            {VERDICTS.map(([v, l, hint]) => (
+              <label key={v} className="row small" title={hint}><input type="radio" name="v" checked={verdict === v} onChange={() => setVerdict(v)} />{l} <span className="muted">— {hint}</span></label>
             ))}
-          </div>
-          {verdict === "attack" && <div className="small muted">공격 판정은 보고에 쓰이므로 다른 사람의 검토 대상이 됩니다. 종결 후 "확인·검토" 탭에서 검토자를 지정하세요.</div>}
+          </fieldset>
+          {ATTACK.has(verdict) && <div className="small muted">공격 시도·침해 판단은 보고에 쓰이므로 다른 사람의 검토 대상이 됩니다. 종결 후 "확인 요청·검토" 탭에서 검토자를 지정하세요.</div>}
+          {(verdict === "normal" || verdict === "false_positive") && <div className="small muted">확인 요청이 회신 대기·검증 전·범위 불일치·일부만 설명된 상태면 정상·오탐으로 종결할 수 없습니다. 그 경우 '증거 부족'으로 종결하거나 요청을 한계와 함께 닫으세요.</div>}
           <label className="col small">판정 사유<textarea className="input" rows={3} aria-label="판정 사유" placeholder="판정 사유 (필수) — 첫 줄이 보고용 요약의 결론에 들어갑니다" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
           <div className="col small" aria-label="기존 확인 기록 재사용">
             <b>기존 확인 기록 {draft.data?.check_ids?.length ?? "–"}건 재사용</b>

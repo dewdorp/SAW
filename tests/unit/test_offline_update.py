@@ -150,7 +150,7 @@ def test_wrapper_rejects_changed_media_before_creating_recovery(installation):
     shutil.copyfile(verifier, bundle / "verify-bundle.ps1")
     seal(bundle, {"python": "3.12.10", "postgresql": "16.15-1", "opensearch": "2.19.6"})
     write(bundle, "app/saw/main.py", "changed after sealing")
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File",
                              str(wrapper), "-Action", "apply", "-InstallRoot", str(root),
                              "-BundleDir", str(bundle), "-BaselineBundleDir", str(baseline),
                              "-RecoveryPoint", str(recovery)], capture_output=True, timeout=40)
@@ -632,3 +632,265 @@ def test_missing_application_does_not_bypass_corrupt_snapshot(installation):
         mod.restore(root, recovery, confirm=True)
     assert not (root / 'app').exists()
     assert root.is_dir()
+
+
+def xlsxwriter_script(installation, *, member=None, package=None, source=None):
+    """Represent the pinned wheel and pip --target's rewritten script, never execute it."""
+    import os
+    root, bundle, _, _ = installation
+    member = member or "xlsxwriter-3.2.9.data/scripts/vba_extract.py"
+    package = package or "xlsxwriter-3.2.9-py3-none-any.whl"
+    source = source if source is not None else b'#!python\n"""Synthetic wheel script."""\nprint("fixture only")\n'
+    target = bundle / "wheels" / package
+    target.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(target, "w") as stream:
+        stream.writestr(member, source)
+    installed = root / "venv/Lib/site-packages/bin/vba_extract.py"
+    write(root, installed.relative_to(root),
+          b"#!" + os.fsencode(root / "venv/Scripts/python.exe") + os.linesep.encode("ascii")
+          + source.partition(b"\n")[2])
+    return installed
+
+
+@pytest.mark.parametrize("root_name", [None, "installed space-\uac00"])
+def test_pinned_xlsxwriter_target_script_is_verified_without_execution_or_changes(installation, root_name):
+    root, bundle, baseline, recovery = installation
+    if root_name:
+        moved = root.with_name(root_name)
+        root.rename(moved)
+        root = moved
+        installation = root, bundle, baseline, recovery
+    xlsxwriter_script(installation)
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+              for parent in (root, bundle) for p in parent.rglob("*") if p.is_file()}
+    updater()._installed_runtime(root, bundle)
+    assert {p: (p.read_bytes(), p.stat().st_mtime_ns)
+            for parent in (root, bundle) for p in parent.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize("case", ["body", "foreign_interpreter", "unexpanded_shebang", "line_ending",
+                                 "missing", "wrong_scripts_directory", "extra_script"])
+def test_xlsxwriter_target_script_requires_exact_body_interpreter_and_location(installation, case):
+    root, bundle, _, _ = installation
+    installed = xlsxwriter_script(installation)
+    original = installed.read_bytes()
+    if case == "body":
+        installed.write_bytes(original + b"# changed\n")
+    elif case == "foreign_interpreter":
+        installed.write_bytes(b"#!C:\\foreign\\python.exe\r\n" + original.partition(b"\n")[2])
+    elif case == "unexpanded_shebang":
+        installed.write_bytes(b"#!python\n" + original.partition(b"\n")[2])
+    elif case == "line_ending":
+        import os
+        wrong = b"\n" if os.linesep == "\r\n" else b"\r\n"
+        installed.write_bytes(original.partition(b"\n")[0].rstrip(b"\r") + wrong
+                              + original.partition(b"\n")[2])
+    elif case == "missing":
+        installed.unlink()
+    elif case == "wrong_scripts_directory":
+        write(root, "venv/Scripts/vba_extract.py", original)
+        installed.unlink()
+    else:
+        write(root, "venv/Lib/site-packages/bin/unapproved.py", b"# unexpected script\n")
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    with pytest.raises(updater().UpdateError, match="differs from the pinned media|Unexpected installed"):
+        updater()._installed_runtime(root, bundle)
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize(("member", "package", "source"), [
+    ("xlsxwriter-3.2.9.data/scripts/other.py", None, None),
+    ("xlsxwriter-3.2.9.data/purelib/vba_extract.py", None, None),
+    (None, "unapproved-1.0-py3-none-any.whl", None),
+    (None, None, b"#!/usr/bin/python\n# fixture\n"),
+    (None, None, b"#!python -E\n# fixture\n"),
+    (None, None, b"#!python\r\n# fixture\n"),
+    (None, None, b"#!python"),
+])
+def test_other_wheel_data_layouts_and_source_shebangs_remain_unsupported(installation, member, package, source):
+    root, bundle, _, _ = installation
+    xlsxwriter_script(installation, member=member, package=package, source=source)
+    with pytest.raises(updater().UpdateError, match="Unsupported wheel installation layout"):
+        updater()._installed_runtime(root, bundle)
+
+
+@pytest.mark.parametrize("member", ["../escaped.py", "/escaped.py",
+    "xlsxwriter-3.2.9.data/scripts/../../../escaped.py",
+    "xlsxwriter-3.2.9.data/scripts/..\\escaped.py"])
+def test_wheel_script_archive_paths_cannot_escape_installation(installation, member):
+    root, bundle, _, _ = installation
+    xlsxwriter_script(installation, member=member)
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError):
+        updater()._installed_runtime(root, bundle)
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+
+# Dependency transitions remain an exact, reviewed exception to runtime equality.
+def test_runtime_transition_accepts_only_the_pinned_xlsxwriter_delta():
+    import copy
+    mod = updater()
+    old = {"metadata": dict(mod.PINS), "files": [{"path": "app/deploy/windows/requirements.txt", "bytes": 1421,
+        "sha256": "ce97ae90f25093ba9f574d41ede60457d8cbd3a2287cd48cdb035d2be15b5f1f"}]}
+    new = copy.deepcopy(old)
+    new["files"][0].update(bytes=1440, sha256="bf75190bc504caaffca54e3a164d4c20d63ebcbc8d50d9a17647893861149c38")
+    new["files"].append({"path": "wheels/xlsxwriter-3.2.9-py3-none-any.whl", "bytes": 175315,
+        "sha256": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3"})
+    assert mod._runtime_transition(old, old)["kind"] == "unchanged"
+    assert mod._runtime_transition(old, new)["added_wheels"] == ["wheels/xlsxwriter-3.2.9-py3-none-any.whl"]
+    for mutate in (lambda d: d["files"][-1].update(sha256="0"*64),
+                   lambda d: d["files"][-1].update(bytes=175316),
+                   lambda d: d["files"][0].update(sha256="0"*64),
+                   lambda d: d["files"].append({"path":"wheels/other.whl","bytes":1,"sha256":"0"*64}),
+                   lambda d: d["files"].pop()):
+        changed = copy.deepcopy(new); mutate(changed)
+        with pytest.raises(mod.UpdateError): mod._runtime_transition(old, changed)
+    with pytest.raises(mod.UpdateError): mod._runtime_transition(new, old)
+
+
+@pytest.fixture
+def additive_installation(installation, monkeypatch):
+    """Synthetic wheel bytes pin only this test fixture; no package is executed."""
+    mod = updater()
+    root, bundle, baseline, recovery = installation
+    write(baseline, "app/deploy/windows/requirements.txt", "old==1\n")
+    write(root, "app/deploy/windows/requirements.txt", "old==1\n")
+    write(bundle, "app/deploy/windows/requirements.txt", "old==1\nxlsxwriter==3.2.9\n")
+    wheel = bundle / "wheels/xlsxwriter-3.2.9-py3-none-any.whl"
+    wheel.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as stream:
+        for name, data in [("xlsxwriter/__init__.py", b"__version__='3.2.9'\n"),
+            ("xlsxwriter-3.2.9.dist-info/METADATA", b"Name: XlsxWriter\nVersion: 3.2.9\n"),
+            ("xlsxwriter-3.2.9.dist-info/RECORD", b"fixture record\n"),
+            ("xlsxwriter-3.2.9.data/scripts/vba_extract.py", b"#!python\n# synthetic only\n")]:
+            stream.writestr(name, data)
+    for media_root in (baseline, bundle): seal(media_root, dict(mod.PINS))
+    old = json.loads((baseline/"release-manifest.json").read_text())
+    new = json.loads((bundle/"release-manifest.json").read_text())
+    rows = lambda doc: {r["path"]:r for r in doc["files"]}
+    monkeypatch.setattr(mod, "_XLSXWRITER_UPGRADE", {
+        "old_requirements": rows(old)["app/deploy/windows/requirements.txt"],
+        "new_requirements": rows(new)["app/deploy/windows/requirements.txt"],
+        "wheel": rows(new)["wheels/xlsxwriter-3.2.9-py3-none-any.whl"]})
+    write(root, "venv/.saw-python-runtime.json", json.dumps({
+        "schema":"saw.python-runtime/1", "install_root":str(root), "python":"3.12.10",
+        "architecture":"amd64", "archive_sha256":rows(old)["python/python-3.12.10-embed-amd64.zip"]["sha256"],
+        "bootstrap_sha256":rows(old)["bootstrap/pip-25.1.1-py3-none-any.whl"]["sha256"],
+        "requirements_sha256":rows(old)["app/deploy/windows/requirements.txt"]["sha256"], "state":"ready"}))
+    return installation
+
+
+def test_additive_apply_and_complete_restore_preserve_the_previous_runtime(additive_installation):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    before = mod._inventory(root)
+    previous = json.loads((baseline/"release-manifest.json").read_text())
+    mod._installed_runtime(root, bundle, profile=previous)
+    with pytest.raises(mod.UpdateError): mod._installed_runtime(root, bundle)
+    mod.apply(root, bundle, recovery, baseline)
+    mod._installed_runtime(root, bundle)
+    assert (root/"venv/Lib/site-packages/xlsxwriter/__init__.py").is_file()
+    profile = mod._recovery_runtime_profile(recovery, bundle)
+    assert profile == previous  # Legacy snapshot has no installed manifest.
+    restored = mod.restore(root, recovery, confirm=True)
+    assert mod._inventory(root) == before
+    assert (Path(restored["retained_installation"])/"venv/Lib/site-packages/xlsxwriter/__init__.py").is_file()
+    mod._installed_runtime(root, bundle, profile=profile)
+
+
+def test_additive_stage_failure_never_changes_live_runtime(additive_installation, monkeypatch):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    before = mod._inventory(root)
+    def fail(*args): raise OSError("synthetic staging failure")
+    monkeypatch.setattr(mod, "_stage_dependency", fail)
+    with pytest.raises(OSError): mod.apply(root, bundle, recovery, baseline)
+    assert mod._inventory(root) == before
+    assert (recovery/"recovery-point.json").is_file()
+
+
+def test_partial_addition_is_verified_only_for_explicit_recovery(additive_installation, monkeypatch):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    before = mod._inventory(root)
+    previous = json.loads((baseline/"release-manifest.json").read_text())
+    original = mod.os.rename
+    def fail(source, destination):
+        if destination.name == "METADATA" and "site-packages" in destination.parts:
+            raise OSError("synthetic atomic dependency publish failure")
+        return original(source, destination)
+    monkeypatch.setattr(mod.os, "rename", fail)
+    with pytest.raises(OSError): mod.apply(root, bundle, recovery, baseline)
+    with pytest.raises(mod.UpdateError): mod._installed_runtime(root, bundle, profile=previous)
+    mod._installed_runtime(root, bundle, profile=previous, allow_pending_addition=True)
+    mod.restore(root, recovery, confirm=True)
+    assert mod._inventory(root) == before
+
+
+@pytest.mark.parametrize("case", ["marker", "base", "partial_corrupt", "unknown"])
+def test_additive_recovery_never_ignores_drift(additive_installation, case):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    previous = json.loads((baseline/"release-manifest.json").read_text())
+    if case == "marker": write(root, "venv/.saw-python-runtime.json", "{}")
+    elif case == "base": write(root, "venv/Scripts/python.exe", "foreign")
+    elif case == "partial_corrupt": write(root, "venv/Lib/site-packages/xlsxwriter/__init__.py", "foreign")
+    else: write(root, "venv/Lib/site-packages/xlsxwriter/unknown.py", "foreign")
+    with pytest.raises(mod.UpdateError):
+        mod._installed_runtime(root, bundle, profile=previous, allow_pending_addition=True)
+    assert not recovery.exists()
+
+
+def test_dependency_record_and_marker_match_the_installed_layout(additive_installation):
+    import csv
+    import hashlib
+    import base64
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    mod.apply(root, bundle, recovery, baseline)
+    site = root/"venv/Lib/site-packages"
+    record = list(csv.reader((site/"xlsxwriter-3.2.9.dist-info/RECORD").read_text().splitlines()))
+    rows = {r[0]:r[1:] for r in record}
+    data = (site/"bin/vba_extract.py").read_bytes()
+    assert rows["bin/vba_extract.py"] == ["sha256="+base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode(),str(len(data))]
+    assert not any(".data/" in row[0] for row in record)
+    marker = json.loads((root/"venv/.saw-python-runtime.json").read_text())
+    assert marker["requirements_sha256"] == mod._XLSXWRITER_UPGRADE["new_requirements"]["sha256"]
+    assert marker["install_root"] == str(root) and marker["state"] == "ready"
+
+
+def test_full_restore_remains_available_after_marker_publication(additive_installation, monkeypatch):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    before = mod._inventory(root)
+    previous = json.loads((baseline/"release-manifest.json").read_text())
+    original = mod.os.rename
+    def fail(source, destination):
+        if source == root/"app": raise OSError("synthetic application switch failure")
+        return original(source,destination)
+    monkeypatch.setattr(mod.os,"rename",fail)
+    with pytest.raises(OSError): mod.apply(root,bundle,recovery,baseline)
+    mod._installed_runtime(root,bundle,profile=previous,allow_pending_addition=True)
+    mod._recovery_runtime_profile(recovery,bundle)
+    mod.restore(root,recovery,confirm=True)
+    assert mod._inventory(root) == before
+
+
+def test_legacy_recovery_requires_explicit_original_media_when_profile_is_absent(additive_installation):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    mod.apply(root,bundle,recovery,baseline)
+    path = recovery/"recovery-point.json"
+    receipt = json.loads(path.read_text());receipt.pop("runtime_profile")
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(mod.UpdateError,match="BaselineBundleDir"):
+        mod._recovery_runtime_profile(recovery,bundle)
+    assert mod._recovery_runtime_profile(recovery,bundle,baseline) == json.loads((baseline/"release-manifest.json").read_text())
+    receipt["runtime_profile"] = json.loads((bundle/"release-manifest.json").read_text())
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(mod.UpdateError): mod._recovery_runtime_profile(recovery,bundle)
+
+
+def test_live_dependency_is_never_exposed_to_a_truncating_copy(additive_installation, monkeypatch):
+    mod = updater(); root, bundle, baseline, recovery = additive_installation
+    original = mod._copy_public_file
+    def truncate(source, destination, policy=None):
+        if destination.is_relative_to(root/"venv/Lib/site-packages"):
+            destination.write_bytes(b"x")  # Actual partial bytes, not a pre-copy exception.
+            raise OSError("synthetic interrupted live copy")
+        return original(source,destination,policy)
+    monkeypatch.setattr(mod,"_copy_public_file",truncate)
+    mod.apply(root,bundle,recovery,baseline)
+    mod._installed_runtime(root,bundle)

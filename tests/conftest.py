@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from functools import wraps
 
 import pyotp
 import pytest
@@ -21,27 +22,57 @@ DATABASE_URL = os.environ.get("SAW_TEST_DATABASE_URL", "")
 
 
 @pytest.fixture
-def settings(tmp_path) -> Settings:
+def settings(tmp_path, monkeypatch):
     extra = {"event_store": "opensearch", "opensearch_url": OPENSEARCH_URL,
              "opensearch_index_prefix": "sawtest"} if OPENSEARCH_URL else {}
     if DATABASE_URL:
         from saw.storage import db as _db
 
-        _db.Base.metadata.drop_all(_db.init_db(DATABASE_URL))
-    return Settings(
+        _db.load_models()
+        reset_engine = _db.make_engine(DATABASE_URL)
+        try:
+            _db.Base.metadata.drop_all(reset_engine)
+        finally:
+            reset_engine.dispose()
+    from saw import container
+
+    # Include direct create_app calls made by tests using this settings fixture.
+    # Teardown never follows the process-global container to a different owner.
+    created = []
+    build = container.build
+
+    @wraps(build)
+    def tracked_build(*args, **kwargs):
+        captured = build(*args, **kwargs)
+        created.append(captured)
+        return captured
+
+    monkeypatch.setattr(container, "build", tracked_build)
+    config = Settings(
         data_dir=tmp_path,
         database_url=DATABASE_URL or f"sqlite:///{tmp_path / 'saw.db'}",
         event_store_path=str(tmp_path / "events.db"),
         object_store_root=str(tmp_path / "objects"),
         **extra,
     )
+    try:
+        yield config
+    finally:
+        for captured in reversed(created):
+            container.close(captured)
 
 
 @pytest.fixture
 def app(settings):
+    from saw import container
     from saw.apps.api.main import create_app
 
-    return create_app(settings, synchronous_jobs=True)
+    application = create_app(settings, synchronous_jobs=True)
+    captured = container.get()
+    try:
+        yield application
+    finally:
+        container.close(captured)
 
 
 def make_user(username: str, roles: list[str]) -> str:

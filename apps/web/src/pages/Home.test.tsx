@@ -48,14 +48,19 @@ describe("Home", () => {
 
 describe("Investigations list", () => {
   it("shows Korean status/verdict/evidence and creates a new investigation", async () => {
-    const api = mockApi({ "GET /investigations": [200, INVS], "POST /investigations": [201, { id: "new1" }] });
+    const api = mockApi({ "GET /investigations": [200, INVS], "POST /investigations": [201, { id: "new1" }],
+      "GET /source-context/org-units": [200, [{ id: "org-a", display_name: "가상 A사" }]] });
     renderUI(<Investigations />);
     const row = (await screen.findByText("고객 API 대량 조회")).closest("tr")!;
     expect(within(row).getByText("분석 중")).toBeTruthy();
     expect(within(row).getByText(/PCAP 2/)).toBeTruthy();
     expect(screen.getByText("종결 · 공격")).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText(/새 조사 제목/), { target: { value: "새 사건" } });
+    fireEvent.change(await screen.findByLabelText("새 조사 관계사"), { target: { value: "org-a" } });
+    fireEvent.change(screen.getByLabelText("조사 시작일"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("조사 종료일"), { target: { value: "2026-10-31" } });
     fireEvent.click(screen.getByRole("button", { name: "새 조사 만들기" }));
-    await vi.waitFor(() => expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "새 사건" }));
+    await vi.waitFor(() => expect(api.find("POST", "/investigations")[0].body).toEqual({ title: "새 사건", org_unit_id: "org-a",
+      period_start: "2026-10-01T00:00:00+09:00", period_end: "2026-10-31T23:59:59+09:00" }));
   });
 });

@@ -1,5 +1,6 @@
 """Deterministic contextual investigation guidance and immutable answer captures."""
 from __future__ import annotations
+from saw.detection.derived_access import source_ids, require_finding
 
 import copy
 import hashlib
@@ -155,6 +156,9 @@ def _scope(s, inv, body):
         finding = s.get(Finding, body.target_key)
         if not finding or finding.investigation_id != inv.id:
             raise ValueError("finding not in investigation")
+        require_finding(s, s.info.get("principal"), finding)
+        if source_ids(finding):
+            request["_source_investigation_ids"] = sorted(source_ids(finding))
         from saw.llm.service import _evidence_scope
         more, ft, available = _evidence_scope(finding.evidence_refs or {})
         if not available:
@@ -270,7 +274,7 @@ def preview(s, p, inv_id, raw, *, include_answers=True):
         "http_200": [Filter(field="status_code", value=200)],
         "large_response": [Filter(field="bytes_out", op="range", value={"gte": 1048576})],
         "process_known": [Filter(field="process", op="exists")],
-        "external_connections": [Filter(field="data_source", op="in", value=["zeek_conn", "suricata"]),
+        "external_connections": [Filter(field="data_source", op="in", value=["zeek_conn", "suricata", "connection", "firewall"]),
                                  Filter(field="dst_ip_scope", value="external")],
     }
     def count(extra=()):
@@ -303,7 +307,7 @@ def preview(s, p, inv_id, raw, *, include_answers=True):
         labels = {"events": "현재 범위의 이벤트", "blocked": "명시적으로 차단된 요청", "allowed": "명시적으로 허용된 요청",
                   "action_unknown": "차단·허용 값이 없거나 상충하는 기록", "http_200": "HTTP 200 응답",
                   "large_response": "1MiB 이상 응답", "process_known": "프로세스 정보가 있는 기록",
-                  "external_connections": "외부 목적지 연결 기록"}
+                  "external_connections": "외부 목적지 기록(세션 수 아님)"}
         for key, label in labels.items():
             q = receipt
             if key != "events":
@@ -393,9 +397,13 @@ def preview(s, p, inv_id, raw, *, include_answers=True):
                  any(x.get("source") == "direct_compromise" and x.get("state") == "available"
                      for x in c.scope["guidance"].get("data_states", [])) for c in relevant)
 
-    periodic = counts.get("external_connections", 0) >= 3
+    # A follow-up question may be prompted by repeated records; this is not a session or beacon verdict.
+    repeated_records = counts.get("external_connections", 0) >= 3
+    if repeated_records:
+        limits.append("외부 목적지 기록 3건 이상은 같은 세션의 시작·중간·종료 기록일 수 있습니다. "
+                      "기록 수는 실제 연결 수나 주기성을 뜻하지 않습니다.")
     applies = {"A": bool(counts.get("blocked") and counts.get("allowed")), "B": attack,
-               "C": periodic, "D": business, "E": bool(counts.get("http_200") or counts.get("large_response")),
+               "C": repeated_records, "D": business, "E": bool(counts.get("http_200") or counts.get("large_response")),
                "F": any(x["state"] not in ("available", "not_applicable") for x in unknowns), "G": direct}
     answers = _matching_checks(s, inv_id, scope["scope_key"])
     questions = []

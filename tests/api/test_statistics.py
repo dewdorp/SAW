@@ -113,13 +113,14 @@ def test_missing_bytes_are_not_zero_and_counts_have_coverage(analyst):
 
 def test_statistics_pair_metrics_and_sorting(analyst):
     inv = analyst.post("/investigations", json={"title": "Synthetic metrics"}).json()["id"]
+    other = analyst.post("/investigations", json={"title": "Unrelated synthetic metrics"}).json()["id"]
     events = [
         {"event_id": "m1", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 404, "method": "GET", "bytes_in": 0, "bytes_out": 10},
         {"event_id": "m2", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 500, "method": "POST", "bytes_out": 20},
         {"event_id": "m3", "src_ip": "192.0.2.1", "dst_ip": "198.51.100.1", "status_code": 0},
         {"event_id": "m4", "src_ip": "192.0.2.2", "dst_ip": "198.51.100.2", "status_code": 200, "bytes_in": 1000, "bytes_out": 900},
         {"event_id": "m5", "src_ip": "192.0.2.2"},
-        {"event_id": "foreign", "investigation_id": "other", "src_ip": "192.0.2.2", "dst_ip": "198.51.100.2", "bytes_out": 99999},
+        {"event_id": "foreign", "investigation_id": other, "src_ip": "192.0.2.2", "dst_ip": "198.51.100.2", "bytes_out": 99999},
     ]
     container.get().events.index([{"investigation_id": inv, "data_source": "web", **e} for e in events])
     d = analyst.post(f"/investigations/{inv}/statistics", json={"group_by": "src_dst", "order_by": "bytes_out_sum", "size": 1}).json()

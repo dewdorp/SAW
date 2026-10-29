@@ -7,6 +7,7 @@ attached to the investigation, and the conclusion remains the owner's - which is
 reviewer of that conclusion.
 """
 from __future__ import annotations
+from saw.detection.derived_access import require_investigation_results
 
 from typing import Any
 
@@ -14,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from saw.core.application import audit
-from saw.core.application.investigations import NotFound, require
+from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.domain.enums import Role
 from saw.core.security.authz import Principal
 from saw.storage.db import utcnow
@@ -110,10 +111,17 @@ def list_for_investigation(s: Session, inv_id: str) -> list[dict[str, Any]]:
 def inbox(s: Session, p: Principal) -> list[dict[str, Any]]:
     rows = s.execute(select(Support).where(Support.helper_id == p.user_id, Support.status.in_(OPEN))
                      .order_by(Support.created_at)).scalars().all()
-    invs = {i.id: i for i in s.execute(select(Investigation).where(
-        Investigation.id.in_({r.investigation_id for r in rows}))).scalars()} if rows else {}
-    return [to_dict(r) | {"investigation": {"id": r.investigation_id, "display_id": invs[r.investigation_id].display_id,
-                                            "title": invs[r.investigation_id].title}} for r in rows if r.investigation_id in invs and not (invs[r.investigation_id].settings or {}).get("data_deletion")]
+    out = []
+    for r in rows:
+        inv = s.get(Investigation, r.investigation_id)
+        if inv is None or (inv.settings or {}).get("data_deletion"):
+            continue
+        try:
+            inv = require(s, p, "investigation.read", r.investigation_id)
+        except (Forbidden, NotFound):
+            continue
+        out.append(to_dict(r) | {"investigation": {"id": inv.id, "display_id": inv.display_id, "title": inv.title}})
+    return out
 
 
 def open_counts(s: Session, inv_ids: list[str]) -> dict[str, int]:
@@ -143,6 +151,7 @@ def closing_check(s: Session, inv: Investigation) -> list[dict[str, Any]]:
     from saw.core.application import briefing, reviews
     from saw.core.application import checks as check_svc
 
+    require_investigation_results(s, s.info.get("principal"), inv.id)
     b = briefing.build(s, inv, mask=True)
     rows = check_svc.list_checks(s, inv.id)
     chk = b["facts"]["checks"]

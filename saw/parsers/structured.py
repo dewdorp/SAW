@@ -24,9 +24,8 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "uri": ["uri", "url", "request_uri", "requesturi", "clientrequesturi", "path", "request", "request_url"],
     "hostname": ["host", "hostname", "clientrequesthost", "server_name", "dhost"],
     "status_code": ["status", "status_code", "statuscode", "edgeresponsestatus", "response_code", "sc-status"],
-    "bytes_out": ["bytes_out", "bytes_sent", "body_bytes_sent", "edgeresponsebytes", "out", "response_size",
-                  "resp_bytes"],
-    "bytes_in": ["bytes_in", "bytes_received", "clientrequestbytes", "in", "request_size", "orig_bytes"],
+    "bytes_out": ["bytes_out", "bytes_sent", "body_bytes_sent", "edgeresponsebytes", "out", "response_size"],
+    "bytes_in": ["bytes_in", "bytes_received", "clientrequestbytes", "in", "request_size"],
     "user_agent": ["user_agent", "useragent", "http_user_agent", "clientrequestuseragent", "ua", "requestclientapplication"],
     "user": ["user", "username", "user_name", "suser", "account", "login"],
     "severity": ["severity", "level", "risk", "priority"],
@@ -80,6 +79,9 @@ for _ces, _aliases in list(FIELD_ALIASES.items()) + list(EXTRA_ALIASES.items()):
         _COMPACT_INDEX.setdefault(compact_key(_a), _ces)
 WAF_HINTS = {"action", "rule", "rule_id", "ruleid", "attack", "attack_type", "signature", "sig_id", "policy",
              "violation", "waf", "securityaction", "securityrule", "block", "cs1"}
+# JSON records: "action", "policy" and "block" appear in firewall, DDoS and web records too, so they
+# alone must not make a record a WAF event.
+JSON_WAF_HINTS = WAF_HINTS - {"action", "policy", "block"}
 WAF_HINTS_KO = {"공격명", "탐지명", "정책명", "차단여부", "대응", "룰", "룰명", "시그니처", "공격유형", "조치", "탐지룰"}
 
 
@@ -179,7 +181,7 @@ class GenericJsonWafParser(JsonLinesParser):
         lines = [s for s in sample if s.strip()]
         if not lines:
             return 0.0
-        hint = sum(1 for s in lines if any(f'"{h}"' in s.lower() for h in WAF_HINTS))
+        hint = sum(1 for s in lines if any(f'"{h}"' in s.lower() for h in JSON_WAF_HINTS))
         return super().detect(sample) / 0.9 * (0.97 if hint >= len(lines) / 2 else 0.0)
 
 
@@ -239,11 +241,12 @@ def infer_source(header: list[str]) -> tuple[str, str]:
         waf = comp & ({compact_key(h) for h in WAF_HINTS} | {compact_key(h) for h in WAF_HINTS_KO})
         return ("waf", "waf_event") if waf else ("web", "http_access")
     if {"src_ip", "dst_ip"} <= ces and ({"dst_port", "bytes_out", "bytes_in"} & ces):
-        return "zeek_conn", "conn"
+        return "connection", "conn"
     return "custom", "log"
 
 
 class CsvParser(BaseParser):
+    version = "2.0.0"
     id = "csv"
     product = "csv"
     data_source = "custom"
@@ -255,10 +258,21 @@ class CsvParser(BaseParser):
         self.delim = ","
         self.kind = ("custom", "log")
         self.warnings = []
+        self._repaired = {"padded": 0, "merged": 0}
 
     def reset(self) -> None:
         self.header = None
         self.warnings = []
+        self._repaired = {"padded": 0, "merged": 0}
+
+    def _repair_notes(self) -> list[str]:
+        notes = []
+        if self._repaired["padded"]:
+            notes.append(f"열이 모자란 행 {self._repaired['padded']}건은 뒤쪽 열을 빈 값으로 두고 읽었습니다(값을 만들지 않음).")
+        if self._repaired["merged"]:
+            notes.append(f"열이 넘치는 행 {self._repaired['merged']}건은 남는 값을 마지막 열에 합쳐 읽었습니다. "
+                         "마지막 열의 값이 올바른지 원문과 비교하세요.")
+        return notes
 
     def detect(self, sample: list[str]) -> float:
         lines = [s.lstrip("\ufeff") for s in sample if s.strip()]
@@ -290,9 +304,14 @@ class CsvParser(BaseParser):
                 self.warnings = [duplicate_columns_note(repeated)]
             self.kind = infer_source(self.header)
             return Skip()
-        row = _fit_row(next(csv.reader(io.StringIO(line), delimiter=self.delim), []), len(self.header))
+        raw_row = next(csv.reader(io.StringIO(line), delimiter=self.delim), [])
+        row = _fit_row(raw_row, len(self.header))
         if row is None:
             return Failed("column count mismatch")
+        if len(raw_row) < len(self.header):
+            self._repaired["padded"] += 1
+        elif len(raw_row) > len(self.header) and any(c.strip() for c in raw_row[len(self.header):]):
+            self._repaired["merged"] += 1
         f, ext = map_fields(dict(zip(self.header, row, strict=True)))
         if self.kind[0] != "custom":
             f.setdefault("data_source", self.kind[0])
@@ -332,6 +351,7 @@ class CsvParser(BaseParser):
         if pending:
             yield pending[0], Failed("unterminated quoted field")
             yield from self._plain(pending[1:])
+        self.warnings = [*self.warnings, *self._repair_notes()]
 
     def _plain(self, rest: list[RawLine]) -> Iterator[tuple[RawLine, ParseResult]]:
         for rl in rest:  # end of file inside a stray quote: the remaining lines are ordinary rows
@@ -343,7 +363,9 @@ class CsvParser(BaseParser):
         return RawLine(text, first.offset, first.line_no, end - first.offset), self.parse_line(text)
 
 
-_KV = re.compile(r'([\w.\-]+)=("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s]*)')
+# A key starts at the line start or after a separator. Without that anchor a long run of word characters
+# (e.g. a base64 payload in one CSV field) is re-scanned from every position: detection took seconds per line.
+_KV = re.compile(r'(?:^|(?<=[\s,;|&>\[(]))([\w.\-]+)=("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s]*)')
 
 
 def parse_kv(s: str) -> dict[str, str]:

@@ -1,5 +1,6 @@
 """SOC Assistant service: minimal masked context → provider → validated, cited, audited output (docs/29)."""
 from __future__ import annotations
+from saw.detection.derived_access import source_ids, require_snapshot, require_finding
 
 import hashlib
 import json
@@ -103,10 +104,11 @@ def _evidence_scope(refs: dict) -> tuple[list[Filter], TimeRange | None, bool]:
     return filters, time_range, bool(filters or any(bounds))
 
 
-def _selected_finding(s: Session, inv_id: str, finding_id: str) -> Finding:
+def _selected_finding(s: Session, inv_id: str, finding_id: str, p=None) -> Finding:
     finding = s.get(Finding, finding_id)
     if finding is None or finding.investigation_id != inv_id:
         raise NotFound("finding not found")
+    require_finding(s, p or s.info.get("principal"), finding)
     return finding
 
 
@@ -138,7 +140,7 @@ def _value_text(value):
 
 def _selected_context(s: Session, p: Principal, inv_id: str, finding_id: str, *, sample_limit: int) -> dict:
     require(s, p, "investigation.read", inv_id)
-    finding = _selected_finding(s, inv_id, finding_id)
+    finding = _selected_finding(s, inv_id, finding_id, p)
     filters, time_range, has_scope = _evidence_scope(finding.evidence_refs)
     matched = container.get().events.count(inv_id, filters, time_range) if has_scope else None
     samples = _samples(inv_id, filters, time_range, limit=sample_limit) if has_scope and sample_limit else []
@@ -199,7 +201,7 @@ def preview_context(s: Session, p: Principal, inv_id: str, finding_id: str) -> d
 def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id: str | None, *,
                   synthetic_only: bool = False) -> tuple[dict, list[dict], list[str]]:
     if finding_id:
-        _selected_finding(s, inv_id, finding_id)
+        _selected_finding(s, inv_id, finding_id, p)
     if finding_id and action in SELECTED_ACTIONS:
         preview = _selected_context(s, p, inv_id, finding_id, sample_limit=0)
         trusted = {"context_scope": "selected_finding", "scope": preview["scope"], "findings": [preview["finding"]],
@@ -237,6 +239,7 @@ def build_context(s: Session, p: Principal, inv_id: str, action: str, finding_id
     if not finding_id and action in ("summarize", "timeline_summary", "report_draft"):
         st = s.execute(select(AttackStory).where(AttackStory.investigation_id == inv_id).order_by(AttackStory.version.desc())).scalars().first()
         if st:
+            require_snapshot(s, p, st.graph)
             trusted["story"] = [{"stage": n["stage"], "title": n["title"]} for n in st.graph.get("nodes", [])][:12]
         trusted["notes"] = [mask_text(n.body_md).text[:300] for n in s.execute(select(Note).where(Note.investigation_id == inv_id)).scalars()][:10]
     flt, time_range, has_scope = [], None, True
@@ -268,6 +271,13 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
     if synthetic_only and inv_id not in container.get().settings.llm_synthetic_investigation_ids:
         raise Forbidden("local_ai_synthetic_investigation_required")
     trusted, untrusted, refs = build_context(s, p, inv_id, action, finding_id, synthetic_only=synthetic_only)
+    derived_sources = set()
+    if finding_id:
+        derived_sources.update(source_ids(_selected_finding(s, inv_id, finding_id, p)))
+    elif action in {"summarize", "timeline_summary", "report_draft"}:
+        story = s.scalar(select(AttackStory).where(AttackStory.investigation_id == inv_id).order_by(AttackStory.version.desc()))
+        if story:
+            derived_sources.update(source_ids(story.graph))
     signals = injection_signals([json.dumps(untrusted, ensure_ascii=False), question])
     system, user = build(action, mask_text(question).text[:2000], trusted, untrusted,
                          compact_selected=prov.is_llm and action in SELECTED_ACTIONS)
@@ -298,6 +308,7 @@ def run(s: Session, p: Principal, inv_id: str, action: str, question: str = "", 
                 or current_session.expires_at.replace(tzinfo=UTC) <= utcnow()):
             raise Forbidden("ai_session_changed")
     current_principal = principal_of(current_user)
+    require_snapshot(s, current_principal, {"_source_investigation_ids": sorted(derived_sources)})
     if not can(current_principal, "ai.use"):
         raise Forbidden("ai_authorization_changed")
     if epoch(require(s, current_principal, "investigation.read", inv_id)) != data_epoch:

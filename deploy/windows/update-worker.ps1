@@ -75,20 +75,84 @@ function Assert-PrivateState([string]$Path) {
     if (@(Get-ChildItem -LiteralPath $Path -Force).Count -ne 0) { throw 'A new empty worker directory is required' }
 }
 
-function Write-WorkerState([string]$Status, [string]$Code, [string]$Message) {
+function New-PrivateWorkerFile([string]$Path, [bool]$ReadWrite = $false) {
+    # Ownership is explicit even when an elevated token defaults to Administrators.
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $security = New-Object Security.AccessControl.FileSecurity
+    $security.SetOwner($sid)
+    $security.SetAccessRuleProtection($true,$false)
+    foreach ($id in @($sid,(New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))) {
+        $security.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($id,'FullControl','Allow')))
+    }
+    $rights = if ($ReadWrite) { [Security.AccessControl.FileSystemRights]::Read -bor [Security.AccessControl.FileSystemRights]::Write }
+              else { [Security.AccessControl.FileSystemRights]::Write }
+    return [IO.FileStream]::new($Path,[IO.FileMode]::CreateNew,$rights,
+        [IO.FileShare]::None,4096,[IO.FileOptions]::None,$security)
+}
+
+function Get-SafeDiagnosticText([string]$Value,[int]$Limit=600) {
+    $clean=[regex]::Replace($Value,'[\p{Cc}\p{Cf}]','')
+    if($clean.Length -gt $Limit){return $clean.Substring(0,$Limit)}
+    return $clean
+}
+
+function Write-WorkerState([string]$Status, [string]$Code, [string]$Message, $Diagnostic = $null, $Hint = $null) {
     $value = [ordered]@{
         schema='saw.desktop-update/1'; action=$Action; phase='bootstrap'; status=$Status
         message=$Message; code=$Code; install_root=$InstallRoot
         requires_admin=$false; needs_acceptance=$false
     }
     if ($RecoveryPoint) { $value.recovery_point = $RecoveryPoint }
+    if($null -ne $Hint) {
+        if($Hint.current_step -cin @('validate','paths','access','baseline','media','services','stores','configuration_runtime','recovery','preflight','stop','snapshot','apply','restore_stage','restore_swap','restore','start','health','completed','failed')){
+            $value.current_step=$Hint.current_step
+        }
+        if($Hint.recovery_verified -is [bool]){$value.recovery_verified=$Hint.recovery_verified}
+        if($Hint.retained_installation -is [string]){
+            try {
+                $retained=[IO.Path]::GetFullPath($Hint.retained_installation)
+                if([IO.Path]::GetDirectoryName($retained).Equals([IO.Path]::GetDirectoryName($InstallRoot),[StringComparison]::OrdinalIgnoreCase) -and
+                   [IO.Path]::GetFileName($retained) -cmatch '^\.saw-k-[a-f0-9]{12}$'){
+                    $value.retained_installation=$retained
+                }
+            } catch { }
+        }
+    }
+
+    if ($null -ne $Diagnostic) {
+        $rows=@()
+        foreach ($id in @('paths','access','baseline','media','services','stores','configuration_runtime','recovery','overall')) {
+            $row=[ordered]@{id=$id;status='not_run';code='not_run';reason='선행 검사가 완료되지 않아 미실행입니다.';location='';expected='';actual='';remedy=''}
+            if ($id -in @('media','overall')) {
+                $row.status='fail';$row.code=$Code;$row.reason=$Message
+                $row.location=Get-SafeDiagnosticText $Diagnostic.location;$row.expected=Get-SafeDiagnosticText $Diagnostic.expected;$row.actual=Get-SafeDiagnosticText $Diagnostic.actual
+                $row.remedy='GitHub Source code ZIP 대신 전체 model-free-win-x64.zip을 별도 새 폴더에 풀어 선택하세요. 손상된 매니페스트를 직접 고치지 마세요.'
+            }
+            $rows+=,$row
+        }
+        $value.diagnostic_summary=@{schema='saw.update-inspection/1';rows=$rows;details_file='inspection-details.json'}
+        $detailPath=Join-Path $StateDir 'inspection-details.json'
+        if (-not [IO.File]::Exists($detailPath)) {
+            $detailStream=New-PrivateWorkerFile $detailPath
+            try {
+                $detailBytes=(New-Object Text.UTF8Encoding($false)).GetBytes(($value.diagnostic_summary | ConvertTo-Json -Depth 8))
+                $detailStream.Write($detailBytes,0,$detailBytes.Length);$detailStream.Flush($true)
+            } finally { $detailStream.Dispose() }
+        }
+    }
     $path = Join-Path $StateDir 'state.json'
     if (Test-Path -LiteralPath $path) {
         $item = Get-Item -LiteralPath $path -Force
         if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe state file' }
     }
     $temporary = Join-Path $StateDir ('.state-' + [guid]::NewGuid().ToString('N') + '.json')
-    [IO.File]::WriteAllText($temporary,($value | ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding($false)))
+    $stream = New-PrivateWorkerFile $temporary
+    try {
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $bytes = $encoding.GetBytes(($value | ConvertTo-Json -Depth 8))
+        $stream.Write($bytes,0,$bytes.Length)
+        $stream.Flush($true)
+    } finally { $stream.Dispose() }
     if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary,$path,[NullString]::Value) }
     else { [IO.File]::Move($temporary,$path) }
 }
@@ -126,22 +190,23 @@ function Quote-NativeArgument([string]$Value) {
     return '"' + $quoted + '"'
 }
 
-function Read-ControllerState {
+function Read-ControllerState([bool]$AllowWorking=$false) {
     $path = Join-Path $StateDir 'state.json'
     $item = Get-Item -LiteralPath $path -Force
     if ($item.PSIsContainer -or $item.Length -gt 1048576 -or
         ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid controller result' }
     $value = [IO.File]::ReadAllText($path,[Text.Encoding]::UTF8) | ConvertFrom-Json
+    $statuses=@('ready','completed','failed'); if($AllowWorking){$statuses+='working'}
     if ($value.schema -ne 'saw.desktop-update/1' -or $value.action -ne $Action -or
         -not ([string]$value.install_root).Equals($InstallRoot,[StringComparison]::OrdinalIgnoreCase) -or
-        $value.status -notin @('ready','completed','failed') -or
+        $value.status -notin $statuses -or
         [string]$value.code -notmatch '^[a-z][a-z0-9_]{0,79}$') { throw 'Invalid controller result' }
     return $value
 }
 
 try {
     $StateDir = Assert-LocalDirectory $StateDir
-    $InstallRoot = Assert-LocalDirectory $InstallRoot
+    $InstallRoot = Assert-LocalDirectory $InstallRoot ($Action -ne 'restore')
     $BundleDir = Assert-LocalDirectory $BundleDir
     if ($BaselineBundleDir) { $BaselineBundleDir = Assert-LocalDirectory $BaselineBundleDir }
     if ($RecoveryPoint) { $RecoveryPoint = Assert-LocalDirectory $RecoveryPoint $false }
@@ -154,7 +219,7 @@ try {
     }
     Assert-PrivateState $StateDir
     # Never reuse a status folder or overwrite a concurrently running worker.
-    $lock = [IO.File]::Open((Join-Path $StateDir 'worker.lock'),[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    $lock = New-PrivateWorkerFile (Join-Path $StateDir 'worker.lock') $true
     $stateWritable = $true
     Set-Location -LiteralPath $StateDir
     $failureCode = 'confirmation_required'
@@ -205,10 +270,27 @@ try {
         # Preserve the controller's safe diagnosis and retained-artifact references.
         $exitCode = 1
     } else { throw 'Controller exit and result disagree' }
-} catch {
+ } catch {
+    $diagnostic=$null
+    $cause=$_.Exception
+    for ($depth=0;$depth -lt 5 -and $null -ne $cause;$depth++) {
+        if ($cause.Data['SawCode'] -match '^media_[a-z_]{1,40}$') {
+            $failureCode=[string]$cause.Data['SawCode']
+            $diagnostic=@{location=[string]$cause.Data['SawLocation'];expected=[string]$cause.Data['SawExpected'];actual=[string]$cause.Data['SawActual']}
+            break
+        }
+        $cause=$cause.InnerException
+    }
     if ($stateWritable) {
         try {
-            Write-WorkerState 'failed' $failureCode '작업을 완료하지 못했습니다. 설치와 복구 폴더를 보관하고 화면의 오류 코드를 확인하세요.'
+            # A valid failed controller result may contain verified recovery locations.
+            $preserved=$false;$saved=$null
+            if ($failureCode -in @('controller_failed','invalid_controller_result')) {
+                try { $saved=Read-ControllerState $true; $preserved=($saved.status -eq 'failed') } catch { }
+            }
+            if (-not $preserved) {
+                Write-WorkerState 'failed' $failureCode '작업을 완료하지 못했습니다. 해당 검사 항목의 원인과 권장 조치를 확인하세요.' $diagnostic $saved
+            }
         } catch { }
     }
     # Raw exceptions, native output and environment values must not reach the UI.

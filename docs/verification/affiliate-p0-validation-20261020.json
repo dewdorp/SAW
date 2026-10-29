@@ -1,0 +1,269 @@
+{
+  "schema": "saw.requirement-audit/1",
+  "stage": "P0_DESIGN_REVIEW_PENDING",
+  "verified_at": "2026-10-20T12:23:44.561986+00:00",
+  "base_commit": "4072e9d0b0c182def8ff576bc68740585eae13e8",
+  "branch": "codex/affiliate-p0-20261020",
+  "product_changed": false,
+  "new_requirements_implemented": false,
+  "new_release_created": false,
+  "request_inputs": [
+    {
+      "name": "SAW_CODEX_FINAL_REQUIREMENTS_PROMPT.md",
+      "sha256": "21fa6c839c55eda30ebd8a431c59b972a07bddb6008e929e22ae7211d38662bb",
+      "lines": 472,
+      "read_completely": true
+    },
+    {
+      "name": "붙여넣은 텍스트.txt",
+      "sha256": "865d692222855258b523fa40fc5ce0de52f22ec642269477358582534c335792",
+      "lines": 1048,
+      "read_completely": true
+    }
+  ],
+  "environment": {
+    "os": "Windows 11 Pro",
+    "version": "10.0.26200",
+    "sku": 48,
+    "product_type": 1,
+    "architecture": "x64",
+    "python": "3.12.10",
+    "target_os_tested": false
+  },
+  "server_runs": [
+    {
+      "command": ".venv/Scripts/python.exe -B .qa/run-assistant-tests.py tests/api/test_temporal_behavior.py tests/api/test_statistics.py tests/api/test_signature_detection.py tests/api/test_provenance.py tests/api/test_phase6_network.py tests/api/test_phase14_detection.py tests/api/test_phase12_anomaly.py tests/api/test_parser_library.py tests/api/test_ndr_policy.py tests/api/test_guidance.py tests/api/test_golden.py tests/api/test_detection_scope_boundary.py tests/api/test_detection_export.py tests/api/test_checks.py tests/api/test_behavior_report_http.py tests/api/test_behavior_masking.py tests/api/test_behavior_jobs.py tests/api/test_behavior_diff.py tests/api/test_behavior.py tests/unit/test_peer_behavior.py tests/unit/test_ndr_policy.py tests/unit/test_temporal_behavior.py tests/unit/test_statistics_metrics.py tests/unit/test_signature_pack.py tests/unit/test_signature_optimizer.py tests/unit/test_signature_folding.py tests/unit/test_generic_web_signatures.py tests/unit/test_behavior_report.py tests/unit/test_behavior_observation.py tests/unit/test_behavior_calculator.py -o addopts='' -q -p no:cacheprovider --junitxml=.qa/p0-affiliate-20261020/server.xml",
+      "selected_files": [
+        "tests/api/test_temporal_behavior.py",
+        "tests/api/test_statistics.py",
+        "tests/api/test_signature_detection.py",
+        "tests/api/test_provenance.py",
+        "tests/api/test_phase6_network.py",
+        "tests/api/test_phase14_detection.py",
+        "tests/api/test_phase12_anomaly.py",
+        "tests/api/test_parser_library.py",
+        "tests/api/test_ndr_policy.py",
+        "tests/api/test_guidance.py",
+        "tests/api/test_golden.py",
+        "tests/api/test_detection_scope_boundary.py",
+        "tests/api/test_detection_export.py",
+        "tests/api/test_checks.py",
+        "tests/api/test_behavior_report_http.py",
+        "tests/api/test_behavior_masking.py",
+        "tests/api/test_behavior_jobs.py",
+        "tests/api/test_behavior_diff.py",
+        "tests/api/test_behavior.py",
+        "tests/unit/test_peer_behavior.py",
+        "tests/unit/test_ndr_policy.py",
+        "tests/unit/test_temporal_behavior.py",
+        "tests/unit/test_statistics_metrics.py",
+        "tests/unit/test_signature_pack.py",
+        "tests/unit/test_signature_optimizer.py",
+        "tests/unit/test_signature_folding.py",
+        "tests/unit/test_generic_web_signatures.py",
+        "tests/unit/test_behavior_report.py",
+        "tests/unit/test_behavior_observation.py",
+        "tests/unit/test_behavior_calculator.py"
+      ],
+      "test_file_count": 30,
+      "tests": 547,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 132.797,
+      "exit_code": 0,
+      "log": ".qa/p0-affiliate-20261020/server.log",
+      "junit": ".qa/p0-affiliate-20261020/server.xml",
+      "storage": "temporary SQLite and local objects, synthetic fixtures"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .qa/run-assistant-tests.py tests/unit/test_sigma_contract.py tests/unit/test_scenario_boundaries.py tests/api/test_sigma_auto.py tests/unit/test_text_ingest.py tests/api/test_data_accuracy.py tests/api/test_phase1_foundation.py tests/api/test_large_ingest.py -o addopts='' -q -p no:cacheprovider --junitxml=.qa/p0-affiliate-20261020/additional.xml",
+      "selected_files": [
+        "tests/unit/test_sigma_contract.py",
+        "tests/unit/test_scenario_boundaries.py",
+        "tests/api/test_sigma_auto.py",
+        "tests/unit/test_text_ingest.py",
+        "tests/api/test_data_accuracy.py",
+        "tests/api/test_phase1_foundation.py",
+        "tests/api/test_large_ingest.py"
+      ],
+      "test_file_count": 7,
+      "tests": 103,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 28.385,
+      "exit_code": 0,
+      "log": ".qa/p0-affiliate-20261020/additional.log",
+      "junit": ".qa/p0-affiliate-20261020/additional.xml",
+      "storage": "temporary SQLite and local objects, synthetic fixtures"
+    }
+  ],
+  "frontend": {
+    "command": "pnpm vitest run --maxWorkers=1 --minWorkers=1",
+    "workdir": "apps/web",
+    "test_files_passed": 31,
+    "tests_passed": 177,
+    "reported_seconds": 118.94,
+    "result": "PASS",
+    "evidence": "current tool execution session 24920 final Vitest summary; not a browser acceptance test",
+    "warnings": [
+      "React Router future flags",
+      "Admin act warning"
+    ]
+  },
+  "typecheck": {
+    "command": "pnpm tsc --noEmit",
+    "workdir": "apps/web",
+    "exit_code": 0,
+    "log": ".qa/p0-affiliate-20261020/tsc.log"
+  },
+  "server_warning": "Existing Starlette/httpx deprecation, one per invocation",
+  "source_media_comparison": {
+    "source_commit": "4072e9d0b0c182def8ff576bc68740585eae13e8",
+    "checked_at": "2026-10-20T12:13:11.831977+00:00",
+    "scope": "Only allowlisted public product code and built UI; no installation secrets or user data",
+    "files": {
+      "saw/storage/models.py": {
+        "source": "78c6cc798fa1f859db362c91c4b871d6f9f994f949fae8016089adb9b612367f",
+        "published_payload": "78c6cc798fa1f859db362c91c4b871d6f9f994f949fae8016089adb9b612367f",
+        "synthetic_installed_app": "78c6cc798fa1f859db362c91c4b871d6f9f994f949fae8016089adb9b612367f"
+      },
+      "saw/core/application/analysis.py": {
+        "source": "a7dbbf1e7ac8ae5d5359821f5a72257878191f3947396bd895038ce7793e35ce",
+        "published_payload": "a7dbbf1e7ac8ae5d5359821f5a72257878191f3947396bd895038ce7793e35ce",
+        "synthetic_installed_app": "a7dbbf1e7ac8ae5d5359821f5a72257878191f3947396bd895038ce7793e35ce"
+      },
+      "saw/parsers/structured.py": {
+        "source": "04b96f9f3377b98b814ddc420f63bd991de6b87837c55d88649fcd65e162a065",
+        "published_payload": "04b96f9f3377b98b814ddc420f63bd991de6b87837c55d88649fcd65e162a065",
+        "synthetic_installed_app": "04b96f9f3377b98b814ddc420f63bd991de6b87837c55d88649fcd65e162a065"
+      },
+      "saw/knowledge/golden.py": {
+        "source": "5b67716adc4c716d7d8c70a746197fb313808f36879fb46a229d60a0c3661e4e",
+        "published_payload": "5b67716adc4c716d7d8c70a746197fb313808f36879fb46a229d60a0c3661e4e",
+        "synthetic_installed_app": "5b67716adc4c716d7d8c70a746197fb313808f36879fb46a229d60a0c3661e4e"
+      },
+      "saw/behavior/worker.py": {
+        "source": "bb27f3d7c57c385c9e9d69b22cf53ac02e6caa53fc33626b4c23e83d71b4e788",
+        "published_payload": "bb27f3d7c57c385c9e9d69b22cf53ac02e6caa53fc33626b4c23e83d71b4e788",
+        "synthetic_installed_app": "bb27f3d7c57c385c9e9d69b22cf53ac02e6caa53fc33626b4c23e83d71b4e788"
+      },
+      "apps/web/dist/index.html": {
+        "source": "96e52ed8466c184c19b4b95a7a2a8606a38da907ffb8a56d0a6317ac5d8a26ad",
+        "published_payload": "96e52ed8466c184c19b4b95a7a2a8606a38da907ffb8a56d0a6317ac5d8a26ad",
+        "synthetic_installed_app": "96e52ed8466c184c19b4b95a7a2a8606a38da907ffb8a56d0a6317ac5d8a26ad"
+      }
+    },
+    "published_metadata": {
+      "source_commit": "26f5d1a448668c127383c2e73d47d60d00ed2a28",
+      "source_worktree_included": true,
+      "application_schema": "0014",
+      "installer_contract": "saw.install-resume/1",
+      "desktop_update_ui": 1,
+      "updater_inspection": 1,
+      "target": "Windows 10 Enterprise LTSC 2019 x64 build17763",
+      "target_validation": "PENDING_CLEAN_LTSC",
+      "model_weights": "EXCLUDED",
+      "native_ai_runtime": "INCLUDED",
+      "python_wheels": 62,
+      "python": "3.12.10",
+      "postgresql": "16.15-1",
+      "opensearch": "2.19.6",
+      "pcap": "built-in deterministic pcapkit"
+    }
+  },
+  "synthetic_probes": [
+    {
+      "owner": "p0_affiliate_normalization",
+      "evidence": "affiliate-normalization-audit-20261020.md",
+      "result": "CSV in100/out900 vs Zeek out100/in900 for orig_bytes100/resp_bytes900; product csv and ext values retained",
+      "scope": "pure synthetic parser functions; no database/service"
+    },
+    {
+      "owner": "p0_detector_policy",
+      "evidence": "affiliate-detection-audit-20261020.md",
+      "result": "single evaluate true vs count2 nohits; missing status false; exact60s inclusive; generated Discovery threshold100distinct/300s",
+      "scope": "pure synthetic evaluator and AST-extracted candidate functions; no database/service"
+    }
+  ],
+  "reference_review": {
+    "pdf": "[Theori] ARTEX Whitepaper.pdf",
+    "pages_text_reviewed": [
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      37,
+      38
+    ],
+    "rendered_pages_inspected": [
+      24,
+      25
+    ],
+    "table_7_scope": "web-request triage reference only; not general device blocking threshold",
+    "third_party_docs": [
+      "https://xlsxwriter.readthedocs.io/working_with_memory.html",
+      "https://xlsxwriter.readthedocs.io/workbook.html",
+      "https://xlsxwriter.readthedocs.io/introduction.html"
+    ],
+    "new_dependencies_installed": false
+  },
+  "not_run": [
+    "new T01-T20 integrated acceptance",
+    "full backend suite including unrelated Windows updater tests",
+    "native PostgreSQL/OpenSearch acceptance for new requirements",
+    "product browser input replay",
+    "new product UI build",
+    "new offline install/update/restart",
+    "clean LTSC2019 build17763",
+    "million-row or 16GB multiple-analyst load",
+    "vendor production data mapping",
+    "operational data or deployment",
+    "new XLSX or external export implementation"
+  ],
+  "known_previous_unresolved": [
+    "History 503 root cause",
+    "four historical permission metadata query failures root cause"
+  ],
+  "tooling_notes": [
+    "Initial PDF text output failed because console cp949 could not encode a glyph; reread in UTF-8 and visually inspected table numbers.",
+    "Poppler emitted a PDF name-token-length warning while successfully rendering pages24/25.",
+    "First agent normalization import probe removed Windows SystemRoot and failed WinError10106; pure parser rerun succeeded. This was probe setup, not product regression.",
+    "First large documentation write could not start due to Windows command-line length; no files were written by that attempt. Retried as bounded chunks."
+  ],
+  "design_reviews": {
+    "reviewers": [
+      "p0_detector_policy",
+      "p0_golden_exports"
+    ],
+    "material_findings_resolved": [
+      "source investigation ACL is mandatory without alternative shared projection",
+      "full_recalculation requires complete inputs and verified recomputation",
+      "explicit export schema/purpose compatibility and model conversion validation",
+      "actual IPS and DDoS analysis scope and acceptance"
+    ],
+    "minor_findings_resolved": [
+      "baseline file count corrected from29 to30"
+    ],
+    "remaining_material_findings_reported": 0,
+    "scope": "design/document review only; not product security certification"
+  },
+  "repository_changes": "P0 documentation only, uncommitted review copy; no release",
+  "documentation_checks": {
+    "new_markdown_files": 5,
+    "relative_links_checked": 100,
+    "missing_links": [],
+    "trailing_whitespace": [],
+    "all_T01_T20_present": true,
+    "tracked_changes_documentation_only": true
+  }
+}

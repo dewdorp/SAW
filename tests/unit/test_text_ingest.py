@@ -78,7 +78,7 @@ def test_korean_cp949_firewall_csv_maps_columns_and_becomes_network_flows():
     det = detect(lines)
     assert det.parser_id == "csv" and det.confidence >= 0.8, det
     evs = _events(get_parser("csv"), raw, "cp949")
-    assert len(evs) == 449 and all(e["data_source"] == "zeek_conn" for e in evs)
+    assert len(evs) == 449 and all(e["data_source"] == "connection" for e in evs)
     e = evs[-1]
     assert e["src_ip"] == "10.10.5.20" and e["dst_ip"] == "45.77.12.34" and e["dst_port"] == 8443
     assert e["bytes_out"] == 3400000000 and e["timestamp_quality"] == "assumed_tz"
@@ -93,7 +93,7 @@ def test_generic_csv_tolerates_bom_padding_and_infers_web():
     assert [e["data_source"] for e in evs] == ["web", "web"]
     assert evs[0]["uri"].startswith("/login") and evs[0]["status_code"] == 200 and "pattern:sqli" in evs[0]["tags"]
     assert evs[1]["timestamp"] == "2026-10-03T08:38:48.000Z"
-    assert infer_source(["src", "dst", "dport"]) == ("zeek_conn", "conn")
+    assert infer_source(["src", "dst", "dport"]) == ("connection", "conn")
     assert infer_source(["시간", "메시지"]) == ("custom", "log")
     assert infer_source(["출발지 IP", "요청URL", "탐지명"]) == ("waf", "waf_event")
 

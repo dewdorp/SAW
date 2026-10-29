@@ -164,3 +164,20 @@ def test_two_measurements_can_change_without_volume_spike(tmp_path):
     f, = candidates(run(tmp_path, data))
     assert {m['name'] for m in f.metrics if 'baseline' in m} == {'error_ratio', 'bytes_per_event'}
     assert f.total_events == 10
+
+def test_long_ranges_are_evaluated_with_bounded_memory(tmp_path):
+    # 200 windows (about two days) with a held-window budget of 50: earlier this exhausted the budget and
+    # suppressed every candidate; windows are now evaluated as soon as a later window appears.
+    found = run(tmp_path, rows(burst=150, windows=200), max_groups=50)
+    f, = candidates(found)
+    assert f.time_start == (datetime(2026, 10, 14, tzinfo=timezone.utc) + timedelta(minutes=15 * 150)).isoformat()
+    assert all(m["baseline"]["windows"] == 6 for m in f.metrics if "baseline" in m)
+
+
+def test_input_limit_keeps_completed_windows_and_names_the_analysed_range(tmp_path):
+    found = run(tmp_path, rows(burst=7, windows=12), max_events=9 * 10 + 40 + 5)
+    f, = candidates(found)
+    assert f.total_events == 40
+    coverage, = [x for x in found if x.category.endswith(".coverage")]
+    assert next(m["observed"] for m in coverage.metrics if m["name"] == "partial") == 1
+    assert "분석한 기록 범위" in coverage.checks[0]["detail"] and "90분" in coverage.explanation

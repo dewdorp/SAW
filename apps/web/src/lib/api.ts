@@ -10,7 +10,7 @@ function csrf(): string {
   return m ? decodeURIComponent(m[1]) : "";
 }
 
-async function req<T>(method: string, url: string, body?: unknown, raw?: BodyInit): Promise<T> {
+async function req<T>(method: string, url: string, body?: unknown, raw?: BodyInit, responseType: "auto" | "text" = "auto"): Promise<T> {
   const headers: Record<string, string> = {};
   if (method !== "GET") headers["x-csrf-token"] = csrf();
   if (body !== undefined) headers["content-type"] = "application/json";
@@ -25,7 +25,7 @@ async function req<T>(method: string, url: string, body?: unknown, raw?: BodyIni
     window.dispatchEvent(new CustomEvent("saw:unauthorized"));
   }
   const ct = r.headers.get("content-type") || "";
-  const data = ct.includes("json") ? await r.json() : await r.text();
+  const data = r.ok && responseType === "text" ? await r.text() : ct.includes("json") ? await r.json() : await r.text();
   if (!r.ok) throw new ApiError(r.status, typeof data === "string" ? data : data.detail || data.title || r.statusText);
   return data as T;
 }
@@ -36,7 +36,7 @@ export const api = {
   put: <T = any>(url: string, body: unknown) => req<T>("PUT", url, body),
   patch: <T = any>(url: string, body: unknown) => req<T>("PATCH", url, body),
   putRaw: <T = any>(url: string, data: BodyInit) => req<T>("PUT", url, undefined, data),
-  text: (url: string) => req<string>("GET", url),
+  text: (url: string) => req<string>("GET", url, undefined, undefined, "text"),
   /** GET a binary response and hand it to the browser as a file download. */
   download: async (url: string, fallbackName: string): Promise<Response> => {
     const r = await fetch("/api/v1" + url, { credentials: "same-origin" });

@@ -367,12 +367,19 @@ class SignatureMatch:
         if not counts:
             return []
         stats: dict[str, dict[str, Any]] = {}
+        policy_views = ctx.params.get("signature_policy_views") or {}
         for sid, n in counts.items():
+            es = policy_views.get(sid, ctx.events)
             flt = [Filter(field="tags", value=TAG + sid)]
+            if sid in policy_views:
+                n = es.count(inv, flt)
+                if not n:
+                    continue
             ok = es.count(inv, flt + [Filter(field="status_class", value="2xx")])
             lo, hi = es.time_bounds(inv, flt)
             srcs = [r["key"]["src_ip"] for r in es.group_by(inv, flt, ["src_ip"], [], size=10) if r["key"].get("src_ip")]
-            stats[sid] = {"n": n, "ok": ok, "lo": lo, "hi": hi, "srcs": srcs, "flt": flt}
+            stats[sid] = {"n": n, "ok": ok, "lo": lo, "hi": hi, "srcs": srcs, "flt": flt,
+                          "sample_ids": [e["event_id"] for e in es.search(inv, flt, limit=20)["events"]]}
         out: list[FindingDraft] = []
         folded: dict[tuple[str, str], list[Signature]] = {}
         for sid, st in stats.items():
@@ -407,7 +414,7 @@ class SignatureMatch:
             st["lo"], st["hi"], f"sig:{s.id}",
             attack=[AttackMap(t, "high" if won else "medium", "알려진 흔적과 일치" + (", 성공 응답 있음" if won else ""),
                               condition_met=won or s.success == "ignore") for t in s.attack],
-            success_signal=won, explanation=explain, sample_event_ids=self._samples(ctx, st["flt"]), total_events=st["n"])
+            success_signal=won, explanation=explain, sample_event_ids=st["sample_ids"], total_events=st["n"])
 
     def _folded(self, ctx: DetectorContext, sigs: list[Signature], stats: dict) -> FindingDraft:
         sigs = sorted(sigs, key=lambda s: -stats[s.id]["n"])
@@ -435,7 +442,7 @@ class SignatureMatch:
             min(los) if los else None, max(his) if his else None, dedup_key,
             attack=[AttackMap(t, "medium", "알려진 흔적과 일치(성공 응답 없음)" if refused else "알려진 도구·수집 서비스",
                               condition_met=not refused) for t in dict.fromkeys(t for s in sigs for t in s.attack)][:6],
-            success_signal=False, explanation=explain, sample_event_ids=self._samples(ctx, flt), total_events=n)
+            success_signal=False, explanation=explain, sample_event_ids=list(dict.fromkeys(e for s in sigs for e in stats[s.id]["sample_ids"]))[:20], total_events=n)
 
 
 # ---------------------------------------------------------------- catalogue (for the rule list in the UI and docs)

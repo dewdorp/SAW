@@ -66,11 +66,14 @@ result = {'schema':'saw.desktop-update/1','action':action,'phase':'ready' if act
 if mode == 'wrong_identity': result['install_root'] = 'C:/unrelated-synthetic-install'
 if mode == 'failed':
     result.update(status='failed', phase='failed', code='synthetic_controller_failure',message='합성 실패')
+if mode == 'interrupted':
+    result.update(status='working', phase='restore', code='working', current_step='restore_swap',
+        recovery_verified=True, retained_installation=str(pathlib.Path(value('--install-root')).parent/'.saw-k-0123456789ab'))
 if mode != 'missing_state':
     (state/'state.json').write_text(json.dumps(result),encoding='utf-8')
 print('SYNTHETIC_PRIVATE_OUTPUT_MUST_NOT_ESCAPE')
 print('SYNTHETIC_PRIVATE_STDERR_MUST_NOT_ESCAPE',file=sys.stderr)
-raise SystemExit(9 if mode=='failed' else 0)
+raise SystemExit(9 if mode in ('failed','interrupted') else 0)
 """
 
 
@@ -102,7 +105,7 @@ def paths(tmp_path):
 
 
 def invoke(paths, *, action="inspect", extra=()):
-    command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned",
                "-File", str(WORKER), "-Action", action, "-InstallRoot", str(paths["install"]),
                "-BundleDir", str(paths["media"]), "-StateDir", str(paths["state"])]
     environment = dict(os.environ, SAW_SYNTHETIC_PRIVATE_TOKEN="SYNTHETIC_ENV_SECRET_MUST_NOT_ESCAPE")
@@ -128,7 +131,7 @@ def test_worker_missing_media_reports_safe_failure_without_extracting(paths):
     assert value["action"] == "inspect"
     assert value["install_root"] == str(paths["install"])
     assert value["status"] == "failed"
-    assert value["code"] == "media_verification_failed"
+    assert value["code"] == "media_manifest_missing"
     assert not (paths["state"] / "runtime").exists()
 
 
@@ -138,7 +141,7 @@ def test_worker_tampered_media_never_extracts_or_executes_controller(paths):
         "raise RuntimeError('SYNTHETIC_PRIVATE_OUTPUT')", encoding="utf-8")
     result = invoke(paths)
     assert result.returncode != 0
-    assert state_value(paths)["code"] == "media_verification_failed"
+    assert state_value(paths)["code"] == "media_hash_mismatch"
     assert not (paths["state"] / "runtime").exists()
     assert not (paths["state"] / "controller-call.json").exists()
 
@@ -246,3 +249,14 @@ def test_worker_archive_cannot_escape_private_runtime(paths):
     assert result.returncode != 0
     assert state_value(paths)["code"] == "runtime_bootstrap_failed"
     assert not (paths["state"] / "escaped.txt").exists()
+
+
+def test_worker_preserves_verified_recovery_hints_after_controller_interrupt(paths):
+    media(paths["media"],real_runtime=True,mode="interrupted")
+    result=invoke(paths)
+    assert result.returncode!=0
+    value=state_value(paths)
+    assert value["status"]=="failed"
+    assert value["current_step"]=="restore_swap"
+    assert value["recovery_verified"] is True
+    assert Path(value["retained_installation"]).name==".saw-k-0123456789ab"

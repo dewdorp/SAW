@@ -29,6 +29,7 @@ const Briefing = lazy(() => import("./pages/Briefing").then((m) => ({ default: m
 const Board = lazy(() => import("./pages/Board").then((m) => ({ default: m.Board })));
 const Provenance = lazy(() => import("./pages/Provenance").then((m) => ({ default: m.Provenance })));
 const DiffPage = lazy(() => import("./pages/analyze/DiffPage").then((m) => ({ default: m.DiffPage })));
+const Registry = lazy(() => import("./pages/Registry").then((m) => ({ default: m.Registry })));
 export type Me = { id: string; username: string; display_name: string; roles: string[]; permissions: string[] };
 
 export function useMe() {
@@ -70,6 +71,7 @@ export function App() {
         <Route path="/content-packages" element={<ContentPackages />} />
         <Route path="/parsers/*" element={<Parsers />} />
         <Route path="/provenance" element={<Provenance />} />
+        <Route path="/registry" element={<Registry />} />
         <Route path="/hunting/*" element={<Hunting />} />
         <Route path="/admin" element={<Admin me={me.data} />} />
         <Route path="/admin/data" element={<AdminData me={me.data} />} />

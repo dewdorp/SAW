@@ -162,7 +162,7 @@ def _int(v) -> int | None:
 
 
 def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: str = "Asia/Seoul",
-             observation: dict | None = None) -> dict:
+             observation: dict | None = None, context_snapshot: dict | None = None) -> dict:
     """Fill derived/enrichment fields on a CES event in place."""
     from saw.behavior.observation import observe_fields
 
@@ -175,18 +175,29 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
     actions = []
     ext = ev.get("ext") or {}
     sources = [ev, ext] + [v for v in ext.values() if isinstance(v, dict)]
+    unmapped = False
     for source in sources:
         for key, value in source.items():
             if str(key).lower().replace("_", "").replace(" ", "") in action_keys and isinstance(value, str):
-                word = value.strip().lower()
-                if word in {"block", "blocked", "deny", "denied", "drop", "차단"}:
+                # "허용(정책1)" / "Accept (rule 7)": the policy note does not change the action.
+                word = re.sub(r"\s*[(\[].*[)\]]\s*$", "", value.strip()).lower()
+                if word in {"block", "blocked", "deny", "denied", "drop", "dropped", "reject", "rejected", "reset",
+                            "차단", "거부", "거절", "폐기"}:
                     actions.append("blocked")
-                elif word in {"allow", "allowed", "permit", "permitted", "pass", "허용", "통과"}:
+                elif word in {"allow", "allowed", "permit", "permitted", "pass", "accept", "accepted", "허용", "통과"}:
                     actions.append("allowed")
+                elif word in {"detect", "detected", "alert", "탐지"}:
+                    actions.append("detected")  # an alert was raised; it says nothing about blocking or passing
+                elif word in {"monitor", "monitored", "monitoring", "log", "logged", "모니터링", "로깅"}:
+                    actions.append("monitored")
+                elif word not in {"", "-"}:
+                    unmapped = True  # kept raw; never guessed as blocked or allowed
     if len(set(actions)) == 1:
         ev["enforcement_action"] = actions[0]
     elif actions:
         ev["enforcement_action"] = "conflicting"
+    elif unmapped:
+        ev["enforcement_action"] = "unmapped"
     if "timestamp_raw" in ev and not ev.get("timestamp"):
         ev["timestamp"], ev["timestamp_quality"] = parse_time(ev["timestamp_raw"], assumed_tz)
     for k in ("src_port", "dst_port", "status_code", "bytes_in", "bytes_out"):
@@ -209,7 +220,8 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
             ev["params"], ev["param_names"] = params, names
             tags = set(ev.get("tags") or [])
             for v in params.values():
-                if any(c in v for c in "'\"<>;|`$%{}()") or ".." in v:
+                # Values arrive decoded: keyword-only payloads ("1 UNION SELECT NULL") carry only spaces.
+                if any(c in v for c in "'\"<>;|`$%{}() \t+") or ".." in v:
                     for t in pattern_tags(urllib.parse.unquote(urllib.parse.unquote(v))):
                         tags.add(f"pattern:{t}")
             if tags:
@@ -247,5 +259,26 @@ def finalize(ev: dict, *, enricher: OfflineEnricher | None = None, assumed_tz: s
             info = en.lookup_ip(str(ev["dst_ip"]))
             ev["dst_asn"], ev["dst_as_org"] = info.get("asn"), info.get("as_org")
             ev["dst_geo_country"], ev["dst_cloud"] = info.get("country"), info.get("cloud", "none")
+    from saw.observation.connection import connection_observation
+    obs = connection_observation(ev, context_snapshot=context_snapshot)
+    ev["ext"]["observation"] = obs
+    from saw.observation.device import device_observation
+    ev["ext"]["device_observation"] = device_observation(ev, context_snapshot=context_snapshot)
+    profile = (context_snapshot or {}).get("profile") or {}
+    time_profile = profile.get("time") or {}
+    # The same verified occurrence time must drive indexing, scope filters, and analysis.
+    # Preserve the upload-default interpretation for provenance; never rewrite old rows.
+    if (obs["context"]["resolved"] and time_profile.get("verified") is True
+            and time_profile.get("role") in {"occurred", "start", "end"}
+            and (profile.get("source_fields") or {}).get("timestamp") and obs.get("timestamp")):
+        obs["ces_timestamp_raw"] = ev.get("timestamp_raw")
+        obs["ces_timestamp_precision"] = trusted.get("timestamp_precision", "unknown")
+        trusted["timestamp_precision"] = obs["timestamp_precision"]
+        obs["timestamp_basis"] = "verified_device_profile"
+        ev["timestamp"], ev["timestamp_quality"] = parse_time(
+            str(obs["timestamp_raw"]), time_profile.get("timezone") or "Asia/Seoul")
+        ev["timestamp_raw"] = obs["timestamp_raw"]
+    else:
+        obs["timestamp_basis"] = "parser_or_upload_default"
     ev["ces_version"] = CES_VERSION
     return {k: v for k, v in ev.items() if v is not None}

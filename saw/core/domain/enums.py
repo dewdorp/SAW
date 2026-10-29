@@ -34,10 +34,20 @@ class InvestigationStatus(StrEnum):
 
 
 class Verdict(StrEnum):
+    # Analyst conclusions. A device alert name, severity, HTTP 200 or a firewall "allow" never sets one of these.
+    NORMAL = "normal"  # 정상 업무로 확인
+    ATTACK_ATTEMPT = "attack_attempt"  # 공격 시도 확인 (성공·영향은 확인되지 않음)
+    COMPROMISE_CONFIRMED = "compromise_confirmed"  # 침해 또는 실제 영향 확인
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"  # 증거 부족으로 추가 확인 필요
+    DATA_QUALITY_LIMITED = "data_quality_limited"  # 데이터 품질 문제로 판단 제한
+    # Earlier values, still accepted and shown for existing records.
     ATTACK = "attack"
-    NORMAL = "normal"
     FALSE_POSITIVE = "false_positive"
     UNKNOWN = "unknown"
+
+
+ATTACK_VERDICTS = frozenset({Verdict.ATTACK, Verdict.ATTACK_ATTEMPT, Verdict.COMPROMISE_CONFIRMED})
+BENIGN_VERDICTS = frozenset({Verdict.NORMAL, Verdict.FALSE_POSITIVE})
 
 
 class RiskLevel(StrEnum):

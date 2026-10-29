@@ -11,6 +11,10 @@ from saw.apps.api.routers.golden import LinkedGoldenDecision
 from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.schemas.query import AggRequest, Filter
+from saw.detection.derived_access import (
+    require_snapshot,
+    visible_snapshot,
+)
 from saw.knowledge import asset as asset_svc
 from saw.knowledge import experience as exp_svc
 from saw.knowledge import fp as fp_svc
@@ -95,6 +99,8 @@ def get_exp(eid: str, ctx: AuthContext = Depends(require_perm("knowledge.read"))
         raise NotFound("experience not found")
     e.views += 1
     d = exp_svc.to_dict(e)
+    if d.get("answers_access", {}).get("requires_holdout_attempt"):
+        return d
     d["fp_conflicts"] = exp_svc.fp_conflicts(s, ctx.principal, e.data.get("false_positive_conditions") or [])
     return d
 
@@ -111,6 +117,13 @@ def submit_exp(eid: str, ctx: AuthContext = Depends(require_perm("knowledge.writ
 
 @router.post("/experiences/{eid}/approve")
 def approve_exp(eid: str, body: ReviewIn, ctx: AuthContext = Depends(require_perm("knowledge.approve")), s: Session = Depends(db, scope="function")):
+    if body.golden:
+        from saw.knowledge import golden
+        from saw.knowledge.golden_models import GoldenVersion
+        selected = s.get(GoldenVersion, body.golden.version_id)
+        if selected is None or selected.experience_id != eid:
+            raise ValueError("golden_experience_mismatch")
+        golden.lock_review_sources(s, ctx.principal, selected)
     e = exp_svc.approve(s, ctx.principal, eid, body.comment, body.ack_fp_conflicts)
     if body.golden:
         from saw.knowledge import golden
@@ -159,8 +172,14 @@ def import_assets(body: CsvIn, ctx: AuthContext = Depends(require_perm("asset.wr
 
 @router.get("/assets/match")
 def match_asset(ip: str | None = None, host: str | None = None, path: str | None = None,
+                org_unit_id: str | None = None, network: str | None = None,
                 ctx: AuthContext = Depends(require_perm("knowledge.read")), s: Session = Depends(db, scope="function")):
-    a = asset_svc.match(asset_svc.all_assets(s), ip, host, path)
+    from saw.analyzers.ioc.observables import affiliate_local
+
+    internal = bool(ip) and affiliate_local(ip)
+    # An internal address only identifies an asset inside the affiliate (and network) that registered it.
+    pool = asset_svc._scope_assets(s, org_unit_id, network)[0] if internal else asset_svc.all_assets(s)
+    a = asset_svc.match(pool, ip, host, path)
     return asset_svc.to_dict(a) if a else None
 
 
@@ -206,7 +225,8 @@ def _visible_results(s: Session, ctx: AuthContext, res: list[dict]) -> list[dict
     from saw.core.application.investigations import list_for
 
     readable = {i.id for i in list_for(s, ctx.principal, 1000)}
-    return [r for r in res if r["ref_type"] != "investigation" or r["ref_id"] in readable]
+    return [r for r in res if (r["ref_type"] != "investigation" or r["ref_id"] in readable)
+            and visible_snapshot(s, ctx.principal, r.get("extra") or {})]
 
 
 @router.post("/similar/feedback")
@@ -232,6 +252,7 @@ def context(inv_id: str, body: ContextIn, ctx: AuthContext = Depends(auth), s: S
         f = s.get(Finding, body.finding_id)
         if f is None or f.investigation_id != inv_id:
             raise NotFound("finding not found")
+        require_snapshot(s, ctx.principal, f.evidence_refs or {})
         finding = finding_dict(f)
     flt = []
     if body.entity and body.entity.get("type") == "ip":
@@ -242,7 +263,8 @@ def context(inv_id: str, body: ContextIn, ctx: AuthContext = Depends(auth), s: S
         "paths": [b["key"] for b in es.aggregate(inv_id, flt, AggRequest(type="terms", field="url_path", size=5))["buckets"]],
         "countries": [b["key"] for b in es.aggregate(inv_id, flt, AggRequest(type="terms", field="src_geo_country", size=3))["buckets"]],
     }
-    assets = asset_svc.context_for(s, finding, inv_ents)
+    from saw.storage.models import Investigation
+    assets = asset_svc.context_for(s, finding, inv_ents, org_unit_id=s.get(Investigation, inv_id).org_unit_id)
     feats, text = similar.features_for_investigation(s, inv_id, body.finding_id)
     sims = _visible_results(s, ctx, similar.search(s, feats, text, 6, exclude_ref=inv_id))
     exps = []

@@ -69,7 +69,7 @@ class BehaviorAttachment(BaseModel):
 
 def ensure_source_idle(s, inv_id):
     active = s.scalar(select(Job.id).where(Job.investigation_id == inv_id,
-        Job.kind != "behavior", Job.state.notin_(TERMINAL)).limit(1))
+        Job.kind.notin_(("behavior", "report_export", "golden_export")), Job.state.notin_(TERMINAL)).limit(1))
     if active:
         raise HTTPException(409, "behavior_source_processing_active")
 
@@ -87,6 +87,14 @@ def source_manifest(s, inv_id):
     for item in evidence:
         original = sources[item["evidence_id"]]
         item.update(title=original.title, kind=original.kind, tz_assumed=original.tz_assumed)
+        if original.context_snapshot_id:
+            from saw.source_context.models import EvidenceContextSnapshot
+            from saw.source_context.service import snapshot_payload
+            context = s.get(EvidenceContextSnapshot, original.context_snapshot_id)
+            if context is None:
+                raise ValueError("source_context_missing")
+            item["source_context"] = {"id": context.id, "sha256": context.sha256,
+                                      "snapshot": snapshot_payload(context)}
         for file in item["files"]:
             row = details[file["id"]]
             file.update(events_parsed=row.events_parsed, size_bytes=row.size, display_name=row.display_name)
@@ -95,7 +103,7 @@ def source_manifest(s, inv_id):
     source_jobs = [{"id": j.id, "attempt": j.attempt, "state": j.state,
                     "finished_at": str(j.finished_at) if j.finished_at else None}
                    for j in s.scalars(select(Job).where(Job.investigation_id == inv_id,
-                       Job.kind != "behavior").order_by(Job.id))]
+                       Job.kind.notin_(("behavior", "report_export", "golden_export"))).order_by(Job.id))]
     return masked({"data_epoch": int((inv.settings or {}).get("data_epoch", 0)),
                    "evidence": evidence, "source_jobs": source_jobs})
 
@@ -214,7 +222,11 @@ def golden_capture(s, inv_id, check):
     if row is None or row.investigation_id != inv_id or verify(row).result_sha256 != attachment.get("result_sha256"):
         raise ValueError("golden_behavior_result_missing")
     ensure_source_idle(s, inv_id)
-    if source_manifest(s, inv_id) != row.result["source_manifest"]:
+    current_source = source_manifest(s, inv_id)
+    if "event_generation" in row.result["source_manifest"]:
+        from saw import container
+        current_source = container.get().events.pin_manifest(s, inv_id, current_source)
+    if current_source != row.result["source_manifest"]:
         raise ValueError("golden_source_evidence_changed")
     data = row.result
     safe = {"schema": "saw.golden.behavior-observation.v1", "result_id": row.id,

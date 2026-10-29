@@ -13,7 +13,11 @@ from tests.api.test_phase14_detection import RULE
 
 def test_catalog_export_contains_effective_matching_logic_and_all_examples(analyst, senior):
     chosen = next(s for s in signatures.load_pack() if s.regex or s.needles)
-    assert senior.put(f"/detection-catalog/signatures/{chosen.id}", json={"enabled": False, "note": "synthetic review reason"}).status_code == 200
+    # Preserve a historical disabled flag; new direct mutations require governed policy.
+    from saw.storage.models import SignatureSetting
+    with session_scope() as s:
+        s.add(SignatureSetting(sig_id=chosen.id, enabled=False, note="synthetic review reason", updated_by="legacy"))
+    assert senior.put(f"/detection-catalog/signatures/{chosen.id}", json={"enabled": False, "note": "synthetic review reason"}).status_code == 409
     response = analyst.get("/detection-catalog/export?format=json")
     assert response.status_code == 200
     assert "attachment" in response.headers["content-disposition"]

@@ -13,6 +13,7 @@ from saw.core.application.ids import next_display_id
 from saw.core.application.investigations import Forbidden, NotFound
 from saw.core.security.authz import Principal, can
 from saw.detection import service as detection
+from saw.detection import governance as gov
 from saw.parsers import library
 from saw.storage.db import utcnow
 from saw.storage.models import User
@@ -75,10 +76,15 @@ def _snapshot(s, entry):
         d = s.get(detection.Detection, binding.target_id, populate_existing=True)
         if d is None:
             raise Conflict("현재 룰을 찾지 못했습니다.")
-        v = detection._latest(s, d.id)
-        live = {"target_id": d.id, "current_version": d.current_version, "latest_version": v.version, "status": d.status,
-                "payload": _sigma_payload(v), "author": v.created_by, "reviewer": v.reviewed_by,
-                "creator_id": d.created_by, "version_status": v.status_at_version}
+        v = gov._version(s, "rule", d, d.active_version_id) if d.active_version_id else None
+        live = {"target_id": d.id, "current_version": v.version if v else None,
+                "status": "approved" if v else "deprecated",
+                "active_version_id": d.active_version_id, "active_approval_id": d.active_approval_id,
+                "activation_revision": d.activation_revision, "payload_sha256": v.payload_sha256 if v else None,
+                "payload": _sigma_payload(v) if v else None, "author": v.created_by if v else None,
+                "reviewer": v.reviewed_by if v else None, "creator_id": d.created_by,
+                "contributors": gov.contributors(v) if v else {"ids": [], "legacy_names": []},
+                "version_status": v.status_at_version if v else None}
     elif kind == "parser":
         slug = binding.target_id if binding else source_id
         versions = s.scalars(select(library.ParserDefinition).where(library.ParserDefinition.slug == slug)
@@ -106,14 +112,14 @@ def _plan(s, document):
         live = snapshot["live"]
         if binding and not binding["payload_digest"]:
             if entry["kind"] == "sigma":
-                if live["status"] != "deprecated" or live["current_version"] != live["latest_version"] or not has_package_validation(s, binding["target_id"], live["current_version"]):
+                if live["active_version_id"] is not None:
                     raise Conflict("되돌린 룰이 수동 변경되었습니다. 기존 변경을 먼저 검토하세요.")
             elif any(v["status"] == "active" for v in live["versions"]):
                 raise Conflict("되돌린 파서가 다시 활성화되었습니다. 기존 변경을 먼저 검토하세요.")
         if binding and binding["payload_digest"] and entry["kind"] == "sigma":
-            if live["status"] not in {"approved", "deployed"} or live["current_version"] != live["latest_version"]:
+            if not live["active_version_id"]:
                 raise Conflict("현재 룰이 승인 상태가 아닙니다. 변경을 먼저 정리하세요.")
-            version = detection._latest(s, binding["target_id"])
+            version = s.get(detection.DetectionVersion, live["active_version_id"])
             if fmt.digest(_sigma_payload(version)) != binding["payload_digest"] or not has_package_validation(s, binding["target_id"], version.version):
                 raise Conflict("반입 후 룰이 변경되었습니다. 기존 변경을 먼저 검토하세요.")
         if binding and binding["payload_digest"] and entry["kind"] == "parser":
@@ -167,7 +173,7 @@ def _rollback_blocked_reasons(package, p):
         before = item["before"]
         if item["kind"] == "sigma" and before["binding"] and before["binding"]["payload_digest"]:
             prior = before["live"]
-            if p.user_id == prior["creator_id"] or p.username == prior["author"]:
+            if p.user_id in prior.get("contributors", {}).get("ids", [prior["creator_id"]]) or p.username in prior.get("contributors", {}).get("legacy_names", [prior["author"]]):
                 reasons.append("직전 룰 작성자 또는 최초 룰 작성자는 자기 룰의 복구를 승인할 수 없습니다. 적용자와 작성자를 제외한 검토자가 필요합니다.")
                 break
     return reasons
@@ -252,12 +258,14 @@ def _apply_item(s, package, entry, author, reviewer):
         # Authorship comes from the immutable staging actor. Review uses the actual current actor.
         if reviewer.id == d.created_by or reviewer.username == author.username:
             raise Forbidden("현재 룰 작성자는 자기 콘텐츠를 승인할 수 없습니다.")
-        v = detection._version_from(d.id, d.current_version, content, author.username)
-        v.status_at_version, v.reviewed_by = "approved", reviewer.username
-        d.status, d.updated_at = "approved", utcnow()
+        parent = s.get(detection.DetectionVersion, d.active_version_id) if d.active_version_id else None
+        # An unrelated manual draft is not an ancestor of this package version and remains editable.
+        v = gov.initialize_rule_version(s, d, detection._version_from(d.id, d.current_version, content, author.username),
+                                        principal_of(author), parent)
         s.add(v)
         s.flush()
         _add_validation(s, package, entry, d, v)
+        gov.package_admit(s, d, v, author, reviewer, package, entry, reason="Reviewed content package apply")
         target_id = d.id
     else:
         slug = entry["source_id"]
@@ -342,13 +350,78 @@ def has_package_validation(s, det_id, version):
         return False
 
 
+
+LEGACY_RECEIPT_ADAPTER = "package-receipt/0014-to-0017/1"
+
+
+def _rollback_items(s, p, package):
+    """Interpret old receipts without changing their stored snapshots or following live pointers."""
+    from saw.detection.policy_models import Approval
+    items = copy.deepcopy((package.receipt or {}).get("items", []))
+    entries = package.document["entries"]
+    if len(items) != len(entries):
+        raise Conflict("legacy_receipt_requires_review: 적용 이력의 항목 수를 확인하세요.")
+    for entry, item in zip(entries, items):
+        if (entry["kind"], entry["source_id"]) != (item.get("kind"), item.get("source_id")):
+            raise Conflict("legacy_receipt_requires_review: 적용 이력의 항목을 확인하세요.")
+        if item["kind"] != "sigma":
+            continue
+        for side in ("before", "after"):
+            snapshot = item[side]
+            live, binding = snapshot.get("live"), snapshot.get("binding")
+            if not live or "active_version_id" in live:
+                continue
+            try:
+                d = s.get(detection.Detection, item["target_id"])
+                version = s.scalar(select(detection.DetectionVersion).where(
+                    detection.DetectionVersion.detection_id == item["target_id"],
+                    detection.DetectionVersion.version == live["current_version"]))
+                if (d is None or version is None or not binding or not binding["payload_digest"]
+                        or live["status"] not in {"approved", "deployed"}
+                        or live["version_status"] not in {"approved", "deployed"}
+                        or live["current_version"] != live["latest_version"]
+                        or live["target_id"] != d.id or binding["target_id"] != d.id
+                        or live["author"] != version.created_by or live["reviewer"] != version.reviewed_by
+                        or live["creator_id"] != d.created_by
+                        or fmt.digest(live["payload"]) != binding["payload_digest"]
+                        or fmt.digest(_sigma_payload(version)) != binding["payload_digest"]):
+                    raise ValueError("legacy snapshot mismatch")
+                # Historical approvals were admitted by migration only after real exact fixture replay.
+                approvals = list(s.scalars(select(Approval).where(Approval.subject_kind == "rule",
+                    Approval.subject_id == d.id, Approval.subject_version_id == version.id,
+                    Approval.provenance == "legacy_admission")))
+                approval = next((a for a in approvals if a.proof.get("method") == "package_fixture"
+                                 and a.proof.get("legacy_receipt_adapter") == LEGACY_RECEIPT_ADAPTER), None)
+                if approval is None:
+                    raise ValueError("unproven historical approval")
+                if side == "after" and (approval.proof.get("package_record_id") != package.id
+                        or approval.proof.get("legacy_receipt_sha256") != gov.digest(package.receipt)):
+                    raise ValueError("legacy receipt was changed")
+                gov.validate_approval(s, p, "rule", d, version, approval.id)
+                snapshot["live"] = {"target_id": d.id, "current_version": version.version,
+                    "status": "approved", "active_version_id": version.id, "active_approval_id": approval.id,
+                    # The migration's one current-head activation is fixed. Later cycles are drift.
+                    "activation_revision": 1 if side == "after" else 0,
+                    "payload_sha256": version.payload_sha256, "payload": _sigma_payload(version),
+                    "author": version.created_by, "reviewer": version.reviewed_by, "creator_id": d.created_by,
+                    "contributors": gov.contributors(version), "version_status": version.status_at_version}
+            except (ValueError, TypeError, KeyError, Forbidden, NotFound) as exc:
+                raise Conflict("legacy_receipt_requires_review: 이전 승인본과 시험·검토자 이력을 확인하세요.") from exc
+    return items
+
+
 def rollback_preview(s, p, ident):
     package = _get(s, ident)
     _checked(package, package.digest)
     if package.status != "applied":
         raise Conflict("적용된 묶음만 되돌릴 수 있습니다.")
     changed = []
-    for entry, item in zip(package.document["entries"], package.receipt["items"]):
+    try:
+        items = _rollback_items(s, p, package)
+    except Conflict as exc:
+        return {"digest": package.digest, "changes": [], "can_rollback": False,
+                "rollback_blocked_reasons": [str(exc)]}
+    for entry, item in zip(package.document["entries"], items):
         changed.append({"kind": entry["kind"], "source_id": entry["source_id"],
                         "action": "restore" if item["before"]["binding"] and item["before"]["binding"]["payload_digest"] else "disable",
                         "drift": _snapshot(s, entry) != item["after"]})
@@ -374,7 +447,7 @@ def rollback_package(s, p, ident, expected, reason):
         return to_dict(package, p)
     if package.status != "applied":
         raise Conflict("적용된 묶음만 되돌릴 수 있습니다.")
-    items = receipt["items"]
+    items = _rollback_items(s, p, package)
     for entry, item in zip(package.document["entries"], items):
         if _snapshot(s, entry) != item["after"]:
             raise Conflict("적용 이후 콘텐츠가 변경되어 자동으로 되돌릴 수 없습니다.")
@@ -384,25 +457,8 @@ def rollback_package(s, p, ident, expected, reason):
         binding = s.get(ContentBinding, (entry["kind"], entry["source_id"]))
         if entry["kind"] == "sigma":
             d = s.get(detection.Detection, item["target_id"])
-            if before["binding"] and before["binding"]["payload_digest"]:
-                prior = before["live"]
-                old_v = s.scalar(select(detection.DetectionVersion).where(detection.DetectionVersion.detection_id == d.id,
-                                                                          detection.DetectionVersion.version == prior["current_version"]))
-                if prior["status"] not in {"approved", "deployed"} or old_v is None or fmt.digest(_sigma_payload(old_v)) != fmt.digest(prior["payload"]) or not has_package_validation(s, d.id, old_v.version):
-                    raise Conflict("직전 승인본의 무결성·시험 근거를 확인하지 못했습니다.")
-                if reviewer.id == d.created_by or reviewer.username == prior["author"]:
-                    raise Forbidden("직전 룰 작성자는 자기 룰의 복구를 승인할 수 없습니다.")
-                proof = s.scalar(select(ContentValidation).where(ContentValidation.detection_id == d.id, ContentValidation.version == old_v.version))
-                d.current_version += 1
-                version = detection._version_from(d.id, d.current_version, prior["payload"], prior["author"])
-                version.status_at_version, version.reviewed_by = "approved", reviewer.username
-                d.status, d.updated_at = "approved", utcnow()
-                s.add(version)
-                s.flush()
-                s.add(ContentValidation(detection_id=d.id, version=version.version, package_record_id=proof.package_record_id,
-                                        source_id=proof.source_id, payload_digest=proof.payload_digest))
-            else:
-                d.status, d.updated_at = "deprecated", utcnow()
+            prior = before["live"] if before["binding"] and before["binding"]["payload_digest"] else None
+            gov.package_restore(s, principal_of(reviewer), d, prior, reason, package.id)
         else:
             rows = s.scalars(select(library.ParserDefinition).where(library.ParserDefinition.slug == item["target_id"])).all()
             for row in rows:

@@ -74,52 +74,14 @@ describe("shipped detection catalog", () => {
     expect(within(toolDetail).getByText(TOOL.note)).toBeTruthy();
   });
 
-  it("requires a meaningful disable reason and refreshes server state after both switches", async () => {
-    let signature = { ...SIGNATURE };
-    const api = mockApi({
-      "GET /detection-catalog": () => [200, { ...CATALOG, can_switch: true, signatures: [signature] }],
-      "PUT /detection-catalog/signatures/exposure.config": (call) => {
-        signature = { ...signature, ...call.body, updated_by: "senior1" };
-        return [200, { id: signature.id, enabled: signature.enabled, note: signature.note, updated_by: "senior1" }];
-      },
-    });
-    start();
-    await selectSignature();
-    const reason = screen.getByLabelText(/변경 사유/);
-    const off = screen.getByRole("button", { name: "시그니처 끄기" }) as HTMLButtonElement;
-    expect(off.disabled).toBe(true);
-    fireEvent.change(reason, { target: { value: "    ab   " } });
-    expect(off.disabled).toBe(true);
-    fireEvent.click(off);
-    expect(api.find("PUT", "/detection-catalog/signatures/exposure.config")).toHaveLength(0);
-    fireEvent.change(reason, { target: { value: "  승인된 점검 경로와 중복  " } });
-    fireEvent.click(off);
-    await screen.findByRole("button", { name: "시그니처 켜기" });
-    expect(api.find("PUT", "/detection-catalog/signatures/exposure.config")[0].body)
-      .toEqual({ enabled: false, note: "승인된 점검 경로와 중복" });
-    expect(screen.getByText("승인된 점검 경로와 중복")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "시그니처 켜기" }));
-    await screen.findByRole("button", { name: "시그니처 끄기" });
-    expect(api.find("PUT", "/detection-catalog/signatures/exposure.config")[1].body)
-      .toEqual({ enabled: true, note: "" });
+  it("opens exact signature policy target without a legacy immediate switch", async () => {
+    const api = mockApi({ "GET /detection-catalog": [200, { ...CATALOG, can_switch: true }] });
+    start(); await selectSignature();
+    expect(screen.getByRole("link", { name: "설정 변경" }).getAttribute("href")).toBe("/detections/policies/signature%3Aexposure.config");
+    expect(screen.queryByRole("button", { name: "시그니처 끄기" })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "시그니처 상세" })).getByText(/초안·선택 시험·독립 승인·SAW 적용/)).toBeTruthy();
+    expect(api.calls.filter(call => call.method !== "GET")).toHaveLength(0);
   });
-
-  it("keeps the current state and entered reason when the server rejects a switch", async () => {
-    mockApi({
-      "GET /detection-catalog": [200, { ...CATALOG, can_switch: true }],
-      "PUT /detection-catalog/signatures/exposure.config": [403, { detail: "변경 권한이 없습니다." }],
-    });
-    start();
-    await selectSignature();
-    fireEvent.change(screen.getByLabelText(/변경 사유/), { target: { value: "승인된 점검 경로와 중복" } });
-    fireEvent.click(screen.getByRole("button", { name: "시그니처 끄기" }));
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toContain("변경 권한");
-    expect((screen.getByLabelText(/변경 사유/) as HTMLTextAreaElement).value).toBe("승인된 점검 경로와 중복");
-    expect(screen.getByRole("button", { name: "시그니처 끄기" })).toBeTruthy();
-    expect(screen.queryByText("설정을 저장했습니다. 다음 분석부터 적용됩니다.")).toBeNull();
-  });
-
   it("shows code detectors and ordered scenarios without treating a success signal as a verdict", async () => {
     mockApi({ "GET /detection-catalog": [200, CATALOG] });
     start();
@@ -175,7 +137,7 @@ describe("shipped detection catalog", () => {
     expect(screen.getByText("192.0.2.0/24")).toBeTruthy();
     expect(screen.getByText("시험용 승인 포트 기준")).toBeTruthy();
     expect(screen.getByText(/600초/)).toBeTruthy();
-    expect(screen.getByText(/서버를 다시 시작/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "NDR 관측 정책 변경" }).getAttribute("href")).toBe("/detections/policies/ndr.observation");
     expect(screen.queryByRole("button", { name: "시그니처 켜기" })).toBeNull();
     expect(api.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("기본 탐지 검색"), { target: { value: "t1041" } });

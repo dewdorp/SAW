@@ -23,7 +23,7 @@ type Store = {
   removeFilter: (inv: string, i: number) => void;
 };
 
-const empty = (): InvState => ({ filters: [], time: null, selection: null, hover: null, tab: "overview", eventId: null, findingId: null });
+const empty = (): InvState => ({ filters: [], time: null, selection: null, hover: null, tab: "summary", eventId: null, findingId: null });
 
 export const useInvStore = create<Store>((set, get) => ({
   byInv: {},

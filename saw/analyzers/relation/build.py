@@ -1,6 +1,8 @@
 """Entity/Relation materialization via grouped aggregation (docs/22 §3). No graph DB."""
 from __future__ import annotations
 
+from ipaddress import ip_address
+
 from saw.core.schemas.query import Filter, GroupMetric
 from saw.storage.eventstore import EventStorePort
 
@@ -52,6 +54,12 @@ def build(events: EventStorePort, inv: str, data_sources: list[str], size: int =
             for r in rows:
                 va, vb = r["key"][a], r["key"][b]
                 if va in (None, "") or vb in (None, ""):
+                    continue
+                try:
+                    for kind, value in ((ta, va), (tb, vb)):
+                        if kind == "ip":
+                            ip_address(str(value))
+                except ValueError:
                     continue
                 ka = ent(ta, va, r["first"], r["last"], r["count"])
                 kb = ent(tb, vb, r["first"], r["last"], 0)

@@ -18,7 +18,7 @@ function show(routes: Record<string, any> = {}, route = "/knowledge/exp/e1") {
   let currentExp = EXP;
   let currentG = G;
   const api = mockApi({
-    "GET /auth/me": [200, { ...ME, permissions: [...ME.permissions, "knowledge.read", "knowledge.write", "knowledge.approve"] }],
+    "GET /auth/me": [200, { ...ME, permissions: [...ME.permissions, "knowledge.read", "knowledge.write", "knowledge.approve", "golden.evaluate.read"] }],
     "GET /experiences/e1": () => [200, currentExp], "GET /experiences/e1/revisions": [200, []],
     "GET /knowledge/golden/experience/e1": () => [200, { versions: [currentG] }],
     "POST /experiences/e1/approve": (call) => { currentExp = { ...EXP, status: "approved" }; if (call.body.golden) currentG = { ...G, status: "adopted" }; return [200, currentExp]; }, ...routes });
@@ -78,7 +78,7 @@ describe("golden export in SOC knowledge list", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const api = show({
       "GET /experiences": [200, []],
-      "GET /knowledge/golden": [200, [{ ...G, title: "합성", status: "adopted", split: "dev", category: "operational", verdict: "unknown" }]],
+      "GET /knowledge/golden": [200, [{ ...G, title: "합성", status: "adopted", split: "dev", category: "operational", verdict: "unknown", export_eligibility: { external_release: {enabled:true,reasons:[]}, internal_evaluator: {enabled:true,reasons:[]} } }]],
       "POST /knowledge/golden/export": [200, "separate evaluator jsonl", { "content-disposition": 'attachment; filename="evaluator-answer.jsonl"' }],
     }, "/knowledge");
     fireEvent.click(await screen.findByLabelText("정답 사례 보기"));
@@ -87,7 +87,7 @@ describe("golden export in SOC knowledge list", () => {
     fireEvent.click(screen.getByRole("button", { name: "평가자 정답 JSONL" }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
     expect(api.find("POST", "/knowledge/golden/export")[0].body).toEqual({
-      version_ids: ["g1"], split: "dev", format: "jsonl", audience: "evaluator" });
+      schema_version: "saw.golden.export.v2", purpose: "internal_evaluation", version_ids: ["g1"], split: "dev", format: "jsonl", audience: "evaluator" });
     click.mockRestore();
   });
 });

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from itertools import islice
 
 from saw.core.schemas.query import Filter, GroupMetric
+from saw.observation.connection import VERSION as CONNECTION_OBSERVATION_VERSION
 from saw.storage.eventstore import EventStorePort
 
 TAG_RULES = [
@@ -48,8 +51,61 @@ def web_patterns(events: EventStorePort, inv: str, limit: int = 200) -> list[dic
     return out
 
 
+def _has_complete_connection_view(event: dict) -> bool:
+    """Only persisted, producer-owned, fully verified connection semantics replace text."""
+    if event.get("data_source") != "connection":
+        return False
+    if not all(isinstance(event.get(key), str) and event[key].strip() for key in ("src_ip", "dst_ip")):
+        return False
+    ext = event.get("ext")
+    obs = ext.get("observation") if isinstance(ext, dict) else None
+    if not isinstance(obs, dict) or obs.get("producer") != "saw" or obs.get("version") != CONNECTION_OBSERVATION_VERSION:
+        return False
+    context = obs.get("context")
+    if (not isinstance(context, dict) or context.get("resolved") is not True or obs.get("quality") != []
+            or context.get("status") not in (None, "resolved")):
+        return False
+    if not all(isinstance(context.get(key), str) and context[key].strip()
+               for key in ("org_unit_id", "device_id", "device_profile_version_id", "network")):
+        return False
+    if obs.get("profile_version") != context["device_profile_version_id"]:
+        return False
+    if (obs.get("record_kind") not in ("session_start", "session_interim", "session_end")
+            or obs.get("action") not in ("allowed", "blocked", "reset", "detected", "challenged")
+            or not isinstance(obs.get("session_id"), str) or not obs["session_id"].strip()):
+        return False
+    counters = obs.get("counters")
+    if not isinstance(counters, dict):
+        return False
+    modes = []
+    for key in ("src_to_dst_bytes", "dst_to_src_bytes"):
+        counter = counters.get(key)
+        if (not isinstance(counter, dict) or counter.get("state") != "observed" or counter.get("unit") != "bytes"
+                or counter.get("counter_mode") not in ("cumulative", "delta", "total")
+                or type(counter.get("value")) is not int or counter["value"] < 0
+                or not isinstance(counter.get("source_field"), str) or not counter["source_field"].strip()):
+            return False
+        modes.append(counter["counter_mode"])
+    if modes[0] != modes[1]:
+        return False
+    time_profile = obs.get("time_profile")
+    timestamp = obs.get("timestamp")
+    if (not isinstance(time_profile, dict) or time_profile.get("verified") is not True
+            or time_profile.get("role") not in ("occurred", "start", "end")
+            or obs.get("timestamp_precision") not in ("seconds", "subseconds")
+            or obs.get("timestamp_basis") != "verified_device_profile"
+            or not isinstance(timestamp, str) or timestamp != event.get("timestamp")):
+        return False
+    try:
+        return datetime.fromisoformat(timestamp).utcoffset() is not None
+    except ValueError:
+        return False
+
+
 def text_patterns(events: EventStorePort, inv: str, max_lines: int = 50_000) -> list[dict]:
-    """Drain3 template mining for non-web sources (syslog/auth/custom)."""
+    """Mine text outside complete structured views, bounded by examined rows."""
+    if max_lines <= 0:
+        return []
     from drain3 import TemplateMiner
     from drain3.template_miner_config import TemplateMinerConfig
 
@@ -68,7 +124,12 @@ def text_patterns(events: EventStorePort, inv: str, max_lines: int = 50_000) -> 
     flt = [Filter(field="data_source", op="not_in", value=STRUCTURED_SOURCES)]
     ids: dict[int, dict] = {}
     n = 0
-    for e in events.iterate(inv, flt, fields=["raw_event", "timestamp", "src_ip"]):
+    # Top-level ext is compatible with both retained SQLite and native projections.
+    rows = events.iterate(inv, flt, fields=["raw_event", "timestamp", "src_ip", "dst_ip", "data_source", "ext"])
+    for e in islice(rows, max_lines):
+        n += 1
+        if _has_complete_connection_view(e):
+            continue
         msg = (e.get("raw_event") or "")[:2000]
         r = tm.add_log_message(msg)
         cid = r["cluster_id"]
@@ -77,9 +138,6 @@ def text_patterns(events: EventStorePort, inv: str, max_lines: int = 50_000) -> 
         d["last"] = e.get("timestamp") or d["last"]
         if e.get("src_ip"):
             d["srcs"].add(e["src_ip"])
-        n += 1
-        if n >= max_lines:
-            break
     out = []
     for c in tm.drain.clusters:
         d = ids.get(c.cluster_id)

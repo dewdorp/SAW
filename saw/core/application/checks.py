@@ -9,6 +9,7 @@ Principles (from the 2026-10-10 design):
 - A shared result shows the conditions it was made under next to the conditions of the investigation that reads it.
 """
 from __future__ import annotations
+from saw.detection.derived_access import require_snapshot
 
 import hashlib
 import json
@@ -16,15 +17,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saw import container
 from saw.core.application import audit
-from saw.core.application.investigations import NotFound, list_for, require
+from saw.core.application.investigations import NotFound, access_of, require
 from saw.core.domain.enums import Role
 from saw.core.schemas.query import AggRequest, Filter, TimeRange
-from saw.core.security.authz import Principal
+from saw.core.security.authz import Principal, can
 from saw.core.security.masking import mask_event, mask_text
 from saw.storage.db import utcnow
 from saw.storage.models import Check, Investigation
@@ -63,6 +64,15 @@ def _expired(c: Check, now: datetime | None = None) -> bool:
 
 
 def to_dict(c: Check, full: bool = True) -> dict[str, Any]:
+    from sqlalchemy.orm import object_session
+    session = object_session(c)
+    if session is not None:
+        require_snapshot(session, session.info.get("principal"), [c.scope, c.context])
+    return _snapshot_payload(c, full)
+
+
+def _snapshot_payload(c: Check, full: bool = True) -> dict[str, Any]:
+    """Pure projection for an authorized serializer or private transition snapshot."""
     scope = c.scope or {}
     d = {
         "id": c.id, "investigation_id": c.investigation_id, "target_type": c.target_type, "target_key": c.target_key,
@@ -194,6 +204,11 @@ def _clean(data: dict, inv_id: str) -> dict[str, Any]:
         checked = int(checked or len(ids) or 0)
         if not total or not checked or checked >= int(total):
             raise ValueError("표본 확인은 본 건수가 전체보다 적어야 합니다(전체를 봤다면 '전체'를 고르세요)")
+    if coverage == "all" and tt == "set" and total is not None:
+        # Only records actually loaded can have been looked at: 20,000 shown of 100,000 is a sample, not "all".
+        seen = scope_in.get("loaded", checked)
+        if seen is not None and int(seen) < int(total):
+            raise ValueError("불러온 기록이 검색 결과 전체보다 적어 '전체 확인'으로 기록할 수 없습니다. '표본'으로 기록하세요")
     scope = {"coverage": coverage, "checked": int(checked) if checked is not None else (len(ids) or None),
              "total": int(total) if total is not None else None, "query": query, "event_ids": ids}
     return {"target_type": tt, "target_key": key[:512], "target_label": str(data.get("target_label") or key)[:512],
@@ -237,6 +252,8 @@ def create(s: Session, p: Principal, inv_id: str, data: dict) -> Check:
     attach_behavior(s, p, inv_id, c, data)
     s.add(c)
     s.flush()
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="create", new=True)
     audit.record(s, "check.create", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"target": c.target_type, "questions": c.questions,
                                                   "judgement": c.judgement, "coverage": c.scope["coverage"], "shared": c.shared})
@@ -250,11 +267,14 @@ def _get(s: Session, inv_id: str, check_id: str) -> Check:
     return c
 
 
-def _flag_citations(s: Session, source: Check, state: str) -> int:
+def _flag_citations(s: Session, source: Check, state: str, p: Principal) -> int:
     """Investigations that relied on a shared result learn that it changed or was withdrawn."""
     rows = s.execute(select(Check).where(Check.source_check_id == source.id, Check.state == "active")).scalars().all()
+    from saw.followups.check_revisions import _capture_transition
     for r in rows:
+        _capture_transition(s, p, r, reason="before_source_change")
         r.source_state, r.updated_at = state, utcnow()
+        _capture_transition(s, p, r, reason="source_change")
     return len(rows)
 
 
@@ -262,6 +282,7 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
     """The author revises their own record: the old one stays as history. Others add their own record instead."""
     require(s, p, "investigation.write", inv_id)
     old = _get(s, inv_id, check_id)
+    _require_cited_source(s, p, old)
     if old.author_id != p.user_id:
         raise ValueError("다른 사람의 확인 기록은 고칠 수 없습니다. 내 확인 기록을 따로 남기세요")
     if old.state != "active":
@@ -281,15 +302,21 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
     _share_fields(new, merged, inv_id)
     attach_capture(s, p, inv_id, new, data, previous=old)
     attach_behavior(s, p, inv_id, new, merged if data.get("behavior") else data, previous=old)
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, old, reason="before_change")
     old.state, old.state_by, old.updated_at = "superseded", p.username, utcnow()
     s.add(new)
     s.flush()
+    _capture_transition(s, p, old, reason="superseded")
+    _capture_transition(s, p, new, reason="change", new=True)
     affected = 0
     if old.shared:  # investigations that relied on the old record are told, and follow the new one if it is still shared
         for r in s.execute(select(Check).where(Check.source_check_id == old.id, Check.state == "active")).scalars():
+            _capture_transition(s, p, r, reason="before_source_change")
             r.source_state, r.updated_at = ("changed" if new.shared else "retracted"), utcnow()
             if new.shared:
                 r.source_check_id = new.id
+            _capture_transition(s, p, r, reason="source_change")
             affected += 1
     audit.record(s, "check.change", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=new.id,
                  investigation_id=inv_id, detail={"supersedes": old.id, "judgement": new.judgement, "citations": affected})
@@ -299,28 +326,74 @@ def change(s: Session, p: Principal, inv_id: str, check_id: str, data: dict) -> 
 def cancel(s: Session, p: Principal, inv_id: str, check_id: str, reason: str = "") -> Check:
     require(s, p, "investigation.write", inv_id)
     c = _get(s, inv_id, check_id)
+    _require_cited_source(s, p, c)
     if c.author_id != p.user_id and Role.SOC_MANAGER not in p.roles:
         raise ValueError("확인 기록은 작성자(또는 관제 매니저)만 취소할 수 있습니다")
     if c.state != "active":
         raise Conflict("이 기록은 이미 변경되었거나 취소되었습니다")
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="before_cancel")
     c.state, c.state_by, c.state_note, c.updated_at = "cancelled", p.username, reason.strip()[:512], utcnow()
     affected = 0
     if c.shared:
         c.share_status = "retracted"
-        affected = _flag_citations(s, c, "retracted")
+        affected = _flag_citations(s, c, "retracted", p)
+    _capture_transition(s, p, c, reason="cancel")
     audit.record(s, "check.cancel", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"author": c.author_name, "citations": affected})
     return c
 
 
+def _readable(s: Session, p: Principal, inv_id: str) -> bool:
+    inv = s.get(Investigation, inv_id)
+    return bool(inv is not None and not (inv.settings or {}).get("data_deletion")
+                and can(p, "investigation.read", access_of(s, p, inv_id)))
+
+
+def _source_checks(s: Session, c: Check) -> list[Check]:
+    sources: list[Check] = []
+    visited = {c.id}
+    while c.kind == "cited":
+        source = s.get(Check, c.source_check_id) if c.source_check_id else None
+        if source is None or source.id in visited:
+            raise NotFound("source check not found")
+        visited.add(source.id)
+        sources.append(source)
+        c = source
+    return sources
+
+
+def _visible_check(s: Session, p: Principal, c: Check) -> bool:
+    try:
+        return all(_readable(s, p, row.investigation_id) for row in [c, *_source_checks(s, c)])
+    except NotFound:
+        return False
+
+
+def _require_cited_source(s: Session, p: Principal, c: Check) -> None:
+    for source in _source_checks(s, c):
+        require(s, p, "investigation.read", source.investigation_id)
+
+
+def source_investigation_ids(s: Session, p: Principal, inv_id: str) -> set[str]:
+    """Validate active citation sources and return the complete investigation ledger for report/export checks."""
+    require(s, p, "investigation.read", inv_id)
+    ids = {inv_id}
+    for c in s.execute(select(Check).where(Check.investigation_id == inv_id, Check.state == "active")).scalars():
+        for source in _source_checks(s, c):
+            require(s, p, "investigation.read", source.investigation_id)
+            ids.add(source.investigation_id)
+    return ids
+
+
 # ---------------------------------------------------------------- read (own investigation)
-def list_checks(s: Session, inv_id: str, target_key: str | None = None, history: bool = False) -> list[Check]:
+def list_checks(s: Session, inv_id: str, target_key: str | None = None, history: bool = False, *, principal: Principal | None = None) -> list[Check]:
     q = select(Check).where(Check.investigation_id == inv_id).order_by(Check.created_at.desc()).limit(2000)
     if target_key:
         q = q.where(Check.target_key == target_key)
     if not history:
         q = q.where(Check.state == "active")
-    return list(s.execute(q).scalars())
+    return [c for c in s.execute(q).scalars() if (c.kind != "cited" if principal is None else _visible_check(s, principal, c))]
 
 
 def _brief(c: Check) -> dict[str, Any]:
@@ -329,13 +402,13 @@ def _brief(c: Check) -> dict[str, Any]:
             "guidance_status": (c.scope or {}).get("guidance", {}).get("answer_status")}
 
 
-def lookup(s: Session, inv_id: str, event_ids: list[str], entity_keys: list[str]) -> dict[str, Any]:
+def lookup(s: Session, inv_id: str, event_ids: list[str], entity_keys: list[str], *, principal: Principal | None = None) -> dict[str, Any]:
     """Marks for the rows on screen. `events`: checks made on that very record. `entities`: checks on an address or
     name the record carries - shown as a reference to the parent, not as a judgement of the record."""
     want_e, want_k = set(event_ids), set(entity_keys)
     events: dict[str, list] = {}
     entities: dict[str, list] = {}
-    for c in list_checks(s, inv_id):
+    for c in list_checks(s, inv_id, principal=principal):
         b = _brief(c)
         if c.target_type == "event" and c.target_key in want_e:
             events.setdefault(c.target_key, []).append(b)
@@ -347,12 +420,12 @@ def lookup(s: Session, inv_id: str, event_ids: list[str], entity_keys: list[str]
     return {"events": events, "entities": entities}
 
 
-def marks(s: Session, inv_id: str) -> dict[str, Any]:
+def marks(s: Session, inv_id: str, *, principal: Principal | None = None) -> dict[str, Any]:
     """Every mark of the investigation in one answer, so tables can decorate rows without asking per scroll."""
     events: dict[str, list] = {}
     entities: dict[str, list] = {}
     findings: dict[str, list] = {}
-    for c in list_checks(s, inv_id):
+    for c in list_checks(s, inv_id, principal=principal):
         b = _brief(c)
         {"event": events, "entity": entities, "finding": findings}.get(c.target_type, {}).setdefault(c.target_key, []).append(b)
         for eid in (c.scope or {}).get("event_ids") or []:
@@ -361,8 +434,8 @@ def marks(s: Session, inv_id: str) -> dict[str, Any]:
     return {"events": events, "entities": entities, "findings": findings}
 
 
-def summary(s: Session, inv_id: str) -> dict[str, Any]:
-    rows = list_checks(s, inv_id)
+def summary(s: Session, inv_id: str, *, principal: Principal | None = None) -> dict[str, Any]:
+    rows = list_checks(s, inv_id, principal=principal)
     direct = [c for c in rows if c.kind == "direct"]
     by_j: dict[str, int] = {}
     for c in direct:
@@ -377,7 +450,7 @@ def summary(s: Session, inv_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- team results (other investigations)
 def team_for(s: Session, p: Principal, inv_id: str, keys: list[str]) -> list[dict[str, Any]]:
     """Shared results of other investigations about the same targets, each with how its conditions compare with
-    this investigation. A summary only: the other investigation itself stays closed to people without access."""
+    this investigation. Every source investigation must be readable before any metadata is returned."""
     require(s, p, "investigation.read", inv_id)
     keys = [k for k in dict.fromkeys(keys) if k][:50]
     if not keys:
@@ -385,12 +458,15 @@ def team_for(s: Session, p: Principal, inv_id: str, keys: list[str]) -> list[dic
     rows = s.execute(select(Check).where(Check.shared.is_(True), Check.state == "active", Check.target_key.in_(keys),
                                          Check.investigation_id != inv_id, Check.share_status != "retracted")
                      .order_by(Check.created_at.desc()).limit(200)).scalars().all()
+    rows = [r for r in rows if _visible_check(s, p, r)]
     if not rows:
         return []
-    readable = {i.id for i in list_for(s, p, 1000)}
     invs = {i.id: i for i in s.execute(select(Investigation).where(Investigation.id.in_({r.investigation_id for r in rows}))).scalars()}
-    cites = dict(s.execute(select(Check.source_check_id, func.count()).where(
-        Check.source_check_id.in_([r.id for r in rows]), Check.state == "active").group_by(Check.source_check_id)).all())
+    cites: dict[str, int] = {}
+    for citation in s.execute(select(Check).where(Check.source_check_id.in_([r.id for r in rows]),
+                                                  Check.state == "active")).scalars():
+        if _visible_check(s, p, citation):
+            cites[citation.source_check_id] = cites.get(citation.source_check_id, 0) + 1
     mine = {c.source_check_id for c in s.execute(select(Check).where(Check.investigation_id == inv_id, Check.state == "active",
                                                                      Check.kind == "cited")).scalars()}
     now_ctx: dict[str, dict] = {}
@@ -401,9 +477,9 @@ def team_for(s: Session, p: Principal, inv_id: str, keys: list[str]) -> list[dic
         src = invs.get(r.investigation_id)
         d = to_dict(r)
         d.pop("scope", None)
-        d |= {"source": {"display_id": src.display_id if src else "", "can_open": r.investigation_id in readable,
-                         "id": r.investigation_id if r.investigation_id in readable else None,
-                         "title": src.title if src and r.investigation_id in readable else None},
+        d |= {"source": {"display_id": src.display_id if src else "", "can_open": True,
+                         "id": r.investigation_id,
+                         "title": src.title if src else None},
               "comparison": compare(r.context or {}, now_ctx[r.target_key]), "citations": cites.get(r.id, 0),
               "cited_here": r.id in mine, "evidence_count": len(r.evidence or [])}
         d.pop("evidence", None)
@@ -411,22 +487,20 @@ def team_for(s: Session, p: Principal, inv_id: str, keys: list[str]) -> list[dic
     return out
 
 
-def _shared(s: Session, check_id: str) -> Check:
+def _shared(s: Session, p: Principal, check_id: str) -> Check:
     c = s.get(Check, check_id)
     if c is None or not c.shared or c.state != "active":
         raise NotFound("shared check not found")
-    from saw.core.application.data_deletion import lock_investigation
-    lock_investigation(s, c.investigation_id)
+    require(s, p, "investigation.read", c.investigation_id)
+    _require_cited_source(s, p, c)
     return c
 
 
 def evidence_view(s: Session, p: Principal, check_id: str, ip: str = "") -> dict[str, Any]:
-    """The records a shared result points to, masked: only those records, not the investigation they come from."""
-    from saw.core.security.authz import can
-
+    """Masked records referenced by a shared result, subject to its source investigation ACL."""
     if not can(p, "investigation.read"):
         raise NotFound("shared check not found")
-    c = _shared(s, check_id)
+    c = _shared(s, p, check_id)
     es = container.get().events
     events = []
     for eid in (c.evidence or [])[:20]:
@@ -441,14 +515,15 @@ def evidence_view(s: Session, p: Principal, check_id: str, ip: str = "") -> dict
 
 
 def request_recheck(s: Session, p: Principal, check_id: str, note: str) -> Check:
-    from saw.core.security.authz import can
-
     if not can(p, "investigation.write"):
         raise NotFound("shared check not found")
-    c = _shared(s, check_id)
+    c = _shared(s, p, check_id)
     if not note.strip():
         raise ValueError("왜 다시 확인이 필요한지 한 줄 적어 주세요")
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="before_recheck")
     c.share_status, c.state_note, c.state_by, c.updated_at = "recheck", note.strip()[:512], p.username, utcnow()
+    _capture_transition(s, p, c, reason="recheck")
     audit.record(s, "check.recheck_request", actor_id=p.user_id, actor_name=p.username, target_type="check",
                  target_id=c.id, investigation_id=c.investigation_id, detail={"note": note.strip()[:200]})
     return c
@@ -458,7 +533,7 @@ def cite(s: Session, p: Principal, inv_id: str, source_id: str, note: str = "") 
     """Use another investigation's shared result as supporting evidence here. It is recorded as "relied on", not as
     something this analyst checked, and it never sets a judgement for this investigation."""
     require(s, p, "investigation.write", inv_id)
-    src = _shared(s, source_id)
+    src = _shared(s, p, source_id)
     if src.investigation_id == inv_id:
         raise ValueError("같은 조사의 확인 기록입니다")
     if _expired(src) or src.share_status in ("recheck", "retracted"):
@@ -473,6 +548,8 @@ def cite(s: Session, p: Principal, inv_id: str, source_id: str, note: str = "") 
               source_check_id=src.id)
     s.add(c)
     s.flush()
+    from saw.followups.check_revisions import _capture_transition
+    _capture_transition(s, p, c, reason="cite", new=True)
     audit.record(s, "check.cite", actor_id=p.user_id, actor_name=p.username, target_type="check", target_id=c.id,
                  investigation_id=inv_id, detail={"source": src.id, "source_investigation": src.investigation_id})
     return c
@@ -485,4 +562,5 @@ def inbox(s: Session, p: Principal) -> dict[str, Any]:
                                             Check.share_status == "recheck")).scalars().all()
     changed = s.execute(select(Check).where(Check.author_id == p.user_id, Check.kind == "cited", Check.state == "active",
                                             Check.source_state != "")).scalars().all()
-    return {"recheck": [to_dict(c, full=False) for c in recheck], "source_changed": [to_dict(c, full=False) for c in changed]}
+    return {"recheck": [to_dict(c, full=False) for c in recheck if _visible_check(s, p, c)],
+            "source_changed": [to_dict(c, full=False) for c in changed if _visible_check(s, p, c)]}

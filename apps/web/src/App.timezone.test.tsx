@@ -33,6 +33,16 @@ beforeAll(async () => {
   await import("./pages/inv/Workbench");
 });
 
+const EMPTY = { label: "", buckets: [], other: 0, recorded: 0, not_recorded: 0 };
+const SUMMARY = {
+  scope: { org_unit: "가상 관계사", org_unit_id: "o1", period_start: null, period_end: null, period_declared: false, observed_start: null, observed_end: null, timezone: "Asia/Seoul" },
+  basis: { kind: "all", all_events: 592, events: 592, note: "" },
+  time: { with_timestamp: 592, without_timestamp: 0, outside_period: null, daily: [], weekly: [], empty_days: [], interval_sec: 3600 },
+  inputs: { files: 1, lines: 593, events: 592, failed_lines: 0, rejected_events: 0, timestamp_missing: 0, timestamp_invalid: 0, unsupported_files: 0, files_with_notes: 0, by_file: [], files_truncated: false },
+  breakdown: Object.fromEntries(["data_source", "enforcement_action", "alert_name", "src_ip", "dst_ip", "dst_port", "protocol"].map((k) => [k, EMPTY])),
+  analysis: null, method_note: "규칙 기반 집계입니다.",
+};
+
 beforeEach(() => {
   vi.stubGlobal("innerWidth", 1440);
   setTz("KST");
@@ -47,6 +57,8 @@ beforeEach(() => {
     "GET /investigations/i1/correlations": [200, []],
     "POST /investigations/i1/context": [200, {}],
     "GET /investigations/i1/checks/marks": [200, { events: {}, findings: {} }],
+    "POST /investigations/i1/scope-summary": [200, SUMMARY],
+    "GET /investigations/i1/alert-names": [200, { items: [], events_with_alert: 0, note: "" }],
   });
 });
 afterEach(() => {
@@ -56,6 +68,9 @@ afterEach(() => {
 
 it("updates workbench and overview when the time-zone button is toggled without resetting the view", async () => {
   renderUI(<App />, { route: "/inv/i1" });
+  // The workbench opens on the whole picture; the traffic overview is one click away in the same area.
+  expect(await screen.findByText(/집계 기준: 조사 전체 592건/, {}, { timeout: 5000 })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "트래픽 개요" }));
   await screen.findByText("분석 개요", {}, { timeout: 5000 });
   const header = screen.getByText("관측 기간").parentElement!;
   const summary = screen.getByText("분석 개요").parentElement!;
@@ -86,7 +101,7 @@ it("updates workbench and overview when the time-zone button is toggled without 
 it("keeps analysis visible first in a narrow window while allowing evidence controls", async () => {
   vi.stubGlobal("innerWidth", 554);
   renderUI(<App />, { route: "/inv/i1" });
-  await screen.findByText("분석 개요");
+  await screen.findByText(/집계 기준: 조사 전체/);
   expect(screen.queryByRole("complementary", { name: "증거와 필터" })).toBeNull();
   expect(screen.queryByRole("complementary", { name: "컨텍스트" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "증거·필터 보기" }));

@@ -167,7 +167,11 @@ def test_stale_stage_and_live_edit_block_apply_without_partial_changes(analyst, 
         d = s.scalar(select(Detection))
         det_id = d.id
     assert analyst.patch(f"/detections/{det_id}", json={"title": "manual change"}).status_code == 200
-    assert apply(senior, p4).status_code == 409
+    assert apply(senior, p4).status_code == 200
+    result = analyst.get(f"/detections/{det_id}").json()
+    assert result["current"]["title"] == "manual change"
+    assert result["pointers"]["active"]["version"] == 4
+    assert result["pointers"]["draft"]["version"] == 3
 
 
 def test_apply_failure_rolls_back_every_item_and_audit(analyst, senior, monkeypatch):
@@ -194,7 +198,7 @@ def test_apply_failure_rolls_back_every_item_and_audit(analyst, senior, monkeypa
     assert analyst.get(f"/content-packages/{p['id']}").json()["status"] == "staged"
 
 
-def test_rollback_restores_only_previous_approved_content_with_new_version(analyst, senior, manager):
+def test_rollback_restores_original_approved_version_without_cloning(analyst, senior, manager):
     first = prepared(analyst)
     assert apply(senior, first).status_code == 200
     doc = document(2)
@@ -210,24 +214,29 @@ def test_rollback_restores_only_previous_approved_content_with_new_version(analy
     assert manager.post(f"/content-packages/{second['id']}/rollback", json=args).status_code == 200
     with session_scope() as s:
         versions = s.scalars(select(DetectionVersion).order_by(DetectionVersion.version)).all()
-        assert [v.version for v in versions] == [1, 2, 3]
-        assert versions[-1].title == "합성 규칙" and versions[-1].reviewed_by == "manager1"
+        assert [v.version for v in versions] == [1, 2]
+        detection = s.scalar(select(Detection))
+        assert detection.active_version_id == versions[0].id
+        assert versions[0].title == "합성 규칙" and versions[0].reviewed_by == "senior1"
         active = s.scalars(select(ParserDefinition).where(ParserDefinition.status == "active")).all()
         assert len(active) == 1 and active[0].version == 1
         from saw.content_packages.service import has_package_validation
-        assert has_package_validation(s, versions[-1].detection_id, 3)
+        assert has_package_validation(s, versions[0].detection_id, 1)
     assert apply(senior, second).status_code == 409
 
 
-def test_first_apply_rollback_disables_new_content_and_drift_blocks_rollback(analyst, senior, manager):
+def test_first_apply_rollback_disables_active_content_and_preserves_manual_draft(analyst, senior, manager):
     p = prepared(analyst)
     applied = apply(senior, p).json()
     det_id = applied["receipt"]["items"][0]["target_id"]
     assert analyst.patch(f"/detections/{det_id}", json={"title": "manual changed"}).status_code == 200
     r = manager.post(f"/content-packages/{p['id']}/rollback", json={"digest": p["digest"], "reason": "복구"})
-    assert r.status_code == 409
+    assert r.status_code == 200
+    result = analyst.get(f"/detections/{det_id}").json()
+    assert result["pointers"]["active"] is None and result["current"]["title"] == "manual changed"
+    assert result["pointers"]["draft"]["version"] == 2
     with session_scope() as s:
-        assert s.scalar(select(ParserDefinition)).status == "active"
+        assert s.scalar(select(ParserDefinition)).status == "disabled"
 
 
 def test_applied_fixture_rule_runs_in_another_analyst_investigation_and_tamper_blocks_it(analyst, senior):
@@ -245,14 +254,17 @@ def test_applied_fixture_rule_runs_in_another_analyst_investigation_and_tamper_b
          "data_source": "web", "url_path": "/health", "src_ip": "192.0.2.10"},
     ]
     container.get().events.index(events)
-    with session_scope() as s:
+    from saw.event_generations.reads import actor_scope
+    with actor_scope(senior.get("/auth/me").json()["id"]), session_scope() as s:
         ctx = DetectorContext(inv["id"], container.get().events, data_sources={"web"})
         drafts, _ = run_approved(s, ctx)
         assert len(drafts) == 1 and drafts[0].sample_event_ids == ["synthetic-positive"]
         assert any(c["value"] == "package_fixture" for c in drafts[0].checks)
         version = s.scalar(select(DetectionVersion))
-        version.title = "tampered content"
-        s.flush()
+        # Simulate out-of-band storage corruption, bypassing the ORM's immutable-record guard.
+        from sqlalchemy import update
+        s.execute(update(DetectionVersion).where(DetectionVersion.id == version.id).values(title="tampered content"))
+        s.expire_all()
         assert not run_approved(s, ctx)[0]
 
 
@@ -375,7 +387,8 @@ def test_manual_edit_and_package_apply_serialize_before_reading_live_version(ana
         reviewer = principal_of(s.scalar(select(User).where(User.username == "senior1")))
     read_live, release_editor = Event(), Event()
     editing = local()
-    real_latest = detection_service._latest
+    from saw.detection import governance
+    real_latest = governance._version
 
     def pause_after_real_read(*args, **kwargs):
         result = real_latest(*args, **kwargs)
@@ -397,24 +410,26 @@ def test_manual_edit_and_package_apply_serialize_before_reading_live_version(ana
         except packages.Conflict:
             return "conflict"
 
-    monkeypatch.setattr(detection_service, "_latest", pause_after_real_read)
+    monkeypatch.setattr(governance, "_version", pause_after_real_read)
     with ThreadPoolExecutor(max_workers=2) as workers:
         manual = workers.submit(manual_edit)
         try:
             assert read_live.wait(timeout=10)
             package = workers.submit(package_apply)
             # Before the fix the package commits while the stale manual read is paused.
-            # With shared locking it waits until the manual edit invalidates its baseline.
+            # With shared locking it waits, preserves the manual draft and allocates a distinct package version.
             wait([package], timeout=3)
         finally:
             release_editor.set()
         manual.result(timeout=20)
-        assert package.result(timeout=20) == "conflict"
+        assert package.result(timeout=20) == "applied"
     with session_scope() as s:
         versions = s.scalars(select(DetectionVersion).order_by(DetectionVersion.version)).all()
-        assert [(v.version, v.title) for v in versions] == [(1, "합성 규칙"), (2, "concurrent manual edit")]
+        assert [(v.version, v.title) for v in versions] == [(1, "합성 규칙"), (2, "concurrent manual edit"), (3, "합성 규칙")]
+        d = s.scalar(select(Detection))
+        assert d.draft_version_id == versions[1].id and d.active_version_id == versions[2].id
         parsers = s.scalars(select(ParserDefinition)).all()
-        assert len(parsers) == 1 and parsers[0].status == "active"
+        assert len(parsers) == 2 and parsers[-1].status == "active"
 
 
 def test_package_responses_never_disclose_another_authors_private_parser_draft(analyst, senior, manager):

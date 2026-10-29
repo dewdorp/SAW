@@ -36,6 +36,18 @@ class ObjectStorePort(Protocol):
 LONG_PREFIX = "\\\\?\\"
 
 
+def _extended_path(path: Path) -> Path:
+    """Use one Windows namespace for metadata, traversal, and caller file I/O."""
+    if os.name != "nt":
+        return path
+    text = str(path)
+    if text.startswith(LONG_PREFIX):
+        return path
+    if text.startswith("\\\\"):
+        return Path(LONG_PREFIX + "UNC\\" + text[2:])
+    return Path(LONG_PREFIX + text)
+
+
 def _check_key(key: str) -> None:
     parts = key.split("/")
     if not key or key.startswith("/") or ".." in parts or "\\" in key or "\x00" in key:
@@ -108,13 +120,14 @@ class LocalFSObjectStore:
         _check_key(key)
         if any(part in ("", ".") or ":" in part for part in key.split("/")):
             raise ValueError("invalid deletion key")
-        root = self.root.absolute()
+        root = _extended_path(self.root.absolute())
         target = root / bucket / key
         for part in (target, *target.parents):
             if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
                 raise ValueError("reparse path is not supported")
         resolved = target.resolve()
-        if not resolved.is_relative_to((root / bucket).resolve()) or resolved == (root / bucket).resolve():
+        bucket_root = (root / bucket).resolve()
+        if not resolved.is_relative_to(bucket_root) or resolved == bucket_root:
             raise ValueError("key escapes bucket")
         if resolved.exists() and not resolved.is_file():
             raise ValueError("object is not a regular file")
@@ -127,13 +140,14 @@ class LocalFSObjectStore:
         if not base.exists():
             return []
         keys = []
+        bucket_root = _extended_path((self.root / bucket).absolute()).resolve()
         for directory, dirs, files in os.walk(base, followlinks=False):
             for name in dirs:
                 child = Path(directory) / name
                 if child.is_symlink() or (hasattr(child, "is_junction") and child.is_junction()):
                     raise ValueError("reparse directory is not supported")
             for name in files:
-                key = (Path(directory) / name).relative_to((self.root / bucket).resolve()).as_posix()
+                key = (Path(directory) / name).relative_to(bucket_root).as_posix()
                 self.safe_delete_path(bucket, key)
                 keys.append(key)
                 if len(keys) > limit:

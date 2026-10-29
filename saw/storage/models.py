@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -106,6 +107,7 @@ class Investigation(Base):
     verdict_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     close_detail: Mapped[dict] = mapped_column(JSON, default=dict)
     org_unit: Mapped[str] = mapped_column(String(64), default="")
+    org_unit_id: Mapped[str | None] = mapped_column(ForeignKey("sc_org_unit.id"), nullable=True, index=True)
     settings: Mapped[dict] = mapped_column(JSON, default=dict)  # clock skew etc.
     created_at: Mapped[datetime] = _ts()
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -130,6 +132,7 @@ class Evidence(Base):
     status: Mapped[str] = mapped_column(String(24), default="pending")
     total_size: Mapped[int] = mapped_column(BigInteger, default=0)  # > 2 GB evidence (PostgreSQL int4)
     file_count: Mapped[int] = mapped_column(Integer, default=0)
+    context_snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("sc_evidence_context.id"), nullable=True)
     uploaded_by: Mapped[str] = mapped_column(ForeignKey("iam_user.id"))
     uploaded_at: Mapped[datetime] = _ts()
 
@@ -183,7 +186,8 @@ class CustodyLog(Base):
 
 class Job(Base):
     __tablename__ = "an_job"
-    __table_args__ = (UniqueConstraint("requested_by", "idempotency_key", name="uq_an_job_idempotency"),)
+    __table_args__ = (UniqueConstraint("requested_by", "idempotency_key", name="uq_an_job_idempotency"),
+                      Index("ix_an_job_queue_due", "state", "requested_by", "created_at", "id"))
     id: Mapped[str] = _id()
     investigation_id: Mapped[str] = mapped_column(String(36), index=True)
     evidence_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -241,7 +245,7 @@ class Finding(Base):
     display_id: Mapped[str] = mapped_column(String(24))
     investigation_id: Mapped[str] = mapped_column(String(36), index=True)
     detector_id: Mapped[str] = mapped_column(String(64))
-    detector_version: Mapped[str] = mapped_column(String(16))
+    detector_version: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(256))
     category: Mapped[str] = mapped_column(String(64))
     stage: Mapped[str] = mapped_column(String(32), default="UNCLASSIFIED")

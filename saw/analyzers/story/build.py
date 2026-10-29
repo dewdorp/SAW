@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from ipaddress import ip_address
 
-ALGO_VERSION = "story/1.0.0"
+ALGO_VERSION = "story/1.0.1"
 STAGE_ORDER = ["INFRASTRUCTURE", "RECON", "DISCOVERY", "AUTHENTICATION", "EXPLOITATION", "DELIVERY", "DATA_ACCESS",
                "EXECUTION", "PERSISTENCE", "LATERAL", "OUTBOUND", "UNCLASSIFIED"]
 LINK_WINDOW_SEC = 2 * 3600
@@ -19,7 +20,17 @@ def _ep(ts) -> float | None:
 
 
 def _key_entities(f: dict) -> set[str]:
-    return {e for e in f.get("entities", []) if not e.startswith("url_path:")}
+    result = set()
+    for entity in f.get("entities", []):
+        if entity.startswith("url_path:"):
+            continue
+        if entity.startswith("ip:"):
+            try:
+                ip_address(entity[3:])
+            except ValueError:
+                continue
+        result.add(entity)
+    return result
 
 
 def build_story(findings: list[dict], correlations: list[dict] | None = None) -> dict:

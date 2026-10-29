@@ -16,13 +16,28 @@ from saw.apps.api.deps import AuthContext, auth, db, require_perm
 from saw.core.application import audit
 from saw.core.application.analysis import finding_dict
 from saw.core.application.investigations import NotFound, require
-from saw.core.application.rawref import hydrate_raw
-from saw.core.schemas.query import AggRequest, AggregateRequest, Filter, GroupMetric, SearchRequest, TimeRange
+from saw.core.schemas.query import AggregateRequest, AggRequest, Filter, GroupMetric, SearchRequest, TimeRange
 from saw.core.security.authz import has_permission
 from saw.core.security.masking import mask_event, mask_text
+from saw.detection.derived_access import visible_snapshot
+from saw.detection.derived_access import (
+    require_finding,
+    require_investigation_results,
+    require_snapshot,
+    visible_findings,
+)
+from saw.event_generations.reads import hydrate_raw
 from saw.storage.models import (
-    AttackStory, Entity, EvidenceFile, Evidence, Finding, FindingFeedback, Investigation, Note, ParameterProfile,
-    Pattern, Relation, SavedView,
+    AttackStory,
+    Entity,
+    Finding,
+    FindingFeedback,
+    Investigation,
+    Note,
+    ParameterProfile,
+    Pattern,
+    Relation,
+    SavedView,
 )
 
 router = APIRouter(prefix="/investigations/{inv_id}", tags=["workbench"])
@@ -35,7 +50,8 @@ class FiltersIn(BaseModel):
 
 class StatisticsIn(FiltersIn):
     filters: list[Filter] = Field(default_factory=list, max_length=30)
-    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port", "src_dst", "status_code", "method"] = "data_source"
+    group_by: Literal["data_source", "source_file", "src_ip", "dst_ip", "dst_port", "src_dst", "status_code", "method",
+                      "enforcement_action", "alert_name", "protocol"] = "data_source"
     size: int = Field(20, ge=1, le=50)
     order_by: Literal["count", "bytes_in_sum", "bytes_out_sum", "http_error_count"] = "count"
 
@@ -97,6 +113,7 @@ def _read(s: Session, ctx: AuthContext, inv_id: str) -> Investigation:
 @router.post("/overview")
 def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     inv = _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     es, f, t = _es(), body.filters, body.time
     total = es.count(inv_id, f, t)
     from saw.core.application.statistics import bounds
@@ -109,11 +126,10 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
     def card(field: str):
         return es.aggregate(inv_id, f, AggRequest(type="cardinality", field=field), t)
 
-    files = s.execute(select(EvidenceFile).join(Evidence, Evidence.id == EvidenceFile.evidence_id)
-                      .where(Evidence.investigation_id == inv_id)).scalars().all()
-    leaves = [x for x in files if x.parse_status in ("done", "degraded", "failed", "skipped", "parsing")]
-    parsed = sum(x.events_parsed for x in files)
-    failed = sum(x.events_failed for x in files)
+    files = es.file_state(s, inv_id)
+    leaves = [x for x in files if x['parse_status'] in ("done", "degraded", "failed", "skipped", "parsing")]
+    parsed = sum(x['events_parsed'] for x in files)
+    failed = sum(x['events_failed'] for x in files)
     fc = dict(s.execute(select(Finding.risk_level, func.count()).where(Finding.investigation_id == inv_id)
                         .group_by(Finding.risk_level)).all())
     top_findings = [finding_dict(x) for x in s.execute(
@@ -140,6 +156,16 @@ def overview(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: 
     }
 
 
+@router.post("/scope-summary")
+def scope_summary(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """The analyst's whole-picture view: scope, inputs and parse quality, breakdowns and daily trend."""
+    from saw.core.application.scope_summary import build
+
+    inv = _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    return build(s, inv, body.filters, body.time)
+
+
 @router.post("/statistics")
 def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     _read(s, ctx, inv_id)
@@ -150,9 +176,13 @@ def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth)
 
 # ------------------------------------------------------------------ events
 @router.post("/query/events")
-def query_events(inv_id: str, body: SearchRequest, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def query_events(inv_id: str, body: SearchRequest, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
-    page = _es().search(inv_id, body.filters, body.time, body.sort, body.limit, body.cursor)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
+    projection = (sorted(set(body.fields) | {"event_id", "timestamp", "data_source", "investigation_id",
+                  "raw_ref", "raw_redacted"}) if body.fields else None)
+    page = _es().search(inv_id, body.filters, body.time, body.sort, body.limit, body.cursor, fields=projection)
     evs = []
     want_raw = bool(body.fields) and "raw_event" in body.fields  # list views show fields; detail reads the line
     for e in page["events"]:
@@ -180,8 +210,10 @@ def pivot(inv_id: str, body: PivotIn, ctx: AuthContext = Depends(auth), s: Sessi
 
 
 @router.get("/events/{event_id}")
-def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None:
         raise NotFound("event not found")
@@ -191,16 +223,19 @@ def event_detail(inv_id: str, event_id: str, ctx: AuthContext = Depends(auth), s
 
     m["raw_visual"] = visualize_controls(m.get("raw_event", ""))
     m["raw_has_bidi"] = contains_bidi(e.get("raw_event", ""))
-    related = [finding_dict(f) for f in s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars()
-               if event_id in (f.evidence_refs or {}).get("sample_event_ids", [])]
+    related = [finding_dict(f) for f in visible_findings(s, ctx.principal,
+        s.execute(select(Finding).where(Finding.investigation_id == inv_id)).scalars())
+        if event_id in (f.evidence_refs or {}).get("sample_event_ids", [])]
     return {"event": m, "masked_kinds": kinds, "related_findings": related,
             "can_unmask": has_permission(ctx.principal, "data.unmask")}
 
 
 @router.post("/events/{event_id}/unmask")
 def unmask(inv_id: str, event_id: str, body: UnmaskIn, ctx: AuthContext = Depends(require_perm("data.unmask")),
-           s: Session = Depends(db, scope="function")):
+           s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None:
         raise NotFound("event not found")
@@ -211,18 +246,19 @@ def unmask(inv_id: str, event_id: str, body: UnmaskIn, ctx: AuthContext = Depend
 
 @router.get("/events/{event_id}/context")
 def raw_context(inv_id: str, event_id: str, lines: int = Query(50, le=200), ctx: AuthContext = Depends(auth),
-                s: Session = Depends(db, scope="function")):
+                s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Original file lines around the event (S3 range read), masked."""
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     e = _es().get(inv_id, event_id)
     if e is None or not (e.get("raw_ref") or {}).get("object_key"):
         raise NotFound("raw reference not available")
     ref = e["raw_ref"]
-    bucket, _, key = ref["object_key"].partition("/")
     off = int(ref["offset"])
     span = 400 * lines
     start = max(0, off - span)
-    data = container.get().objects.read_range(bucket, key, start, span * 2)
+    data = _es().read_raw_range(e, start, span * 2)
     enc = ref.get("enc") or "utf-8"
     rel = off - start  # byte offset: split bytes first, decode per line (multibyte text / CP949 files)
     head = data[:rel].split(b"\n")
@@ -241,6 +277,7 @@ def raw_context(inv_id: str, event_id: str, lines: int = Query(50, le=200), ctx:
 def timeline(inv_id: str, body: SearchRequest, collapse_runs: bool = True, min_run: int = Query(5, ge=2),
              ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     body.limit = min(body.limit, 500)
     page = _es().search(inv_id, body.filters, body.time, "asc", body.limit, body.cursor)
     evs = [mask_event(e)[0] for e in page["events"]]
@@ -379,6 +416,8 @@ def story(inv_id: str, version: int | None = None, ctx: AuthContext = Depends(au
     st = s.execute(q).scalars().first()
     versions = [{"version": v.version, "origin": v.origin, "created_at": v.created_at} for v in s.execute(
         select(AttackStory).where(AttackStory.investigation_id == inv_id).order_by(AttackStory.version)).scalars()]
+    if st:
+        require_snapshot(s, ctx.principal, st.graph)
     return {"story": _story_out(st), "versions": versions}
 
 
@@ -387,7 +426,15 @@ def edit_story(inv_id: str, body: StoryIn, ctx: AuthContext = Depends(auth), s: 
     require(s, ctx.principal, "investigation.write", inv_id)
     last = s.execute(select(AttackStory).where(AttackStory.investigation_id == inv_id)
                      .order_by(AttackStory.version.desc())).scalars().first()
-    g = body.graph
+    if last:
+        require_snapshot(s, ctx.principal, last.graph)
+    require_snapshot(s, ctx.principal, body.graph)
+    from copy import deepcopy
+    from saw.detection.derived_access import source_ids
+    g = deepcopy(body.graph)
+    dependencies = source_ids(g) | source_ids(last.graph if last else None)
+    if dependencies:
+        g["_source_investigation_ids"] = sorted(dependencies)
     for n in g.get("nodes", []):
         n.setdefault("origin", "analyst")
     st = AttackStory(investigation_id=inv_id, version=(last.version + 1) if last else 1, origin="analyst",
@@ -433,6 +480,7 @@ ENTITY_FIELDS = {"ip": ["src_ip", "dst_ip"], "uri": ["uri_template"], "ja4": ["j
 @router.get("/entities/{etype}")
 def entity(inv_id: str, etype: str, value: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     es = _es()
     fields = ENTITY_FIELDS.get(etype, [etype])
     stats = {}
@@ -466,6 +514,7 @@ def findings(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends
     _read(s, ctx, inv_id)
     rows = s.execute(select(Finding).where(Finding.investigation_id == inv_id)
                      .order_by(Finding.risk_score.desc())).scalars().all()
+    rows = visible_findings(s, ctx.principal, rows)
     fb = defaultdict(list)
     for x in s.execute(select(FindingFeedback).where(FindingFeedback.finding_id.in_([r.id for r in rows]))).scalars():
         fb[x.finding_id].append(x.verdict)
@@ -482,7 +531,7 @@ def _finding(s: Session, ctx: AuthContext, inv_id: str, fid: str) -> Finding:
     f = s.get(Finding, fid)
     if f is None or f.investigation_id != inv_id:
         raise NotFound("finding not found")
-    return f
+    return require_finding(s, ctx.principal, f)
 
 
 @router.get("/findings/{fid}")
@@ -502,8 +551,10 @@ def finding(inv_id: str, fid: str, ctx: AuthContext = Depends(auth), s: Session 
 
 @router.post("/findings/{fid}/events")
 def finding_events(inv_id: str, fid: str, body: SearchRequest, ctx: AuthContext = Depends(auth),
-                   s: Session = Depends(db, scope="function")):
+                   s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     f = _finding(s, ctx, inv_id, fid)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     q = (f.evidence_refs or {}).get("query", {})
     flt = [Filter(**x) for x in q.get("filters", [])] + body.filters
     # A caller may narrow evidence time, but must never expand the finding's scope.
@@ -562,12 +613,14 @@ class EventDiffIn(FiltersIn):
 
 
 @router.post("/diff")
-def event_diff(inv_id: str, body: EventDiffIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+def event_diff(inv_id: str, body: EventDiffIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function"), analysis_run_id: str | None = None):
     """Compare observed requests within the same explicit investigation scope."""
     from saw.analyzers.diff.request_diff import evolution, from_event
     from saw.storage.eventstore import ts_epoch
 
     _read(s, ctx, inv_id)
+    if analysis_run_id:
+        container.get().events.bind_run(s, inv_id, analysis_run_id)
     es = _es()
     if body.behavior_result_id:
         from saw.behavior.service import get as get_behavior
@@ -631,10 +684,12 @@ def correlations(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Dep
     from saw.storage.models import Correlation
 
     _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
     rows = s.execute(select(Correlation).where(Correlation.investigation_id == inv_id)).scalars().all()
     order = {"finding_chain": 0, "same_ip_cross_source": 1}
     return [{"id": c.id, "kind": c.kind, "strength": c.strength, "entity_keys": c.entity_keys, "steps": c.steps,
-             "explanation": c.explanation} for c in sorted(rows, key=lambda c: (order.get(c.kind, 9), c.strength != "strong"))]
+             "explanation": c.explanation} for c in sorted(rows, key=lambda c: (order.get(c.kind, 9), c.strength != "strong"))
+            if visible_snapshot(s, ctx.principal, c.steps)]
 
 
 # ------------------------------------------------------------------ notes / views

@@ -10,7 +10,7 @@ import pytest
 _spec = importlib.util.spec_from_file_location('_desktop_cold_fixture', Path(__file__).with_name('test_offline_update.py'))
 _fixture = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_fixture)
-installation, updater, write = _fixture.installation, _fixture.updater, _fixture.write
+installation, write = _fixture.installation, _fixture.write
 
 
 def desktop():
@@ -18,6 +18,12 @@ def desktop():
         return importlib.import_module('saw.devtools.desktop_update')
     except ModuleNotFoundError:
         pytest.fail('The desktop update orchestrator is missing')
+
+
+def updater():
+    # Standalone media may load its backend without the canonical module name.
+    # Inject faults into the exact backend the controller actually executes.
+    return desktop().backend
 
 
 class ControlledLifecycle:
@@ -612,7 +618,7 @@ def test_native_console_descendant_requires_retained_matching_parent(tmp_path, m
         child['CommandLine'] += ' foreign-command'
     opened = []
     class Lease:
-        def __init__(self, pid, expected):
+        def __init__(self, pid, expected, *, terminate=True):
             if change == 'missing_parent' and pid == 1234:
                 raise desktop().DesktopError('process_missing')
             self.created_at = (300 if change == 'reused_parent' else 100) if pid == 1234 else 200
@@ -648,3 +654,345 @@ def test_postgresql_main_with_additional_storage_options_is_not_owned(tmp_path, 
     image = root / 'pgsql/bin/postgres.exe'
     command = subprocess.list2cmdline([str(image), '-D', str(root / 'data/postgresql'), *extra])
     assert desktop().WindowsController()._classify(root, str(image), command) is None
+
+
+@pytest.fixture
+def signal_exit_child():
+    """Own a real child that exits normally only after its stdin receives one byte."""
+    import subprocess
+    import sys
+    if __import__('os').name != 'nt':
+        pytest.skip('Windows retained process handles')
+    process = subprocess.Popen(
+        [sys.executable, '-B', '-c',
+         'import sys; print("READY", flush=True); sys.stdin.buffer.read(1)'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        assert process.stdout.readline().strip() == b'READY'
+        yield process
+    finally:
+        if process.poll() is None:
+            process.stdin.write(b'x')
+            process.stdin.flush()
+        process.wait(timeout=10)
+        process.stdin.close()
+        process.stdout.close()
+
+
+def test_native_process_exit_between_alive_check_and_terminate_is_already_stopped(signal_exit_child):
+    import ctypes
+    import sys
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable))
+    kernel = lease.kernel
+    observed = []
+
+    class ExitBeforeTerminate:
+        def __getattr__(self, name):
+            return getattr(kernel, name)
+
+        def TerminateProcess(self, handle, exit_code):
+            assert handle == lease.handle
+            assert kernel.WaitForSingleObject(handle, 0) == 258
+            process.stdin.write(b'x')
+            process.stdin.flush()
+            assert process.wait(timeout=10) == 0
+            assert kernel.WaitForSingleObject(handle, 0) == 0
+            result = kernel.TerminateProcess(handle, exit_code)
+            error = ctypes.get_last_error()
+            observed.append((result, error))
+            assert result == 0 and error == 5
+            return result
+
+    lease.kernel = ExitBeforeTerminate()
+    try:
+        lease.stop()
+        assert process.returncode == 0
+        assert kernel.WaitForSingleObject(lease.handle, 0) == 0
+        assert observed == [(0, 5)]
+    finally:
+        lease.close()
+
+
+def test_native_process_stop_without_terminate_rights_still_fails_while_alive(signal_exit_child):
+    import sys
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable), terminate=False)
+    try:
+        with pytest.raises(desktop().DesktopError, match='stop_failed'):
+            lease.stop()
+        assert process.poll() is None
+        assert lease.kernel.WaitForSingleObject(lease.handle, 0) == 258
+    finally:
+        lease.close()
+
+
+def test_native_denied_terminate_waits_for_same_handle_natural_exit(signal_exit_child):
+    import ctypes
+    import sys
+    import threading
+    process = signal_exit_child
+    lease = desktop().ProcessLease(process.pid, Path(sys.executable), terminate=False)
+    kernel = lease.kernel
+    observed = []
+    timer = None
+
+    def exit_normally():
+        process.stdin.write(b'x')
+        process.stdin.flush()
+
+    class PendingNaturalExit:
+        def __getattr__(self, name):
+            return getattr(kernel, name)
+
+        def TerminateProcess(self, handle, exit_code):
+            nonlocal timer
+            assert handle == lease.handle
+            assert kernel.WaitForSingleObject(handle, 0) == 258
+            result = kernel.TerminateProcess(handle, exit_code)
+            error = ctypes.get_last_error()
+            observed.append((result, error))
+            assert result == 0 and error == 5
+            # The real denied call overlaps a separately completing natural exit.
+            # Neither native return values nor the wait budget are simulated.
+            timer = threading.Timer(0.5, exit_normally)
+            timer.start()
+            ctypes.set_last_error(error)
+            return result
+
+    lease.kernel = PendingNaturalExit()
+    try:
+        lease.stop()
+        assert observed == [(0, 5)]
+        assert kernel.WaitForSingleObject(lease.handle, 0) == 0
+        assert process.wait(timeout=10) == 0
+    finally:
+        if timer is not None:
+            timer.join(timeout=10)
+            assert not timer.is_alive()
+        lease.close()
+
+
+def test_inspect_uses_previous_runtime_profile_for_approved_dependency_transition(
+        desktop_installation, monkeypatch):
+    root, bundle, baseline, recovery, _ = desktop_installation
+    backend = updater()
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(bundle, 'app/deploy/windows/requirements.txt', 'synthetic approved addition')
+    _fixture.seal(bundle, backend.PINS)
+    before = backend._inventory(root)
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def transition(old, candidate):
+        assert old == previous
+        assert backend._runtime_rows(old) != backend._runtime_rows(candidate)
+        events.append('transition')
+        return {'kind': 'xlsxwriter-3.2.9', 'added_wheels': []}
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert target == root and media == bundle
+        assert profile == previous
+        events.append('runtime')
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_runtime_transition', transition, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    control = ControlledLifecycle()
+    result = run_case(desktop_installation, control=control)
+    assert result['status'] == 'ready'
+    assert events == ['transition', 'runtime']
+    assert control.events == []
+    assert backend._inventory(root) == before
+    assert not recovery.exists()
+
+
+def test_start_verification_uses_installed_runtime_profile(desktop_installation, monkeypatch):
+    root, bundle, baseline, _, _ = desktop_installation
+    backend = updater()
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(bundle, 'app/deploy/windows/requirements.txt', 'synthetic approved addition')
+    _fixture.seal(bundle, backend.PINS)
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def transition(old, candidate):
+        assert old == previous
+        events.append('transition')
+        return {'kind': 'xlsxwriter-3.2.9', 'added_wheels': []}
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert profile == previous
+        events.append('runtime')
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_runtime_transition', transition, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    cfg = desktop()._verify_source(root, bundle, baseline, 'start')
+    assert cfg['port'] == 58101
+    assert events == ['transition', 'runtime']
+
+
+def test_restore_selects_verified_snapshot_profile_before_and_after_replacement(
+        desktop_installation, monkeypatch):
+    root, bundle, baseline, recovery, state = desktop_installation
+    backend = updater()
+    backend.apply(root, bundle, recovery, baseline)
+    previous = json.loads((baseline / 'release-manifest.json').read_text())
+    write(root, 'data/objects/later-record', 'synthetic retained record')
+    events = []
+    original_runtime = backend._installed_runtime
+
+    def recovery_profile(selected, media, baseline_dir=None):
+        assert selected == recovery and media == bundle
+        events.append('profile')
+        return previous
+
+    def runtime(target, media, profile=None, **kwargs):
+        assert profile == previous
+        events.append(('runtime', kwargs.get('allow_pending_addition', False)))
+        original_runtime(target, media)
+
+    monkeypatch.setattr(backend, '_recovery_runtime_profile', recovery_profile, raising=False)
+    monkeypatch.setattr(backend, '_installed_runtime', runtime)
+    result = desktop().run('restore', root, bundle, state, recovery_point=recovery,
+                           maintenance_confirmed=True, confirm=True, controller=ControlledLifecycle())
+    assert result['status'] == 'completed'
+    assert events == ['profile', ('runtime', True), 'profile', ('runtime', False)]
+    assert (root / 'app/saw/main.py').read_text() == 'old app'
+    assert not (root / 'data/objects/later-record').exists()
+    assert (Path(result['retained_installation']) / 'data/objects/later-record').is_file()
+
+
+def test_legacy_restore_retains_explicit_baseline_for_manifestless_snapshot(desktop_installation):
+    root, bundle, baseline, recovery, _ = desktop_installation
+    backend = updater()
+    backend.apply(root, bundle, recovery, baseline)
+    assert not (recovery / 'installation/installed-release-manifest.json').exists()
+    receipt = json.loads((recovery / 'recovery-point.json').read_text())
+    receipt.pop('runtime_profile', None)
+    backend._json(recovery / 'recovery-point.json', receipt)
+    assert (root / 'installed-release-manifest.json').is_file()
+    result = run_case(desktop_installation, 'restore', maintenance_confirmed=True, confirm=True)
+    assert result['status'] == 'completed'
+    assert (root / 'app/saw/main.py').read_text() == 'old app'
+
+
+def test_dependency_marker_is_required_before_desktop_stops_installation(
+        desktop_installation, monkeypatch):
+    backend = updater()
+    root, _, _, recovery, _ = desktop_installation
+    assert not (root / 'venv/.saw-python-runtime.json').exists()
+    monkeypatch.setattr(backend, '_runtime_transition', lambda old, candidate: {
+        'kind': 'xlsxwriter-3.2.9', 'added_wheels': ['wheels/xlsxwriter-3.2.9-py3-none-any.whl']})
+    control = ControlledLifecycle()
+    result = run_case(desktop_installation, 'apply', control, maintenance_confirmed=True)
+    assert result['status'] == 'failed'
+    assert control.events == []
+    assert not recovery.exists()
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows retained ancestry identities')
+@pytest.mark.parametrize('change', [
+    'none', 'equal_age', 'newer_child', 'inside_alias', 'child_access_denied',
+    'parent_access_denied', 'missing_child_metadata', 'changed_child_parent',
+    'changed_child_image', 'changed_parent_identity', 'child_exited', 'parent_exited',
+    'missing_fresh_child', 'missing_fresh_parent', 'parent_missing', 'child_missing',
+    'invalid_age', 'wait_failed', 'inside_alias_after_proof',
+])
+def test_older_external_process_with_stale_parent_id_is_not_owned(tmp_path, monkeypatch, change):
+    import os
+    import subprocess
+    from types import SimpleNamespace
+    module = desktop()
+    root = tmp_path / 'install'
+    root.mkdir()
+    image = root / 'pgsql/bin/postgres.exe'
+    external = tmp_path / 'outside/foreign.exe'
+    parent = {'ProcessId': 1234, 'ParentProcessId': 9, 'ExecutablePath': str(image),
+              'CommandLine': subprocess.list2cmdline([str(image), '-D', str(root / 'data/postgresql')])}
+    child = {'ProcessId': 4321, 'ParentProcessId': 1234, 'ExecutablePath': str(external),
+             'CommandLine': subprocess.list2cmdline([str(external), 'synthetic', 'arguments'])}
+    if change == 'missing_child_metadata':
+        child['ExecutablePath'] = None
+    if change in ('inside_alias', 'inside_alias_after_proof'):
+        original = os.path.realpath
+        monkeypatch.setattr(module.os.path, 'realpath',
+            lambda path: str(image) if str(path) == str(external) and (change == 'inside_alias' or count[0] > 1) else original(path))
+    opened, closed, attempts = [], [], []
+    class Lease:
+        def __init__(self, pid, expected, *, terminate=True):
+            attempts.append(pid)
+            if (change == 'parent_missing' and pid == 1234 or change == 'child_missing' and pid == 4321):
+                raise module.DesktopError('process_missing')
+            if (change == 'child_access_denied' and pid == 4321 or
+                    change == 'parent_access_denied' and pid == 1234):
+                raise module.DesktopError('process_identity_unverified')
+            self.pid = pid
+            self.handle = pid
+            self.created_at = 200 if pid == 1234 else 200 if change == 'equal_age' else 300 if change == 'newer_child' else 100
+            if change == 'invalid_age' and pid == 4321: self.created_at = True
+            signaled = (change == 'parent_exited' and pid == 1234 or change == 'child_exited' and pid == 4321)
+            self.kernel = SimpleNamespace(WaitForSingleObject=lambda *args: 0 if signaled else 0xffffffff if change == 'wait_failed' else 258)
+            opened.append((pid, terminate))
+        def stop(self):
+            pytest.fail('Claim must not terminate any process')
+        def close(self):
+            assert self.pid not in closed
+            closed.append(self.pid)
+    control = module.WindowsController()
+    count = [0]
+    def records():
+        count[0] += 1
+        fresh_parent, fresh_child = dict(parent), dict(child)
+        if count[0] > 1:
+            if change == 'changed_child_parent': fresh_child['ParentProcessId'] = 9876
+            if change == 'changed_child_image': fresh_child['ExecutablePath'] = str(tmp_path / 'changed.exe')
+            if change == 'changed_parent_identity': fresh_parent['ExecutablePath'] = str(tmp_path / 'changed.exe')
+            if change == 'missing_fresh_child': return [fresh_parent]
+            if change == 'missing_fresh_parent': return [fresh_child]
+        return [fresh_parent, fresh_child]
+    monkeypatch.setattr(control, '_processes', records)
+    monkeypatch.setattr(module, 'ProcessLease', Lease)
+    if change == 'none':
+        with control.claim(root, {}, 'noadmin'):
+            assert [(pid, group) for pid, _, group, _ in control.leases] == [(1234, 'postgresql')]
+            assert opened == [(1234, True), (4321, False)]
+            assert closed == []
+        assert closed == [1234, 4321]
+    else:
+        with pytest.raises(module.DesktopError, match='process_identity'):
+            with control.claim(root, {}, 'noadmin'):
+                pytest.fail('Unproven ancestry was skipped')
+        assert sorted(closed) == sorted(pid for pid, _ in opened)
+    assert all(not terminate for pid, terminate in opened if pid == 4321)
+    assert len(attempts) == len(set(attempts))
+    assert control.leases == []
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows image path boundaries')
+@pytest.mark.parametrize('image', [r'\\server\share\foreign.exe', r'\\?\C:\foreign.exe'])
+def test_external_proof_rejects_unc_and_device_paths_before_resolution(tmp_path, image):
+    from unittest.mock import patch
+    module = desktop()
+    root = tmp_path / 'install'
+    with patch.object(module.os.path, 'realpath', side_effect=AssertionError('Nonlocal path must not be resolved')):
+        assert module.WindowsController._outside_image(root, image) is False
+        assert module.WindowsController._same_process_image(image, root / 'pgsql/bin/postgres.exe') is False
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows fixed-volume boundary')
+def test_external_proof_rejects_mapped_network_drive_before_resolution(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    module = desktop()
+    calls = []
+    def drive_type(value):
+        calls.append(value)
+        return 4 if value.upper().startswith('Z:') else 3
+    api = SimpleNamespace(GetDriveTypeW=drive_type)
+    with patch.object(module.ctypes, 'WinDLL', return_value=api), \
+         patch.object(module.os.path, 'realpath', side_effect=AssertionError('Network path must not be resolved')):
+        assert module.WindowsController._outside_image(tmp_path / 'install', 'Z:/foreign.exe') is False
+        assert module.WindowsController._same_process_image('Z:/foreign.exe', tmp_path / 'install/pgsql/bin/postgres.exe') is False
+    assert calls == ['Z:\\', 'Z:\\']
