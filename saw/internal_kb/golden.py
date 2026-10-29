@@ -490,3 +490,54 @@ def list_records(s, p, *, org_unit_id: str | None = None, limit: int = 100) -> l
         if current is not None and _readable(s, p, _version_sources(row, current)):
             out.append(_out(s, p, row, None))
     return out[:limit]
+
+
+INITIAL_FIELDS = ("title", "scope", "initial_logs", "initial_evidence_refs", "observed_facts", "questions")
+ANSWER_FIELDS = ("initial_judgement", "followups", "later_logs", "later_evidence_refs", "later_facts",
+                 "alert_meanings", "final_judgement", "unresolved")
+
+
+def export(s, p, *, audience: str, split: str | None = None, org_unit_id: str | None = None) -> bytes:
+    """Current readable versions as the existing evaluation files: what an agent may see, and the answers.
+
+    agent-input lines hold only what was known at the first question (no reply, later file, changed or
+    final judgement). evaluator-answer lines hold the rest. Variants of one case (same lineage group) must
+    sit in one split, so a case cannot be trained on and tested with. This is a data export for evaluation;
+    it does not train or grade anything by itself.
+    """
+    import hashlib
+    import json
+
+    if audience not in ("agent", "evaluator"):
+        raise ValueError("audience must be agent or evaluator")
+    rows = []
+    for item in list_records(s, p, org_unit_id=org_unit_id, limit=500):
+        row = s.get(InternalGolden, item["id"])
+        version = _current(s, row)
+        content = version.content or {}
+        lineage = content.get("lineage") or {}
+        rows.append((row, version, content, lineage))
+    groups: dict[str, set] = {}
+    for _row, _v, _c, lineage in rows:
+        if lineage.get("variant_group_id"):
+            groups.setdefault(lineage["variant_group_id"], set()).add(lineage.get("split", "unassigned"))
+    crossing = sorted(g for g, splits in groups.items() if len(splits) > 1)
+    if crossing:
+        raise ValueError("같은 계보 그룹의 사례가 서로 다른 분할(학습·검증·평가)에 있습니다: " + ", ".join(crossing[:10]))
+    lines = []
+    for row, version, content, lineage in rows:
+        if split is not None and lineage.get("split", "unassigned") != split:
+            continue
+        example_id = f"internal:{row.id}:v{version.version}"
+        if audience == "agent":
+            body = {"schema": "saw.golden.agent-input.v1", "example_id": example_id, "source": "internal_golden",
+                    "as_of": (content.get("provenance") or {}).get("cutoff"), "retrieval": "snapshot_only",
+                    "observations": {k: content.get(k) for k in INITIAL_FIELDS}}
+        else:
+            answers = {k: content.get(k) for k in ANSWER_FIELDS}
+            sha = hashlib.sha256(json.dumps(answers, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            body = {"schema": "saw.golden.evaluator-answer.v2", "example_id": example_id, "content_sha256": sha,
+                    "lineage": lineage, "answers": answers}
+        lines.append(json.dumps(body, ensure_ascii=False, sort_keys=True))
+    return ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+

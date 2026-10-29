@@ -123,6 +123,11 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
             </div>
           ))}
           {viewing && <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>v{viewing.shown_version} 최종 판단: {viewing.content.final_judgement.status || "미정"} — {viewing.content.final_judgement.rationale}</pre>}
+          <div className="row wrap small" style={{ gap: 6, marginTop: 8 }}>
+            <span className="muted">평가용 내보내기(볼 수 있는 저장본 전체, 학습·평가를 자동 실행하지 않음):</span>
+            <button className="btn sm" onClick={() => api.download("/knowledge/internal-golden-export?audience=agent", "agent-input.jsonl")}>최초 입력만 (agent-input)</button>
+            <button className="btn sm" onClick={() => api.download("/knowledge/internal-golden-export?audience=evaluator", "evaluator-answer.jsonl")}>정답·후속 자료 (evaluator-answer)</button>
+          </div>
         </Panel>
       )}
     </div>

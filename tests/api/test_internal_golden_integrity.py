@@ -145,3 +145,40 @@ def test_verified_but_unanswered_questions_stay_unresolved_and_long_replies_fit(
     assert any(u.startswith("Which job ran at 10:00?") for u in content["unresolved"])
     assert any(len(item["reply"]) == 7999 for item in content["followups"])
     assert senior.post(f"/investigations/{inv['id']}/internal-golden", json={"content": content}).status_code == 201
+
+
+def test_export_keeps_first_known_input_apart_from_answers_and_lineage_apart_from_splits(senior):
+    """F10/F11: agent input carries only what was known at the first question; variants share one split."""
+    import json
+
+    inv = _inv(senior, "export")
+    ref = _event(inv["id"], f"e-{uuid.uuid4().hex[:6]}")
+    check = _check(senior, inv["id"], evidence=[ref["event_id"]])
+    fu = _followup(senior, inv["id"], check["id"])
+    _reply(senior, inv["id"], fu, [ref], note="ANSWER-ONLY-REPLY")
+    content = senior.get(f"/investigations/{inv['id']}/internal-golden/draft").json()["content"]
+    group = f"case-{uuid.uuid4().hex[:6]}"
+    content["lineage"] = {**content["lineage"], "variant_group_id": group, "split": "test"}
+    content["final_judgement"] = {"status": "normal", "rationale": "ANSWER-ONLY-FINAL", "scope": ""}
+    assert senior.post(f"/investigations/{inv['id']}/internal-golden", json={"content": content}).status_code == 201
+
+    agent = senior.get("/knowledge/internal-golden-export", params={"audience": "agent", "split": "test"})
+    assert agent.status_code == 200 and agent.headers["content-disposition"].endswith('agent-input.jsonl"')
+    lines = [json.loads(x) for x in agent.text.splitlines()]
+    mine = [x for x in lines if x["observations"]["title"] == "export"]
+    assert len(mine) == 1 and "ANSWER-ONLY" not in json.dumps(mine[0], ensure_ascii=False)
+    answers = [json.loads(x) for x in senior.get("/knowledge/internal-golden-export",
+                                                 params={"audience": "evaluator", "split": "test"}).text.splitlines()]
+    answer = next(x for x in answers if x["example_id"] == mine[0]["example_id"])
+    assert answer["answers"]["final_judgement"]["rationale"] == "ANSWER-ONLY-FINAL"
+    assert any(f["reply"] == "ANSWER-ONLY-REPLY" for f in answer["answers"]["followups"])
+
+    # A variant of the same case placed in another split is refused, not silently exported on both sides.
+    other = _inv(senior, "export variant")
+    _check(senior, other["id"])
+    variant = senior.get(f"/investigations/{other['id']}/internal-golden/draft").json()["content"]
+    variant["lineage"] = {**variant["lineage"], "variant_group_id": group, "split": "train"}
+    assert senior.post(f"/investigations/{other['id']}/internal-golden", json={"content": variant}).status_code == 201
+    refused = senior.get("/knowledge/internal-golden-export", params={"audience": "agent"})
+    assert refused.status_code == 400 and group in refused.text
+
