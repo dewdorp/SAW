@@ -81,6 +81,19 @@ export function SourceContextTab({ inv }: { inv: string }) {
       save.mutate(body);
     } catch (e) { setError(e); }
   };
+  // F02: the Korean FW/NDR export columns, prefilled. Meanings that change the analysis (time role, byte counter, action words) stay unverified until the analyst confirms them with a basis.
+  const koTemplate = (kind: "FW" | "NDR") => {
+    const common = { timestamp: "탐지시간", action: "대응", src_bytes: "송신바이트", dst_bytes: "수신바이트" };
+    setProfile({ ...blankProfile(), functions: [kind],
+      source_fields: kind === "FW" ? { ...common, duration: "세션시간" }
+        : { ...common, session_id: "세션ID", record_kind: "로그구분", http_status: "응답값", user_agent: "User-agent" },
+      record_kind_map: kind === "NDR" ? { HTTP: "http", "세션": "flow" } : {},
+      action_map: kind === "FW" ? { "허용": "allowed", "차단": "blocked" } : { "탐지": "detected", "차단": "blocked", "허용": "allowed" },
+      measurement_profile: { counter_semantics: kind === "FW" ? "total" : "unknown", direction: "src_to_dst", unit: "bytes",
+        duration_unit: kind === "FW" ? "seconds" : "unknown", verified: false, basis: "" },
+      time: { role: "unknown", timezone: "Asia/Seoul", precision: "seconds", verified: false, basis: "" } });
+    setAck(false); setAdvanced("");
+  };
   const template = () => {
     setProfile({ ...blankProfile(), source_fields: { timestamp: "timestamp", session_id: "session_id", record_kind: "record_kind", action: "action", src_bytes: "src_bytes", dst_bytes: "dst_bytes", duration: "duration" }, record_kind_map: { start: "session_start", interim: "session_interim", end: "session_end" }, action_map: { allow: "allowed", deny: "blocked" } });
     setAck(false); setAdvanced("");
@@ -114,6 +127,8 @@ export function SourceContextTab({ inv }: { inv: string }) {
         <fieldset><legend>원천 행위 값</legend><div className="row wrap">{[["allowed", "허용 값"], ["blocked", "거부 값"]].map(([target, label]) => <label key={target}>{label} <input className="input" value={Object.keys(profile.action_map).filter(k => profile.action_map[k] === target).join(", ")} onChange={e => { const map = Object.fromEntries(Object.entries(profile.action_map).filter(([, v]) => v !== target)); e.target.value.split(",").map(x => x.trim()).filter(Boolean).forEach(x => { map[x] = target; }); field("action_map", map); }} /></label>)}
           <label><input type="checkbox" checked={profile.action_verified} onChange={e => field("action_verified", e.target.checked)} />행위 매핑 검증됨</label><label>행위 검증 근거 <input className="input" value={profile.action_basis} onChange={e => field("action_basis", e.target.value)} /></label>
         </div></fieldset>
+        <div className="row wrap" style={{ gap: 6 }}><button className="btn sm" onClick={() => koTemplate("FW")}>한국형 FW 내보내기 기본값</button><button className="btn sm" onClick={() => koTemplate("NDR")}>한국형 NDR 내보내기 기본값</button></div>
+        <p className="small muted">열 이름과 대응 값을 채웁니다. 분석 결과를 바꾸는 항목(시간이 시작·종료 중 무엇인지, 바이트가 세션 합계인지)은 장비 담당자에게 확인한 뒤 근거와 함께 "검증됨"으로 바꾸세요. 확인 전에는 해당 분석이 '의미 미확인'으로 표시됩니다.</p>
         <div><button className="btn sm" onClick={template}>합성 FW 필드 예제 채우기</button><p className="small muted">실제 제조사 매핑으로 검증되지 않은 합성 예제입니다. start/interim/end 종류 매핑은 고급 JSON에서 확인할 수 있습니다.</p></div>
         <label>고급 프로필 JSON <textarea className="input mono" rows={8} value={advanced} placeholder="비워 두면 위 폼을 저장합니다. 입력하면 전체 프로필 초안으로 사용합니다." onChange={e => setAdvanced(e.target.value)} /></label>
         <button className="btn sm" onClick={() => setAdvanced(JSON.stringify(profile, null, 2))}>폼을 JSON 초안으로 복사</button>
