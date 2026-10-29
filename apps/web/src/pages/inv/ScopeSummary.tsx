@@ -81,7 +81,9 @@ export function ScopeSummary({ inv }: { inv: string }) {
   };
   const openDay = (index: number) => {
     const day = t.daily[index]?.date;
-    if (!weekly && day) ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${day}T23:59:59.999+09:00` } });
+    // [day 00:00, next day 00:00): the whole day, with no millisecond trimmed off either end.
+    const next = day && new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+    if (!weekly && day) ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${next}T00:00:00+09:00`, end_exclusive: true } });
   };
   return (
     <div className="col" style={{ gap: 12 }}>
