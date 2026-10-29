@@ -120,3 +120,18 @@ def test_a_request_is_prefilled_from_the_check_records_without_copying_addresses
         "check_id": check["id"], "question": d["question"], "reason": d["reason"], "target": d["target"],
         "period": d["period"], "needed_data": d["needed_data"]})
     assert created.status_code == 201, created.text
+
+
+def test_a_request_about_a_suggested_item_is_prefilled_from_its_representative_records(analyst):
+    """F05 on the common path: a check on a suggestion uses the suggestion's kept records and title."""
+    from tests.api.test_text_uploads import _process
+    from saw.devtools.security_csv_samples import ndr_csv
+
+    inv = analyst.post("/investigations", json={"title": "suggestion draft"}).json()
+    _process(analyst, inv["id"], "ndr.csv", ndr_csv("chain"))
+    finding = next(f for f in analyst.get(f"/investigations/{inv['id']}/findings").json() if f.get("entities"))
+    check = analyst.post(f"/investigations/{inv['id']}/checks", json={
+        "target_type": "finding", "target_key": finding["id"], "questions": ["nature"], "note": "Needs owner confirmation"}).json()
+    d = analyst.get(f"/investigations/{inv['id']}/follow-ups/draft", params={"check_id": check["id"]}).json()
+    assert d["evidence_records"] > 0 and d["target"]["src_ips"] and d["period"]
+    assert finding["title"] in d["question"]

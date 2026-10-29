@@ -383,7 +383,26 @@ def suggest(s, p, inv_id, check_id) -> dict:
     authorize(s, p, {inv_id})
     check = get_check(s, inv_id, check_id)
     ids = list(dict.fromkeys([*(check.evidence or []), *((check.scope or {}).get("event_ids") or [])]))[:50]
+    label = check.target_label or check.target_key
+    finding = None
+    if check.target_type == "finding":
+        # A check on a suggested item points at the item: use its kept representative records and title.
+        from saw.storage.models import Finding
+        finding = s.get(Finding, check.target_key)
+        if finding is not None and finding.investigation_id == inv_id:
+            ids = list(dict.fromkeys([*ids, *((finding.evidence_refs or {}).get("sample_event_ids") or [])]))[:50]
+            label = finding.title or label
     events = [e for e in (container.get().events.get(inv_id, i) for i in ids) if e]
+    if not events and check.target_type == "finding" and finding is not None:
+        # Some suggestions keep a query rather than event ids: read up to 50 of the records it selects.
+        from saw.core.schemas.query import Filter, TimeRange
+        query = (finding.evidence_refs or {}).get("query") or {}
+        try:
+            filters = [Filter(**x) for x in query.get("filters", [])]
+            time = TimeRange(**query["time"]) if query.get("time") else None
+            events = container.get().events.search(inv_id, filters, time, limit=50).get("events") or []
+        except (ValueError, TypeError):
+            events = []
     src = list(dict.fromkeys(str(e["src_ip"]) for e in events if e.get("src_ip")))[:50]
     dst = list(dict.fromkeys(str(e["dst_ip"]) for e in events if e.get("dst_ip")))[:50]
     ports = list(dict.fromkeys(int(e["dst_port"]) for e in events if isinstance(e.get("dst_port"), int)))[:50]
@@ -393,7 +412,6 @@ def suggest(s, p, inv_id, check_id) -> dict:
     times = sorted(str(e["timestamp"]) for e in events if e.get("timestamp"))
     start = times[0] if times else check.time_start
     end = times[-1] if times else check.time_end
-    label = check.target_label or check.target_key
     span = f"{start} ~ {end}" if start and end else "기록된 기간"
     return {"check_id": check.id, "evidence_records": len(events),
             "question": f"{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? 수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
