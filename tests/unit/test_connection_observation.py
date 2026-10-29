@@ -604,3 +604,19 @@ def test_grouped_and_plain_byte_counts_mean_the_same_transfer():
         report = analyze(iter(rows), context_snapshot=_total_ctx("start"))
         found.append(([c["kind"] for c in report["candidates"]], report["sessions"][0]["src_to_dst_bytes"]))
     assert found[0] == found[1] == (["transfer_asymmetry"], 60000000)
+
+
+def test_a_candidate_keeps_all_its_records_targets_and_times_when_it_becomes_a_finding():
+    """PPA-06: 30 periodic connections were recorded as 20 events with no target or time."""
+    from saw.detectors.firewall_observation import FirewallObservation
+
+    _, analyze = api()
+    rows = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n" + "\n".join(
+        f"2026-10-20T{h // 60:02d}:{h % 60:02d}:00Z,10.0.0.1,192.0.2.1,443,allow,512,512" for h in range(0, 30 * 10, 10)))
+    report = analyze(iter(rows), context_snapshot=_total_ctx("start"))
+    beacon = next(c for c in report["candidates"] if c["kind"] == "beacon")
+    assert beacon["scope"]["records"] == 30 and beacon["scope"]["representative_refs"] == 20
+    finding = FirewallObservation().draft(beacon)
+    assert finding.total_events == 30 and len(finding.sample_event_ids) == 20
+    assert finding.entities == ["ip:10.0.0.1", "ip:192.0.2.1"]
+    assert finding.time_start.startswith("2026-10-20T00:00:00") and finding.time_end.startswith("2026-10-20T04:50:00")

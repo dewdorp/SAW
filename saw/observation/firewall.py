@@ -62,10 +62,14 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
             was_cancelled = partial = True
         return was_cancelled
 
-    def candidate(kind, refs, **metrics):
+    def candidate(kind, refs, scope=None, **metrics):
+        """scope: every record the candidate stands for (count, first/last epoch, endpoints); refs are 20 of them."""
         counts["candidates"] += 1
         if len(candidates) < max_results:
-            candidates.append({"kind": kind, "interpretation": "candidate", "event_refs": refs[:20],
+            scope = dict(scope or {})
+            scope.setdefault("records", len(refs))
+            scope["representative_refs"] = min(len(refs), 20)
+            candidates.append({"kind": kind, "interpretation": "candidate", "event_refs": refs[:20], "scope": scope,
                                "metrics": metrics, "limitations": ["No connection success or impact is established."]})
         else:
             counts["omitted_candidates"] += 1
@@ -166,16 +170,18 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                 for flag in flags:
                     quality[flag] += 1
                 src, _, dst, port, _ = obs["endpoint"]
+                session_scope = {"records": state["record_count"], "first_epoch": state["started"],
+                                 "last_epoch": state["ended_at"], "src_ip": src, "dst_ip": dst, "dst_port": port}
                 db.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
                            (body["session_key"], obs["group"], src, dst, str(port), state["started"],
                             int(new), _json(body)))
                 if duration is not None and duration >= effective["long_flow_seconds"]:
-                    candidate("long_flow", state["refs"], duration_seconds=duration)
+                    candidate("long_flow", state["refs"], session_scope, duration_seconds=duration)
                 a, b = totals.values()
                 if a is not None and b is not None and max(a, b) >= effective["transfer_min_bytes"]:
                     ratio = max(a, b) / max(1, min(a, b))
                     if ratio >= effective["asymmetry_ratio"]:
-                        candidate("transfer_asymmetry", state["refs"], src_to_dst_bytes=a,
+                        candidate("transfer_asymmetry", state["refs"], session_scope, src_to_dst_bytes=a,
                                   dst_to_src_bytes=b, ratio=ratio)
 
             state = None
@@ -268,7 +274,10 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                         refs = [json.loads(row[0]) for row in db.execute(
                             "SELECT r FROM attempts WHERE g=? AND src=? AND b=? ORDER BY t,r LIMIT 20",
                             (group, src, bucket))]
-                        candidate("scan", refs, src_ip=src, unique_destinations=targets, unique_ports=ports,
+                        n, first, last = db.execute("SELECT count(*),min(t),max(t) FROM attempts WHERE g=? AND src=? AND b=?",
+                                                    (group, src, bucket)).fetchone()
+                        candidate("scan", refs, {"records": n, "first_epoch": first, "last_epoch": last, "src_ip": src},
+                                  src_ip=src, unique_destinations=targets, unique_ports=ports,
                                   window_start_epoch=bucket * effective["scan_window_seconds"],
                                   window_seconds=effective["scan_window_seconds"])
                 last_key, denied = None, None
@@ -284,7 +293,9 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                         denied = (timestamp, json.loads(ref))
                     elif (action == "allowed" and timestamp is not None and denied is not None and
                           0 <= timestamp - denied[0] <= effective["deny_allow_window_seconds"]):
-                        candidate("deny_to_allow", [denied[1], json.loads(ref)], src_ip=src, dst_ip=dst)
+                        candidate("deny_to_allow", [denied[1], json.loads(ref)],
+                                  {"records": 2, "first_epoch": denied[0], "last_epoch": timestamp, "src_ip": src,
+                                   "dst_ip": dst, "dst_port": port}, src_ip=src, dst_ip=dst)
                         denied = None
                 beacon = None
                 def finish_beacon(item):
@@ -294,7 +305,10 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                     mean = item["sum"] / count
                     cv = math.sqrt(max(0, item["squares"] / count - mean * mean)) / mean
                     if cv <= effective["beacon_max_cv"]:
-                        candidate("beacon", item["refs"], new_connections=item["n"], mean_interval_seconds=mean, cv=cv)
+                        _, b_src, b_dst, b_port = item["key"]
+                        candidate("beacon", item["refs"], {"records": item["n"], "first_epoch": item["first"],
+                                  "last_epoch": item["last"], "src_ip": b_src, "dst_ip": b_dst, "dst_port": b_port},
+                                  new_connections=item["n"], mean_interval_seconds=mean, cv=cv)
                 for group, src, dst, port, timestamp, body in db.execute(
                     "SELECT g,src,dst,port,t,body FROM sessions WHERE new=1 ORDER BY g,src,dst,port,t,k"):
                     if stop():
@@ -302,7 +316,8 @@ def analyze_firewall(events, *, context_snapshot=None, max_records=1_000_000, ma
                     key = (group, src, dst, port)
                     if beacon is None or beacon["key"] != key:
                         finish_beacon(beacon)
-                        beacon = {"key": key, "n": 0, "last": timestamp, "sum": 0, "squares": 0, "refs": []}
+                        beacon = {"key": key, "n": 0, "first": timestamp, "last": timestamp, "sum": 0, "squares": 0,
+                                  "refs": []}
                     if beacon["n"]:
                         delta = timestamp - beacon["last"]
                         beacon["sum"] += delta
