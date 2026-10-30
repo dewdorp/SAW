@@ -18,8 +18,8 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "src_ip": ["src_ip", "srcip", "src", "source_ip", "sourceip", "client_ip", "clientip", "c-ip", "remote_addr",
                "remoteaddr", "id.orig_h", "attacker_ip", "ip"],
     "src_port": ["src_port", "srcport", "spt", "sport", "source_port", "clientsrcport", "id.orig_p"],
-    "dst_ip": ["dst_ip", "dstip", "dst", "destination_ip", "server_ip", "s-ip", "originip", "id.resp_h"],
-    "dst_port": ["dst_port", "dstport", "dpt", "dport", "destination_port", "id.resp_p"],
+    "dst_ip": ["dst_ip", "dstip", "dst", "destination_ip", "server_ip", "s-ip", "originip", "id.resp_h", "dest_ip", "destip"],
+    "dst_port": ["dst_port", "dstport", "dpt", "dport", "destination_port", "id.resp_p", "dest_port", "destport"],
     "method": ["method", "http_method", "request_method", "clientrequestmethod", "requestmethod"],
     "uri": ["uri", "url", "request_uri", "requesturi", "clientrequesturi", "path", "request", "request_url"],
     "hostname": ["host", "hostname", "clientrequesthost", "server_name", "dhost"],
@@ -89,11 +89,21 @@ def alias_for(k: str) -> str | None:
     return _ALIAS_INDEX.get(k.lower()) or _COMPACT_INDEX.get(compact_key(k))
 
 
+_HTTP_CONTEXT = {"method", "uri", "status_code"}
+
+
 def map_fields(d: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     f: dict[str, Any] = {}
     ext: dict[str, Any] = {}
+    # In an HTTP record "query" is the request's query string; only elsewhere (DNS) is it a queried domain.
+    http = sum(1 for k in d if alias_for(k) in _HTTP_CONTEXT) >= 2
+    http_query = None
     for k, v in d.items():
         ces = alias_for(k)
+        if http and ces == "domain" and compact_key(k) == "query":
+            ext[k] = v
+            http_query = v if isinstance(v, str) and v not in ("", "-") else None
+            continue
         if ces and ces not in f and (ces == "user_agent" or v not in (None, "", "-")):
             f[ces] = v if not isinstance(v, (dict, list)) else orjson.dumps(v).decode()
         else:
@@ -110,6 +120,8 @@ def map_fields(d: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
             u = urlsplit(f["uri"])
             f.setdefault("hostname", u.hostname)
             f["uri"] = (u.path or "/") + (f"?{u.query}" if u.query else "")
+    if http_query and isinstance(f.get("uri"), str):
+        f["uri"] = f["uri"] + ("&" if "?" in f["uri"] else "?") + http_query.lstrip("?")
     if f.get("timestamp_raw") is not None:
         f["timestamp_raw"] = str(f["timestamp_raw"])
     return f, ext
@@ -146,6 +158,11 @@ class JsonLinesParser(BaseParser):
         if not isinstance(d, dict):
             return Failed("not a JSON object")
         f, ext = map_fields(_flatten(d))
+        if type(self) is JsonLinesParser:
+            # A generic JSON record is classified by its own fields, like a generic CSV table.
+            f["data_source"], f["event_type"] = infer_source(list(d))
+            if f["data_source"] == "waf" and not {compact_key(k) for k in d} & {compact_key(h) for h in JSON_WAF_HINTS}:
+                f["data_source"], f["event_type"] = "web", "http_access"  # "action" alone is not a WAF
         return Parsed(f, ext)
 
 

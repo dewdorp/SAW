@@ -1,4 +1,4 @@
-"""Strong-header adapters for Korean firewall and NDR CSV exports.
+"""Strong-header adapters for firewall and NDR CSV exports (Korean and English column names).
 
 Source labels are untrusted observations, never attack truth or device profiles.
 Record framing and encoding-aware raw references reuse CsvParser.
@@ -62,6 +62,9 @@ CORE_HEADERS = frozenset({"\ud0d0\uc9c0\uc2dc\uac04", "\ucd9c\ubc1c\uc9c0IP", "\
 _PORTS = frozenset({"\ucd9c\ubc1c\uc9c0\ud3ec\ud2b8", "\ubaa9\uc801\uc9c0\ud3ec\ud2b8"})
 _BYTES = frozenset({"\uc1a1\uc2e0\ubc14\uc774\ud2b8", "\uc218\uc2e0\ubc14\uc774\ud2b8"})
 _IPS = frozenset({"\ucd9c\ubc1c\uc9c0IP", "\ubaa9\uc801\uc9c0IP"})
+# An export header may be quoted with a field-list marker ("| # fields a,b,c" or "#fields a,b,c"). Only that exact
+# marker is removed; any other text before the first column name is kept and makes the header unrecognised.
+_FIELDS_MARKER = re.compile(r"^\s*(?:\|\s*)?#\s*fields\s+", re.I)
 _IPV4_LIKE = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
 # "200", "200 OK" and "HTTP/1.1 200 OK" all carry the same status; anything else is not a status code.
 _STATUS = re.compile(r"(?:HTTP/\d(?:\.\d)?\s+)?([1-5][0-9]{2})(?:\s+\S.*)?", re.S)
@@ -95,6 +98,12 @@ class _SecurityCsvParser(CsvParser):
     event_type = "conn"
     required_headers: frozenset[str] = frozenset()
     csv_format = ""
+    # Column roles of this export. The Korean exports keep the module defaults.
+    common_fields: dict[str, str] = _COMMON_FIELDS
+    core_headers: frozenset[str] = CORE_HEADERS
+    port_headers: frozenset[str] = _PORTS
+    byte_headers: frozenset[str] = _BYTES
+    ip_headers: frozenset[str] = _IPS
 
     def __init__(self) -> None:
         super().__init__()
@@ -112,9 +121,11 @@ class _SecurityCsvParser(CsvParser):
             return None
         wanted = {_norm(name): name for name in self.required_headers}
         best = None
+        marker = _FIELDS_MARKER.match(line.lstrip("\ufeff"))
+        text = line.lstrip("\ufeff")[marker.end():] if marker else line
         for delim in DELIMITERS:
             try:
-                header = next(csv.reader([line.lstrip("\ufeff")], delimiter=delim, strict=True))
+                header = next(csv.reader([text.lstrip("\ufeff")], delimiter=delim, strict=True))
             except (csv.Error, StopIteration):
                 continue
             if len(header) > SECURITY_CSV_MAX_COLUMNS:
@@ -124,7 +135,7 @@ class _SecurityCsvParser(CsvParser):
                 canonical = wanted.get(_norm(name))
                 if canonical:
                     positions.setdefault(canonical, []).append(index)
-            if len(positions) < MIN_MATCH * len(self.required_headers) or not CORE_HEADERS <= set(positions):
+            if len(positions) < MIN_MATCH * len(self.required_headers) or not self.core_headers <= set(positions):
                 continue
             if best is None or len(positions) > len(best["positions"]):
                 best = {"delim": delim, "header": header, "positions": positions}
@@ -148,6 +159,8 @@ class _SecurityCsvParser(CsvParser):
                 names[index] = clean
         names, repeated = unique_names(names)
         missing = sorted(self.required_headers - set(positions))
+        if marker:
+            notes.append("\ud5e4\ub354 \uc55e\uc758 \ud544\ub4dc \ubaa9\ub85d \ud45c\uae30('# fields')\ub97c \uc81c\uac70\ud558\uace0 \uc5f4 \uc774\ub984\uc744 \uc77d\uc5c8\uc2b5\ub2c8\ub2e4.")
         if best["delim"] != ",":
             notes.append(f"\uad6c\ubd84\uc790\ub97c '{'\ud0ed' if best['delim'] == chr(9) else best['delim']}'\ub85c \uc778\uc2dd\ud588\uc2b5\ub2c8\ub2e4.")
         if renamed:
@@ -206,20 +219,20 @@ class _SecurityCsvParser(CsvParser):
             return Failed(f"column count mismatch: \ud5e4\ub354 {len(self.header)}\uc5f4, \uc774 \ud589 {got}\uc5f4 ({detail})")
         source = dict(zip(self.header, rows[0], strict=True))
         fields = {}
-        for name, mapped in _COMMON_FIELDS.items():
+        for name, mapped in self.common_fields.items():
             value = source.get(name, "").strip()
             if value in ("", "-"):
                 continue
-            if name in _PORTS:
+            if name in self.port_headers:
                 if not (value.isascii() and value.isdigit()) or int(value) > 65535:  # "²" is a digit, not a port
                     self._bad["port"] += 1
                     continue
-            elif name in _BYTES:
+            elif name in self.byte_headers:
                 value = value.replace(",", "")  # "1,200" from spreadsheet exports
                 if not (value.isascii() and value.isdigit()):
                     self._bad["number"] += 1
                     continue
-            elif name in _IPS and _IPV4_LIKE.fullmatch(value) and not _valid_ip(value):
+            elif name in self.ip_headers and _IPV4_LIKE.fullmatch(value) and not _valid_ip(value):
                 self._bad["ip"] += 1
                 continue
             fields[mapped] = value
@@ -270,3 +283,99 @@ class KoNdrCsvParser(_SecurityCsvParser):
                 self._bad["status"] += 1  # e.g. 999: unknown, never guessed as success or failure
             else:
                 self._bad["response_missing"] += 1
+
+
+EN_NDR_HEADERS = frozenset(["event_time", "_site", "app", "_schema", "protocol", "src_ip", "src_port", "src_country",
+                            "dest_ip", "dest_port", "dest_country", "_device_ip", "_device_name", "method", "host", "path",
+                            "query", "user_agent", "referer", "req_cookie", "uuid", "status", "sc_bytes", "cs_bytes"])
+EN_FW_HEADERS = frozenset(["_time", "_device_ip", "_device_name", "action", "src_ip", "src_port", "dst_ip", "dst_port",
+                           "protocol", "tcp_flag", "duration", "sent_bytes", "rcvd_bytes"])
+_EN_NOTES = {
+    "ndr_bytes": ("cs_bytes\u00b7sc_bytes\ub294 HTTP \uc694\uccad(\ud074\ub77c\uc774\uc5b8\ud2b8\u2192\uc11c\ubc84)\u00b7\uc751\ub2f5(\uc11c\ubc84\u2192\ud074\ub77c\uc774\uc5b8\ud2b8) "
+                  "\ubc14\uc774\ud2b8 \ud6c4\ubcf4\ub85c \uc5f0\uacb0\ud588\uc2b5\ub2c8\ub2e4. \ud589 \ub2e8\uc704\u00b7\ud5e4\ub354 \ud3ec\ud568\u00b7\ub204\uc801 \uc5ec\ubd80\ub294 \uc7a5\ube44 \uba85\uc138\ub85c \ud655\uc778\ud574\uc57c \ud569\ub2c8\ub2e4."),
+    "fw_bytes": ("sent_bytes\u00b7rcvd_bytes\ub294 \ucd9c\ubc1c\uc9c0 \uae30\uc900 \uc1a1\u00b7\uc218\uc2e0 \ubc14\uc774\ud2b8 \ud6c4\ubcf4\ub85c \uc5f0\uacb0\ud588\uc2b5\ub2c8\ub2e4. "
+                 "\ubc29\ud5a5 \uae30\uc900(\ucd9c\ubc1c\uc9c0\u00b7\uc7a5\ube44)\uacfc \ub204\uc801\u00b7\uc99d\ubd84 \uc5ec\ubd80\ub294 \uc7a5\ube44 \uba85\uc138\ub85c \ud655\uc778\ud574\uc57c \ud569\ub2c8\ub2e4."),
+}
+
+
+def _http_target(path: str, query: str) -> str:
+    """Path and query joined as one request target; a path that already has '?' gets the query appended with '&'."""
+    path = path or "/"
+    if not query:
+        return path
+    return f"{path}{'&' if '?' in path else '?'}{query.lstrip('?')}"
+
+
+class EnNdrHttpCsvParser(_SecurityCsvParser):
+    """NDR HTTP export with English column names (event_time, dest_ip, path, query, cs_bytes, sc_bytes ...)."""
+    id = "en_ndr_http_csv"
+    required_headers = EN_NDR_HEADERS
+    csv_format = "ndr_http"
+    common_fields = {"event_time": "timestamp_raw", "src_ip": "src_ip", "src_port": "src_port", "dest_ip": "dst_ip",
+                     "dest_port": "dst_port", "protocol": "protocol", "cs_bytes": "bytes_out", "sc_bytes": "bytes_in"}
+    core_headers = frozenset({"event_time", "src_ip", "dest_ip"})
+    port_headers = frozenset({"src_port", "dest_port"})
+    byte_headers = frozenset({"cs_bytes", "sc_bytes"})
+    ip_headers = frozenset({"src_ip", "dest_ip"})
+
+    def parse(self, lines):
+        yield from super().parse(lines)
+        self.warnings = [*self.warnings, _EN_NOTES["ndr_bytes"]]
+
+    def parse_line(self, line: str) -> ParseResult:
+        self._cookie = None
+        result = super().parse_line(line)
+        if isinstance(result, Parsed) and self._cookie:
+            # The stored line carries the cookie names only; the original file keeps the values.
+            result.raw = line.replace(self._cookie, "; ".join(f"{n}=[\uac00\ub9bc]" for n in result.ext.get("req_cookie_names", [])))
+        return result
+
+    def _specific_fields(self, fields: dict, source: dict) -> None:
+        cookie = source.get("req_cookie", "")
+        if cookie not in ("", "-"):
+            self._cookie = cookie
+            # Cookie values never reach the event store (they stay in the original file); the names stay searchable.
+            source["req_cookie_names"] = sorted({part.split("=", 1)[0].strip() for part in cookie.split(";")
+                                                 if part.split("=", 1)[0].strip()})[:50]
+            source["req_cookie"] = "[\uc6d0\ubcf8 \ud30c\uc77c\uc5d0\ub9cc \ubcf4\uc874]"
+        method = source.get("method", "").strip().upper()
+        path, query = source.get("path", "").strip(), source.get("query", "").strip()
+        if path in ("-",):
+            path = ""
+        if query in ("-",):
+            query = ""
+        if method or path:
+            # The HTTP query belongs to the request target, never to a DNS domain.
+            fields.update(data_source="web", event_type="http_access", uri=_http_target(path, query))
+            if method:
+                fields["method"] = method[:16]
+            if source.get("host", "") not in ("", "-"):
+                fields["hostname"] = source["host"].strip()
+            if source.get("user_agent", "") not in ("", "-"):
+                fields["user_agent"] = source["user_agent"]
+            status = source.get("status", "").strip()
+            match = _STATUS.fullmatch(status) if status not in ("", "-") else None
+            if match:
+                fields["status_code"] = int(match.group(1))
+            elif status not in ("", "-"):
+                self._bad["status"] += 1
+            else:
+                self._bad["response_missing"] += 1
+
+
+class EnFirewallCsvParser(_SecurityCsvParser):
+    """Firewall export with English column names (_time, action, sent_bytes, rcvd_bytes, duration ...)."""
+    id = "en_fw_csv"
+    required_headers = EN_FW_HEADERS
+    csv_format = "fw"
+    common_fields = {"_time": "timestamp_raw", "src_ip": "src_ip", "src_port": "src_port", "dst_ip": "dst_ip",
+                     "dst_port": "dst_port", "protocol": "protocol", "sent_bytes": "bytes_out", "rcvd_bytes": "bytes_in"}
+    core_headers = frozenset({"_time", "src_ip", "dst_ip"})
+    port_headers = frozenset({"src_port", "dst_port"})
+    byte_headers = frozenset({"sent_bytes", "rcvd_bytes"})
+    ip_headers = frozenset({"src_ip", "dst_ip"})
+
+    def parse(self, lines):
+        yield from super().parse(lines)
+        self.warnings = [*self.warnings, _EN_NOTES["fw_bytes"]]
+
