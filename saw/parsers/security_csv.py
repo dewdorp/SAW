@@ -312,7 +312,7 @@ class EnNdrHttpCsvParser(_SecurityCsvParser):
     required_headers = EN_NDR_HEADERS
     csv_format = "ndr_http"
     common_fields = {"event_time": "timestamp_raw", "src_ip": "src_ip", "src_port": "src_port", "dest_ip": "dst_ip",
-                     "dest_port": "dst_port", "protocol": "protocol", "cs_bytes": "bytes_out", "sc_bytes": "bytes_in"}
+                     "dest_port": "dst_port", "protocol": "protocol", "sc_bytes": "bytes_out", "cs_bytes": "bytes_in"}
     core_headers = frozenset({"event_time", "src_ip", "dest_ip"})
     port_headers = frozenset({"src_port", "dest_port"})
     byte_headers = frozenset({"cs_bytes", "sc_bytes"})

@@ -59,7 +59,9 @@ def test_exact_ndr_header_maps_destination_request_target_and_byte_candidates():
     assert e["uri"] == "/search?q=synthetic&lang=ko" and e["url_path"] == "/search" and e["url_query"] == "q=synthetic&lang=ko"
     assert e.get("domain") is None, "an HTTP query is never a DNS domain"
     assert e["status_code"] == 200 and e["timestamp"] == "2026-10-13T01:00:01.000Z"
-    assert (e["bytes_out"], e["bytes_in"]) == (420, 5120)  # request / response candidates
+    # Web convention shared with IIS W3C (sc-bytes -> bytes_out): bytes_out is the response the server sent,
+    # so web analyses that read bytes_out as the response see this export the same way.
+    assert (e["bytes_out"], e["bytes_in"]) == (5120, 420)
     assert any("cs_bytes" in w for w in _warnings("en_ndr_http_csv", doc(NDR, [ndr_row()])))
     raw = e["ext"]["security_csv"]
     assert raw["uuid"] == "u-0001" and e.get("session_id") is None  # an id of unknown scope is not a session

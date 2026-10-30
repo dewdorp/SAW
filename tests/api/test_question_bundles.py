@@ -30,6 +30,12 @@ def test_an_item_says_what_was_seen_why_what_is_unknown_and_what_to_ask(analyst)
     # The item's evidence filter finds exactly its records in the full log.
     found = analyst.post(f"/investigations/{inv['id']}/query/events", json={"filters": item["filters"], "limit": 50}).json()
     assert len(found["events"]) == 12
+    # The investigation guidance reads the same records as large responses (one convention for web bytes).
+    guide = analyst.post(f"/investigations/{inv['id']}/guidance/preview", json={
+        "target_type": "entity", "target_key": "ip:198.51.100.50", "role": "either", "filters": [], "time": None,
+        "as_of": None, "methodology_version": "soc-guidance/1.0"})
+    assert guide.status_code == 200, guide.text
+    assert next(f["value"] for f in guide.json()["facts"] if f["id"] == "large_response") == 12
     _, download = _bundles(analyst, "ndr", "download_in")
     assert "다운로드 후보" in download["transfer"]["items"][0]["title"]
 

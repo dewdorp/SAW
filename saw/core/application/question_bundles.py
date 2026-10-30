@@ -86,10 +86,14 @@ def _transfer(es, inv, time, t) -> dict:
     total = es.count(inv, flt, time) + es.count(inv, [CONN, Filter(field="bytes_out", op="exists")], time)
     if not total:
         return {"status": "insufficient_data", "missing": ["방향별 바이트(cs/sc_bytes, sent/rcvd_bytes)"], "items": []}
-    rows = es.group_by(inv, [CONN], ["src_ip", "dst_ip", "data_source"], [
-        GroupMetric(type="sum", field="bytes_in", name="bin"), GroupMetric(type="sum", field="bytes_out", name="bout"),
-        GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")],
-        size=500, time=time, order_by="bin")
+    metrics = [GroupMetric(type="sum", field="bytes_in", name="bin"), GroupMetric(type="sum", field="bytes_out", name="bout"),
+               GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")]
+    # The largest pairs by either direction, so a large download is not hidden behind many large uploads.
+    rows = list({tuple(sorted(r["key"].items(), key=lambda kv: kv[0])): r
+                 for order in ("bin", "bout")
+                 for r in es.group_by(inv, [CONN], ["src_ip", "dst_ip", "data_source"], metrics,
+                                      size=500, time=time, order_by=order)}.values())
+    rows.sort(key=lambda r: max(r.get("bin") or 0, r.get("bout") or 0), reverse=True)
     sums = [max(r.get("bin") or 0, r.get("bout") or 0) for r in rows]
     median = statistics.median(sums) if sums else 0
     items = []
@@ -100,14 +104,15 @@ def _transfer(es, inv, time, t) -> dict:
             continue
         web = ds in ("web", "waf")
         if web:
-            # In an HTTP record the source is the client: sc (response) flows server→client, cs (request) client→server.
+            # In an HTTP record the source is the client. Web convention (as IIS sc-bytes): bytes_out is the
+            # response the server sent to the client, bytes_in the request the client sent.
             server_inside, client_inside = affiliate_local(dst) if dst else None, affiliate_local(src) if src else None
             if server_inside and client_inside is False:
-                kind = f"내부 서버 {dst}가 외부 클라이언트 {src}에게 보낸 응답 {_mb(bin_)} — 외부 반출 후보"
+                kind = f"내부 서버 {dst}가 외부 클라이언트 {src}에게 보낸 응답 {_mb(bout)} — 외부 반출 후보"
             elif server_inside is False and client_inside:
-                kind = f"내부 클라이언트 {src}가 외부 서버 {dst}에서 받은 응답 {_mb(bin_)} — 다운로드 후보"
+                kind = f"내부 클라이언트 {src}가 외부 서버 {dst}에서 받은 응답 {_mb(bout)} — 다운로드 후보"
             else:
-                kind = f"{src}↔{dst} 응답 {_mb(bin_)}·요청 {_mb(bout)}"
+                kind = f"{src}↔{dst} 응답 {_mb(bout)}·요청 {_mb(bin_)}"
         else:
             kind = f"{src}→{dst} 송신 {_mb(bout)}·수신 {_mb(bin_)} (방향 기준은 장비 확인 필요)"
         items.append(_item(
