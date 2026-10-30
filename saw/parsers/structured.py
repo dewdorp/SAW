@@ -158,11 +158,6 @@ class JsonLinesParser(BaseParser):
         if not isinstance(d, dict):
             return Failed("not a JSON object")
         f, ext = map_fields(_flatten(d))
-        if type(self) is JsonLinesParser:
-            # A generic JSON record is classified by its own fields, like a generic CSV table.
-            f["data_source"], f["event_type"] = infer_source(list(d))
-            if f["data_source"] == "waf" and not {compact_key(k) for k in d} & {compact_key(h) for h in JSON_WAF_HINTS}:
-                f["data_source"], f["event_type"] = "web", "http_access"  # "action" alone is not a WAF
         return Parsed(f, ext)
 
 

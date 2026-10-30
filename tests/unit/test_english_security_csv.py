@@ -115,7 +115,8 @@ def test_jsonl_with_the_same_fields_and_dns_query_keeps_working():
     record = {k: ndr_row()[k] for k in NDR}
     out = parse_text(json.dumps(record) + "\n" + json.dumps(record))
     e = out["events"][0]
-    assert e["data_source"] == "web" and e["dst_ip"] == "10.20.1.10" and e["url_query"] == "q=synthetic&lang=ko"
+    # Generic JSON keeps its generic kind (device observers rely on it); the fields still carry their meaning.
+    assert e["data_source"] == "custom" and e["dst_ip"] == "10.20.1.10" and e["url_query"] == "q=synthetic&lang=ko"
     assert e.get("domain") is None
     dns = {"ts": "2026-10-13T01:00:00Z", "src_ip": "10.20.5.11", "dst_ip": "10.20.0.53", "query": "portal.example.test", "qtype": "A"}
     dns_out = parse_text(json.dumps(dns) + "\n" + json.dumps(dns))

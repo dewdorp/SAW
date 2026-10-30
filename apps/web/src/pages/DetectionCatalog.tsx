@@ -139,7 +139,8 @@ export function DetectionCatalog() {
         <Panel title="NDR 연결 정책 설정">
           <div className="col small">
             <div>조직마다 다른 내부망·허용 포트·업무시간 기준을 사용하는 정책입니다. 기본 제공 기준은 예시이므로 조직의 승인된 기준을 검토한 뒤 사용하세요.</div>
-            <div>아래 YAML 기준은 기존 기준의 참조 정보입니다. <Link to="/detections/policies/ndr.observation">NDR 관측 정책 변경</Link>에서 지원 명세와 현재 범위별 적용값을 검토하세요.</div>
+            <div>아래 규칙은 <b>NDR 연결 정책(ndr.policy)</b>입니다. Zeek 연결 로그에만 적용되며 기본으로 모두 꺼져 있습니다. 모두 꺼져 있으면 분석 실행 이력에 "비활성"으로 남고, 0건이 정상이라는 뜻이 아닙니다.</div>
+            <div>등록된 장비의 NDR 기록(CSV 포함)을 보는 분석은 별도의 <b>NDR 장비 관측(ndr.observation)</b>입니다. 그 설정은 <Link to="/detections/policies/ndr.observation">NDR 장비 관측 정책 변경</Link>에서 검토하세요. 두 분석의 설정과 결과는 서로 바뀌지 않습니다.</div>
             <div className="muted">각 시간 구간은 UTC 기준으로 고정됩니다. 경계에 걸친 연결은 서로 다른 구간에 집계될 수 있습니다.</div>
           </div>
         </Panel>

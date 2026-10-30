@@ -138,13 +138,15 @@ def _analysis(s, inv_id) -> dict | None:
         return None
     incomplete = []
     for e in s.scalars(select(DetectorExecution).where(DetectorExecution.run_id == run.id)):
-        if e.status not in INCOMPLETE or e.status == "not_applicable":
-            continue
         detail = e.detail if isinstance(e.detail, dict) else {}
+        disabled = detail.get("reason") == "policy_disabled"
+        if e.status not in INCOMPLETE or (e.status == "not_applicable" and not disabled):
+            continue
         seen = {str(r) for r in detail.get("limitations") or []} | {str(r) for r in detail.get("quality") or {}}
         seen.add(str(detail.get("reason")))
         reason = next((r for r in REASONS if r in seen), None)
-        incomplete.append({"detector_id": e.detector_id, "status": e.status, "label": INCOMPLETE[e.status],
+        incomplete.append({"detector_id": e.detector_id, "status": "disabled" if disabled else e.status,
+                           "label": "비활성(규칙 꺼짐)" if disabled else INCOMPLETE[e.status],
                            "reason": reason, "reason_label": REASONS.get(reason)})
     return {"run_id": run.id, "version": run.version, "status": run.status, "finished_at": run.finished_at,
             "incomplete": sorted(incomplete, key=lambda x: x["detector_id"])[:50]}
