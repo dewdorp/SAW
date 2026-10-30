@@ -166,6 +166,16 @@ def scope_summary(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth)
     return build(s, inv, body.filters, body.time)
 
 
+@router.get("/field-meanings")
+def field_meanings(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """Per export column: meaning, how this investigation's analysis uses it, and how many records carry it."""
+    from saw.core.application.field_meanings import build
+
+    _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    return build(inv_id)
+
+
 @router.get("/question-bundles")
 def question_bundles(inv_id: str, sensitivity: str = "normal", ctx: AuthContext = Depends(auth),
                      s: Session = Depends(db, scope="function")):

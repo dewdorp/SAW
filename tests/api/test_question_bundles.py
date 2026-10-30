@@ -42,3 +42,15 @@ def test_nothing_found_and_no_data_are_not_normal(analyst):
     out = analyst.get(f"/investigations/{_bundles(analyst, 'fw', 'spread')[0]['id']}/question-bundles",
                       params={"sensitivity": "low"}).json()
     assert out["thresholds"]["targets"] == 20 and "정상이라는 뜻이 아닙니다" in out["note"]
+
+
+def test_field_meanings_say_what_each_column_is_how_it_was_used_and_how_often_it_was_filled(analyst):
+    inv, _ = _bundles(analyst, "ndr", "no_bytes")
+    out = analyst.get(f"/investigations/{inv['id']}/field-meanings").json()
+    ndr = next(f for f in out["formats"] if f["parser"] == "en_ndr_http_csv")
+    by = {f["column"]: f for f in ndr["fields"]}
+    assert by["dest_ip"]["common_field"] == "dst_ip" and by["dest_ip"]["records_with_value"] == ndr["records"] == 10
+    assert by["query"]["common_field"] == "url_query" and by["sc_bytes"]["state"] == "candidate"
+    assert by["sc_bytes"]["records_with_value"] == 0  # this export carried no byte counts
+    assert by["uuid"]["state"] == "raw" and by["uuid"]["records_with_value"] == 10
+
