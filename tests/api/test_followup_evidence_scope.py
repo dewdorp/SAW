@@ -116,6 +116,8 @@ def test_a_request_is_prefilled_from_the_check_records_without_copying_addresses
     assert d["period"] == {"start": "2026-10-13T01:01:00Z", "end": "2026-10-13T01:04:00Z"} or \
         d["period"]["start"].startswith("2026-10-13T01:01:00")
     assert d["evidence_records"] == 2 and len(d["observed_pairs"]) == 2
+    # The question goes to a person: the observed span reads in Korean time, not as raw UTC timestamps.
+    assert "2026-10-13 10:01 ~ 10:04 (KST)" in d["question"] and "T01:01" not in d["question"]
     created = senior.post(f"/investigations/{inv['id']}/follow-ups", json={
         "check_id": check["id"], "question": d["question"], "reason": d["reason"], "target": d["target"],
         "period": d["period"], "needed_data": d["needed_data"]})

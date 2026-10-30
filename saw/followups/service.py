@@ -372,6 +372,24 @@ def collect_followup_sources(s, inv_id, version_ids=None):
 
 
 
+def _readable_span(start, end) -> str:
+    """"2026-10-13 10:01 ~ 10:04 (KST)" for the person reading the request; the period field keeps exact values."""
+    from zoneinfo import ZoneInfo
+
+    def local(value):
+        try:
+            moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return moment.astimezone(ZoneInfo("Asia/Seoul")) if moment.tzinfo else None
+
+    a, z = local(start), local(end)
+    if a is None or z is None:
+        return f"{start} ~ {end}"
+    tail = z.strftime("%H:%M") if z.date() == a.date() else z.strftime("%Y-%m-%d %H:%M")
+    return f"{a.strftime('%Y-%m-%d %H:%M')} ~ {tail} (KST)"
+
+
 def suggest(s, p, inv_id, check_id) -> dict:
     """Prefill a follow-up from what the check points at, so no address, port or time is copied by hand.
 
@@ -412,7 +430,7 @@ def suggest(s, p, inv_id, check_id) -> dict:
     times = sorted(str(e["timestamp"]) for e in events if e.get("timestamp"))
     start = times[0] if times else check.time_start
     end = times[-1] if times else check.time_end
-    span = f"{start} ~ {end}" if start and end else "기록된 기간"
+    span = _readable_span(start, end) if start and end else "기록된 기간"
     return {"check_id": check.id, "evidence_records": len(events),
             "question": f"{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? 수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
             "reason": (check.note or "로그만으로는 업무 여부와 수행 주체를 알 수 없습니다.")[:8000],
