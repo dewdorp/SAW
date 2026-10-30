@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_\-]+){0,4}$")
 
@@ -27,6 +27,15 @@ class Filter(BaseModel):
 class TimeRange(BaseModel):
     start: str | None = None  # ISO8601
     end: str | None = None
+    end_exclusive: bool = False  # [start, end) — used for whole-day periods so no instant of the last day is lost
+
+    @model_serializer(mode="wrap")
+    def _omit_default_bound(self, handler):
+        # Stored queries and their digests from before half-open ranges existed must stay byte-identical.
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("end_exclusive"):
+            data.pop("end_exclusive", None)
+        return data
 
 
 class SearchRequest(BaseModel):

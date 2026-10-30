@@ -92,7 +92,7 @@ def filters_to_dsl(inv: str, filters: list[Filter], time: TimeRange | None) -> d
         if time.start:
             r["gte"] = time.start
         if time.end:
-            r["lte"] = time.end
+            r["lt" if time.end_exclusive else "lte"] = time.end
         must.append({"range": {"timestamp": r}})
     for f in filters:
         if f.op == "is":

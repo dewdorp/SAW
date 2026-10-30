@@ -7,7 +7,7 @@ import { entityKey, useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtNum, fmtTime } from "../../lib/format";
 
-const ALL_COLS = ["timestamp", "data_source", "src_ip", "src_cloud", "method", "uri", "uri_template", "status_code", "bytes_out", "user_agent", "ua_class", "domain", "dst_ip", "dst_port", "user", "tags", "source_file"];
+const ALL_COLS = ["timestamp", "data_source", "src_ip", "src_cloud", "method", "hostname", "uri", "uri_template", "status_code", "bytes_out", "bytes_in", "user_agent", "ua_class", "domain", "dst_ip", "dst_port", "protocol", "enforcement_action", "user", "tags", "source_file"];
 const DEFAULT = ["timestamp", "data_source", "src_ip", "method", "uri", "status_code", "bytes_out", "user_agent"];
 
 // The table keeps what it has loaded in memory. Scrolling through millions of events would grow without limit, so
@@ -33,7 +33,15 @@ export function RawTab({ inv }: { inv: string }) {
     queryFn: ({ pageParam }) => api.post(`/investigations/${inv}/query/events`, { ...body, limit: 500, cursor: pageParam }),
     initialPageParam: null as string | null, getNextPageParam: (l: any) => l.next_cursor,
   });
-  const top = useQuery({ queryKey: ["top", inv, head, body], enabled: !!head, queryFn: () => api.post(`/investigations/${inv}/query/aggregate`, { filters: ctx.filters, time: ctx.time, agg: { type: "terms", field: head === "timestamp" ? "data_source" : head, size: 10 } }) });
+  // The time column has no "top values": it shows records per day (Asia/Seoul) and narrows by a day range,
+  // so no filter ever compares the timestamp with another column's value.
+  const isTime = head === "timestamp";
+  const top = useQuery({ queryKey: ["top", inv, head, body], enabled: !!head, queryFn: () => api.post(`/investigations/${inv}/query/aggregate`, { filters: ctx.filters, time: ctx.time,
+    agg: isTime ? { type: "date_histogram", field: "timestamp", interval_sec: 3600 } : { type: "terms", field: head, size: 10 } }) });
+  const perDay = isTime ? Object.entries((top.data?.buckets || []).reduce((acc: Record<string, number>, b: any) => {
+    const day = new Date((Number(b.key) + 9 * 3600) * 1000).toISOString().slice(0, 10);
+    acc[day] = (acc[day] || 0) + b.count; return acc; }, {})).filter(([, n]) => n) : [];
+  const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const rows = useMemo(() => (q.data?.pages || []).flatMap((p: any) => p.events), [q.data]);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => parent.current, estimateSize: () => 24, overscan: 30 });
   const vi = v.getVirtualItems();
@@ -59,19 +67,26 @@ export function RawTab({ inv }: { inv: string }) {
       <div className="row wrap small">
         <b>원본 로그</b><span className="muted">{fmtNum(rows.length)}건 불러옴{q.hasNextPage ? " · 다음 기록 있음" : ""} · 민감값 가림 · 열 제목을 누르면 상위 값</span>
         <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>시간 {sort === "asc" ? "↑" : "↓"}</button>
+        {/* Default columns per export kind; every original column stays reachable in the record detail. */}
+        <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "hostname", "method", "uri", "status_code", "bytes_out", "bytes_in"])}>NDR 기본 열</button>
+        <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "dst_port", "protocol", "enforcement_action", "bytes_out", "bytes_in"])}>FW 기본 열</button>
         <details><summary className="btn sm">표시할 열</summary><div className="panel pb" style={{ position: "absolute", zIndex: 5 }}>{ALL_COLS.map((c) => <label key={c} className="row small"><input type="checkbox" checked={cols.includes(c)} onChange={(e) => setCols(e.target.checked ? [...cols, c] : cols.filter((x) => x !== c))} />{c}</label>)}</div></details>
         <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">불러온 행 CSV 내보내기 (가림)</button>
         <button className="btn sm" disabled={!rows.length} onClick={() => setChecking(true)} title="지금 검색 결과에 대해 무엇을 확인했는지 남깁니다 (일부만 봤다면 표본으로)">✓ 검색 결과 확인 기록</button>
       </div>
       {capped && <div className="error small" role="status">화면에는 {fmtNum(MAX_LOADED)}건까지만 불러옵니다(브라우저 메모리 보호). 더 있는 이벤트는 시간 범위·필터로 좁히거나 시간 정렬(↑↓)을 바꿔서 보세요.</div>}
       {head && (
-        <div className="panel"><div className="ph"><span className="grow">상위 값 · {head}</span><button className="btn ghost sm" onClick={() => setHead(null)}>✕</button></div>
-          <div className="pb">{(top.data?.buckets || []).map((b: any) => (
+        <div className="panel"><div className="ph"><span className="grow">{isTime ? "날짜별 기록 수 · 시간" : `상위 값 · ${head}`}</span><button className="btn ghost sm" onClick={() => setHead(null)}>✕</button></div>
+          {isTime && <div className="pb">{perDay.map(([day, n]) => (
+            <div key={day} className="row small"><span className="mono grow">{day}</span><span className="num">{fmtNum(n as number)}</span>
+              <button className="btn sm" onClick={() => ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${nextDay(day)}T00:00:00+09:00`, end_exclusive: true } })}>이 날로 좁히기</button>
+            </div>))}</div>}
+          {!isTime && <div className="pb">{(top.data?.buckets || []).map((b: any) => (
             <div key={String(b.key)} className="row small"><span className="mono grow ellipsis">{String(b.key)}</span><span className="num">{fmtNum(b.count)}</span>
               <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is", value: b.key })}>포함</button>
               <button className="btn sm" onClick={() => ctx.addFilter({ field: head, op: "is_not", value: b.key })}>제외</button>
               {head === "src_ip" && <button className="btn sm" onClick={() => ctx.set({ tab: "entity", selection: { type: "ip", value: String(b.key) } })}>출발지 상세</button>}
-            </div>))}</div></div>
+            </div>))}</div>}</div>
       )}
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} />

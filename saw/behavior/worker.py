@@ -44,6 +44,24 @@ def _scope_events(inv_id, request, check):
                 seen.add(event_id)
                 yield event
 
+def _scope_total(inv_id, request):
+    """How many records the request covers in total, so a capped run says how much of it was analysed."""
+    es = container.get().events
+    base = [Filter.model_validate(f) for f in request["filters"]]
+    time = TimeRange.model_validate(request["time"]) if request.get("time") else None
+    ips = request.get("ips") or []
+    role = request.get("role", "src")
+    if not ips:
+        return es.count(inv_id, base, time)
+    if role == "either":  # union of the two branches
+        src = es.count(inv_id, base + [Filter(field="src_ip", op="in", value=ips)], time)
+        dst = es.count(inv_id, base + [Filter(field="dst_ip", op="in", value=ips)], time)
+        both = es.count(inv_id, base + [Filter(field="src_ip", op="in", value=ips),
+                                        Filter(field="dst_ip", op="in", value=ips)], time)
+        return src + dst - both
+    return es.count(inv_id, base + [Filter(field="src_ip" if role == "src" else "dst_ip", op="in", value=ips)], time)
+
+
 def _snapshots(events, known_at, manifest):
     file_ids = {f["id"] for e in manifest["evidence"] for f in e["files"]}
     with session_scope() as s:
@@ -135,6 +153,10 @@ def behavior_run(job_id: str):
         calculated = calculate(_scope_events(inv_id, request, check), request.get("profile"),
                                max_events=MAX_EVENTS, max_seconds=MAX_SECONDS, check_cancel=check)
         check(force=True)
+        execution = calculated.setdefault("execution", {})
+        execution["target_total"] = _scope_total(inv_id, request)
+        execution["coverage"] = ("partial" if execution.get("truncated")
+                                 or execution.get("processed", 0) < execution["target_total"] else "complete")
         captured_at = utcnow().isoformat()
         evidence = _snapshots(calculated.pop("evidence_events", []), captured_at, before)
         observations = {k: deepcopy(calculated[k]) for k in
@@ -165,7 +187,11 @@ def behavior_run(job_id: str):
             s.flush()
             job.state, job.finished_at = "COMPLETED", utcnow()
             job.events_done = int(observations.get("execution", {}).get("processed", 0))
-            job.stages = {**job.stages, "behavior_result": {"id": row.id, "result_sha256": row.result_sha256}}
+            run = observations.get("execution", {})
+            # A run that stopped at an input or time limit finished, but analysed only part of the scope: say so.
+            job.stages = {**job.stages, "behavior_result": {"id": row.id, "result_sha256": row.result_sha256,
+                "coverage": run.get("coverage"), "processed": run.get("processed"),
+                "target_total": run.get("target_total"), "reason": run.get("reason")}}
             audit.record(s, "behavior.completed", actor_id=author, actor_name=actor_name,
                 target_type="behavior_result", target_id=row.id, investigation_id=inv_id,
                 detail={"result_sha256": row.result_sha256, "version": row.version, "job_id": job_id})

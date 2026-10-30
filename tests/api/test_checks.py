@@ -62,12 +62,23 @@ def test_sample_is_not_the_whole_and_an_address_mark_is_not_a_record_mark(analys
     ids = [e["event_id"] for e in page]
     url = f"/investigations/{inv['id']}/checks"
     q = {"filters": [{"field": "src_ip", "op": "is", "value": ip}], "time": None}
+    real = analyst.post(f"/investigations/{inv['id']}/query/aggregate",
+                        json={"filters": q["filters"], "agg": {"type": "count", "field": "event_id"}}).json()["value"]
+    assert real > 30
     bad = analyst.post(url, json={"target_type": "set", "questions": ["nature"],
-                                  "scope": {"coverage": "sample", "query": q, "event_ids": ids, "total": len(ids)}})
-    assert bad.status_code == 400                                        # 30 of 30 is not a sample
+                                  "scope": {"coverage": "sample", "query": q, "event_ids": ids, "total": real,
+                                            "checked": real, "loaded": real}})
+    assert bad.status_code == 400                                        # all of them is not a sample
+    # UX-03: what was looked at is bounded by what was loaded; a claimed 50,000 of 30 loaded rows is refused.
+    inflated = analyst.post(url, json={"target_type": "set", "questions": ["nature"],
+                                       "scope": {"coverage": "sample", "query": q, "event_ids": ids[:10],
+                                                 "checked": real - 1, "loaded": 30, "total": 100000}})
+    assert inflated.status_code == 400 and "불러온" in inflated.text
     s1 = analyst.post(url, json={"target_type": "set", "target_label": "출발지 기록", "questions": ["nature"],
-                                 "scope": {"coverage": "sample", "query": q, "event_ids": ids[:10], "total": 400}}).json()
-    assert s1["coverage"] == "sample" and s1["checked"] == 10 and s1["total"] == 400 and s1["target_key"].startswith("set:")
+                                 "scope": {"coverage": "sample", "query": q, "event_ids": ids[:10], "total": 400,
+                                           "loaded": 30}}).json()
+    # The total is the server's own count of the search, never the number the client sent.
+    assert s1["coverage"] == "sample" and s1["checked"] == 10 and s1["total"] == real and s1["target_key"].startswith("set:")
     assert analyst.get(url).json()["summary"]["sample_only"] == 1
     analyst.post(url, json={"target_type": "entity", "target_key": f"ip:{ip}", "questions": ["business"], "judgement": "normal",
                             "note": "DB팀 확인: 정산 배치"}).raise_for_status()

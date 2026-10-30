@@ -10,7 +10,7 @@ from saw.core.security.masking import mask_text
 from saw.parsers.base import RAW_MAX, BaseParser, Failed, Parsed, RawLine
 from saw.parsers.ndr import NdrMetaCsvParser
 from saw.parsers.network import SuricataEveParser, ZeekJsonParser, ZeekTsvParser
-from saw.parsers.security_csv import KoFirewallCsvParser, KoNdrCsvParser
+from saw.parsers.security_csv import EnFirewallCsvParser, EnNdrHttpCsvParser, KoFirewallCsvParser, KoNdrCsvParser
 from saw.parsers.structured import (
     CloudflareParser,
     CsvParser,
@@ -24,7 +24,7 @@ from saw.parsers.web import ApacheParser, IISParser, NginxParser
 
 
 def builtin_parsers() -> list[BaseParser]:
-    return [KoFirewallCsvParser(), KoNdrCsvParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
+    return [KoFirewallCsvParser(), KoNdrCsvParser(), EnFirewallCsvParser(), EnNdrHttpCsvParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
             SuricataEveParser(), CloudflareParser(), GenericJsonWafParser(),
             GenericWafParser(), JsonLinesParser(), SyslogParser(), CsvParser(), KeyValueParser()]
 
@@ -146,8 +146,12 @@ def parse_text(text: str, *, investigation_id: str = "adhoc", parser_id: str | N
     # parser-driven, like file ingest: records spanning lines (quoted CSV) and paired records (NDR) work in a paste too
     for rl, r in parser.parse(iter(raw_lines())):
         if isinstance(r, Parsed):
-            events.append(to_ces(parser, rl, r, investigation_id=investigation_id, evidence_id=None,
-                                 file_id="paste", source_file="paste", object_key=None, assumed_tz=assumed_tz))
+            try:
+                events.append(to_ces(parser, rl, r, investigation_id=investigation_id, evidence_id=None,
+                                     file_id="paste", source_file="paste", object_key=None, assumed_tz=assumed_tz))
+            except (ValueError, TypeError, OverflowError, ArithmeticError, KeyError) as exc:
+                failures.append({"line_no": rl.line_no, "reason": f"이 행의 값을 정규화하지 못했습니다({type(exc).__name__})",
+                                 "raw": rl.text[:300]})
         elif isinstance(r, Failed):
             failures.append({"line_no": rl.line_no, "reason": r.reason, "raw": rl.text[:300]})
     return {"parser": det.parser_id, "confidence": det.confidence, "candidates": det.candidates,

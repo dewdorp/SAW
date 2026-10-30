@@ -72,7 +72,12 @@ export function BehaviorTab({ inv }: { inv: string }) {
     profile: { thresholds, ua_min_404: uaMin404, exclude_methods: excludeOptions ? ["OPTIONS"] : [],
       static_suffixes: suffixes.split(/[\s,;]+/).filter(Boolean), deduplicate_request_id: deduplicate } }),
     onSuccess: j => { setJobId(j.id); qc.setQueryData(["job", j.id], j); } });
-  const cancel = useMutation({ mutationFn: () => api.post(`/jobs/${jobId}/cancel`), onSuccess: () => qc.invalidateQueries({ queryKey: ["job", jobId] }) });
+  // A job is cancelled only from the investigation it belongs to.
+  const cancel = useMutation({ mutationFn: async () => {
+    if (job.data && job.data.investigation_id && job.data.investigation_id !== inv) throw new Error("이 작업은 현재 조사의 작업이 아닙니다.");
+    return api.post(`/jobs/${jobId}/cancel`);
+  }, onSuccess: () => qc.invalidateQueries({ queryKey: ["job", jobId] }) });
+  useEffect(() => { setJobId(""); setSelectedId(""); setCompareId(""); }, [inv]);
   useEffect(() => {
     if (job.data?.state === "COMPLETED") {
       qc.invalidateQueries({ queryKey: ["behavior", inv] });
@@ -141,7 +146,7 @@ export function BehaviorTab({ inv }: { inv: string }) {
         <label className="row small"><input type="checkbox" checked={deduplicate} onChange={e => setDeduplicate(e.target.checked)} />명시적 요청 ID와 동일 요청·시각이 일치하는 다중 센서 기록만 중복 제거</label>
       </details><ErrorBox error={run.error} />
       {jobId && <div aria-live="polite" className="notice small" style={{ marginTop: 8 }}>
-        작업: {STATES[job.data?.state] || job.data?.state || "대기"} · 처리 {fmtNum(job.data?.events_done ?? 0)}건 {job.data?.current_item || ""}
+        작업: {STATES[job.data?.state] || job.data?.state || "대기"}{job.data?.stages?.behavior_result?.coverage === "partial" ? " (일부만 분석)" : ""} · 처리 {fmtNum(job.data?.events_done ?? 0)}건 {job.data?.current_item || ""}
         {active && <button className="btn sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>분석 취소</button>}
         {job.data?.error?.message && <div role="alert">{job.data.error.message}</div>}<ErrorBox error={job.error || cancel.error} />
       </div>}
@@ -171,7 +176,10 @@ export function BehaviorTab({ inv }: { inv: string }) {
         {files.length > 100 && <p className="small muted">파일 {files.length}개 중 100개를 표시합니다. 나머지 지문은 저장된 출처 명세에서 확인할 수 있습니다.</p>}
         <table className="t"><tbody>{Object.entries(o.quality || {}).map(([key, value]) => <tr key={key}><th>{QUALITY[key] || key}</th><td>{value && typeof value === "object" ? <div className="row wrap" style={{ gap: 8 }}>{Object.entries(value).map(([field, count]) => <span key={field} className="tag">{QUALITY[field] || field}: {display(count)}</span>)}</div> : display(value)}</td></tr>)}</tbody></table>
         <p className="small muted">빈 UA 기록은 헤더 부재의 증거가 아닙니다. 비어 있는 시간 구간은 수집 연속성 미확인으로 해석합니다. 다중 센서에는 같은 요청이 중복 기록될 수 있습니다.</p>
-        {o.execution?.truncated && <div className="notice warn" role="alert">제한으로 중단: {o.execution.reason} · 처리한 일부 자료입니다.</div>}
+        {(o.execution?.truncated || o.execution?.coverage === "partial") && <div className="notice warn" role="alert">
+          일부만 분석: 대상 {o.execution.target_total != null ? fmtNum(o.execution.target_total) : "미확인"}건 중 {fmtNum(o.execution.processed ?? 0)}건 처리
+          {o.execution.reason ? ` · 중단 이유 ${o.execution.reason}` : ""}. 아래 값은 처리한 부분의 관측값입니다.</div>}
+        {o.execution?.coverage === "complete" && <div className="small muted">대상 {fmtNum(o.execution.target_total)}건 전체를 분석했습니다.</div>}
         <details><summary>저장된 범위·방법·출처 지문</summary><pre className="small mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify({ scope: r.result.scope, methodology: r.result.methodology, profile: r.result.profile, source_manifest: r.result.source_manifest, execution: o.execution, result_sha256: r.result_sha256 }, null, 2)}</pre></details>
       </Panel>
       <Panel title="계산된 관측값">

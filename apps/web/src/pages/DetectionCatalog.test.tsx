@@ -137,7 +137,7 @@ describe("shipped detection catalog", () => {
     expect(screen.getByText("192.0.2.0/24")).toBeTruthy();
     expect(screen.getByText("시험용 승인 포트 기준")).toBeTruthy();
     expect(screen.getByText(/600초/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "NDR 관측 정책 변경" }).getAttribute("href")).toBe("/detections/policies/ndr.observation");
+    expect(screen.getByRole("link", { name: "NDR 장비 관측 정책 변경" }).getAttribute("href")).toBe("/detections/policies/ndr.observation");
     expect(screen.queryByRole("button", { name: "시그니처 켜기" })).toBeNull();
     expect(api.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("기본 탐지 검색"), { target: { value: "t1041" } });

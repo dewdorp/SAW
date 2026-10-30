@@ -56,7 +56,8 @@ def job_out(j: Job, *, p=None) -> dict:
             stages[key] = j.stages[key]
     result = (j.stages or {}).get("behavior_result")
     if isinstance(result, dict):
-        stages["behavior_result"] = {k: v for k, v in result.items() if k in {"id", "result_sha256"}}
+        stages["behavior_result"] = {k: v for k, v in result.items()
+                                     if k in {"id", "result_sha256", "coverage", "processed", "target_total", "reason"}}
     if j.kind == "golden_export":
         from saw.knowledge.golden_jobs import can_manage, public_stage
         stages = {"golden_export": public_stage(j, can_manage=p is not None and can_manage(p, j),

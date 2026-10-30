@@ -359,6 +359,10 @@ class NdrPolicy:
             config = load()
         _validate(config)
         if not any(r["enabled"] for r in config["rules"]):
+            # Every rule is off: say so, so the run never reads as "analysed, nothing found".
+            ctx.params.setdefault("execution_reports", {})[self.id] = {
+                "status": "disabled", "reason": "policy_disabled", "limitations": ["policy_disabled"],
+                "rules": len(config["rules"]), "enabled_rules": 0}
             return []
         events = ctx.events.iterate(ctx.investigation_id, [Filter(field="data_source", value="zeek_conn")],
                                     fields=["event_id", "data_source", "timestamp", "src_ip", "dst_ip", "dst_port",

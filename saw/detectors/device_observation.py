@@ -58,6 +58,18 @@ class DeviceObservation:
         for candidate in result["candidates"]:
             ids = list(dict.fromkeys(ref["event_id"] for ref in candidate["event_refs"] if ref.get("event_id")))
             values, kind = candidate["metrics"], candidate["kind"]
+            # The span of the kept representative records gives the candidate a time to join timelines and
+            # scenarios; it is labelled as such, never as the full extent of the activity.
+            times = []
+            for event_id in ids:
+                try:
+                    event = ctx.events.get(ctx.investigation_id, event_id)
+                except Exception:  # noqa: BLE001 - a missing record only narrows the representative span
+                    event = None
+                if event and event.get("timestamp"):
+                    times.append(str(event["timestamp"]))
+            entities = list(dict.fromkeys("ip:" + str(values[key]) for key in ("src_ip", "client_ip", "dst_ip")
+                                          if values.get(key)))
             units = {row["key"]: row["unit"] for row in get_spec(self.id)["parameters"]}
             drafts.append(FindingDraft(detector_id=self.id, detector_version=self.version,
                 title="관측 후보: " + LABELS.get(kind, kind), category=self.category + "." + kind,
@@ -65,13 +77,15 @@ class DeviceObservation:
                 metrics=[metric(key, value, unit=_metric_unit(key, value, values, units)) for key, value in values.items()],
                 checks=[{"label": "근거와 정상 업무 확인 필요", "passed": None, "value": None,
                          "detail": "관측과 승인 업무·실제 처리·영향을 구분하여 확인하세요."}],
-                entities=["ip:" + str(values[key]) for key in ("src_ip", "dst_ip") if values.get(key)],
+                entities=entities,
                 evidence_query={"filters": [{"field": "event_id", "op": "in", "value": ids}],
                                 "reference_scope": "bounded_representative"},
-                time_start=None, time_end=None, dedup_key=self.id+":"+digest([kind, values, ids]),
+                time_start=min(times) if times else None, time_end=max(times) if times else None,
+                dedup_key=self.id+":"+digest([kind, values, ids]),
                 sample_event_ids=ids, total_events=values.get("denominator", len(ids)), success_signal=False,
                 attack_unmapped_reason="장비 관측만으로 침해나 기법을 확정할 수 없습니다.",
-                explanation="검증된 원천 문맥·단위와 같은 실행의 근거·자료 한계를 확인하세요."))
+                explanation=("검증된 원천 문맥·단위와 같은 실행의 근거·자료 한계를 확인하세요."
+                             + (f" 시각은 대표 근거 {len(times)}건의 범위입니다." if times else " 대표 근거에 시각이 없어 시간 흐름에 넣지 못했습니다."))))
         return drafts
 
 

@@ -1,6 +1,8 @@
 """Investigation use cases + access resolution (docs/32)."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -72,6 +74,24 @@ def period_settings(settings: dict | None, start, end) -> dict:
 def declared_period(inv: Investigation) -> tuple[str | None, str | None]:
     period = (inv.settings or {}).get("period") or {}
     return period.get("start"), period.get("end")
+
+
+def period_window(inv: Investigation):
+    """The declared period as one time window for every count, chart and check.
+
+    A period that ends at 23:59:59 of a day means "through that whole day": it is applied as the half-open
+    window [start, next day 00:00), so records at 23:59:59.500 are inside it. Any other end stays inclusive.
+    """
+    from saw.core.schemas.query import TimeRange
+
+    start, end = declared_period(inv)
+    if not start or not end:
+        return None
+    begin, finish = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    if (finish.hour, finish.minute, finish.second, finish.microsecond) == (23, 59, 59, 0):
+        following = (finish + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return TimeRange(start=begin.isoformat(), end=following.isoformat(), end_exclusive=True)
+    return TimeRange(start=begin.isoformat(), end=finish.isoformat())
 
 
 def create(s: Session, p: Principal, title: str, org_unit: str = "", org_unit_id: str | None = None,
