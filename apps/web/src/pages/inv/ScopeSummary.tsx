@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ErrorBox, Loading, Panel } from "../../components/common";
+import { QuestionBundles } from "./QuestionBundles";
 import { useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtNum, fmtTime } from "../../lib/format";
@@ -87,6 +88,7 @@ export function ScopeSummary({ inv }: { inv: string }) {
   };
   return (
     <div className="col" style={{ gap: 12 }}>
+      <QuestionBundles inv={inv} />
       <section aria-label="조사 범위와 기준" className="panel pb col" style={{ gap: 6 }}>
         <div className="row wrap" style={{ gap: 16 }}>
           <span><span className="muted">관계사</span> <b>{d.scope.org_unit || "미지정"}</b></span>
