@@ -60,6 +60,11 @@ export function SourceContextTab({ inv }: { inv: string }) {
   // Everything chosen here belongs to one investigation: switching investigations starts clean.
   useEffect(() => { setDevice(""); setProfile(blankProfile()); setAdvanced(""); setAck(false); setError(null); }, [inv]);
   const profiles = useQuery({ queryKey: ["source-profiles", device], queryFn: () => api.get(`/source-context/devices/${device}/profiles`), enabled: !!device });
+  // Confirmed profiles of the same affiliate from earlier investigations, copied as this investigation's own version.
+  const templates = useQuery<any>({ queryKey: ["profile-templates", inv], queryFn: () => api.get(`/source-context/investigations/${inv}/profile-templates`) });
+  const [templateId, setTemplateId] = useState("");
+  const fromTemplate = useMutation({ mutationFn: () => api.post(`/source-context/investigations/${inv}/devices/from-template`, { profile_version_id: templateId }),
+    onSuccess: (row: any) => { setTemplateId(""); qc.invalidateQueries({ queryKey: ["source-devices", inv] }); setDevice(row.device_id); } });
   const addDevice = useMutation({ mutationFn: () => api.post(`/source-context/investigations/${inv}/devices`, { display_name: name.trim() }), onSuccess: row => { setDevice(row.id); setName(""); qc.setQueryData(["source-devices", inv], (old: any) => [...(old || []), row]); } });
   const save = useMutation({ mutationFn: (body: any) => api.post(`/source-context/devices/${device}/profiles`, body), onSuccess: () => { setAdvanced(""); setAck(false); qc.invalidateQueries({ queryKey: ["source-profiles", device] }); } });
   const field = (key: string, value: any) => setProfile((p: any) => ({ ...p, [key]: value }));
@@ -100,8 +105,9 @@ export function SourceContextTab({ inv }: { inv: string }) {
   };
   return <div className="col" style={{ gap: 16 }}>
     <div><h3>장비·자료 의미</h3><p className="muted">조사 관계사는 관측 대상의 귀속 근거가 아닙니다. 프로필은 새 버전으로 저장하며 이미 첨부한 증거의 맥락은 바뀌지 않습니다.</p></div>
-    <ErrorBox error={devices.error || orgs.error || investigation.error || addDevice.error || profiles.error || error || save.error} />
+    <ErrorBox error={devices.error || orgs.error || investigation.error || addDevice.error || profiles.error || error || save.error || fromTemplate.error} />
     <div className="row wrap"><label>장비 선택 <select className="input" value={device} onChange={e => { setDevice(e.target.value); setProfile(blankProfile()); setAdvanced(""); setAck(false); }}><option value="">장비를 선택하세요</option>{(devices.data || []).map((d: any) => <option key={d.id} value={d.id}>{d.display_name}</option>)}</select></label>
+      <label>이전 조사의 확인된 장비 설정 <select className="input" aria-label="장비 템플릿" value={templateId} onChange={e => setTemplateId(e.target.value)}><option value="">선택하지 않음</option>{(templates.data?.items || []).map((t: any) => <option key={t.profile_version_id} value={t.profile_version_id}>{t.device_name} · {t.investigation_title} · v{t.version}{t.verified.time && t.verified.counters ? " · 의미 확인됨" : " · 일부 미확인"}</option>)}</select></label><button className="btn" disabled={!templateId || fromTemplate.isPending} onClick={() => fromTemplate.mutate()}>이 설정으로 장비 등록</button>
       <label>새 장비 이름 <input className="input" maxLength={128} value={name} onChange={e => setName(e.target.value)} /></label><button className="btn" disabled={!name.trim() || addDevice.isPending} onClick={() => addDevice.mutate()}>장비 등록</button></div>
     {device && <>
       <section className="panel pb col"><h4>새 프로필 버전 초안</h4>
