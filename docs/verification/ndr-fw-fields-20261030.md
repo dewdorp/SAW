@@ -17,7 +17,7 @@
 - NDR: `event_time,_site,app,_schema,protocol,src_ip,src_port,src_country,dest_ip,dest_port,dest_country,_device_ip,_device_name,method,host,path,query,user_agent,referer,req_cookie,uuid,status,sc_bytes,cs_bytes` 및 앞에 `| # fields `가 붙은 형태.
 - FW: `_time,_device_ip,_device_name,action,src_ip,src_port,dst_ip,dst_port,protocol,tcp_flag,duration,sent_bytes,rcvd_bytes`.
 - 열 순서 변경, 머리글 앞뒤 공백, BOM, 따옴표, 쉼표/탭 구분자를 처리한다. 잘못된 행은 그 행만 실패로 격리된다.
-- 쿠키 값은 이벤트 저장소·원문 표시에 넣지 않는다(쿠키 이름만 저장, 값은 원본 파일에만 남음).
+- 쿠키 값은 이벤트 저장소·원문 표시에 넣지 않는다(쿠키 이름만 저장, 값은 원본 파일에만 남음). **정정(2026-11-02):** 정규화 필드에는 맞았으나 이벤트 상세·주변 줄·업로드 미리보기는 원본 줄을 읽어 값이 보였다. review-scope-20261102에서 고쳤다.
 - `query`는 HTTP 요청 문맥(메서드·경로·상태 중 2개 이상)일 때 요청 대상(`path?query`)으로 합치며 DNS 도메인으로 바꾸지 않는다. DNS 기록의 query는 그대로 도메인이다.
 
 ## 3. 필드별 연결 결과
