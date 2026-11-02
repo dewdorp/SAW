@@ -8,12 +8,16 @@ import { fmtTime } from "../lib/format";
 
 const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 type Form = { vendor: string; product: string; original_name: string; signature_id: string; rule_version: string; valid_from: string; valid_to: string;
-  status: string; meaning: string; description: string; example_logs: string; benign_cases: string; false_positive_cases: string; checks: string };
+  status: string; meaning: string; description: string; example_logs: string; benign_cases: string; false_positive_cases: string; checks: string;
+  log_source: string; action_values: string; observes: string; cannot_prove: string; followup_data: string; linked_questions: string; scope_note: string };
+const LISTS = ["example_logs", "benign_cases", "false_positive_cases", "checks", "action_values", "observes", "cannot_prove", "followup_data", "linked_questions"] as const;
 const blank = (): Form => ({ vendor: "", product: "", original_name: "", signature_id: "", rule_version: "", valid_from: "", valid_to: "", status: "confirmed",
-  meaning: "", description: "", example_logs: "", benign_cases: "", false_positive_cases: "", checks: "" });
-const toForm = (x: any): Form => ({ ...blank(), ...Object.fromEntries(Object.entries(x).filter(([k]) => k in blank())),
-  example_logs: (x.example_logs || []).join("\n"), benign_cases: (x.benign_cases || []).join("\n"), false_positive_cases: (x.false_positive_cases || []).join("\n"), checks: (x.checks || []).join("\n") });
-const body = (f: Form) => ({ ...f, example_logs: lines(f.example_logs), benign_cases: lines(f.benign_cases), false_positive_cases: lines(f.false_positive_cases), checks: lines(f.checks) });
+  meaning: "", description: "", example_logs: "", benign_cases: "", false_positive_cases: "", checks: "",
+  log_source: "", action_values: "", observes: "", cannot_prove: "", followup_data: "", linked_questions: "", scope_note: "" });
+const toForm = (x: any): Form => ({ ...blank(), ...Object.fromEntries(Object.entries(x).filter(([k]) => k in blank() && typeof x[k] === "string")),
+  ...Object.fromEntries(LISTS.map((k) => [k, (x[k] || []).join("\n")])) });
+// Questions may be typed "Q01, Q09" on one line.
+const body = (f: Form) => ({ ...f, ...Object.fromEntries(LISTS.map((k) => [k, k === "linked_questions" ? lines(f[k].replace(/[,\s]+/g, "\n")).map((q) => q.toUpperCase()) : lines(f[k])])) });
 
 function Affiliates({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
@@ -57,6 +61,15 @@ function SignatureForm({ initial, onDone }: { initial?: any; onDone: () => void 
       {text("benign_cases", "알려진 정상 사례 (한 줄에 하나)")}
       {text("false_positive_cases", "알려진 오탐 사례 (한 줄에 하나)")}
       {text("checks", "판단할 때 확인할 사항 (한 줄에 하나)", 3)}
+      <div className="row wrap">
+        <label className="small">로그 원천<input className="input" value={f.log_source} onChange={(e) => set("log_source", e.target.value)} placeholder="예: WAF 차단 로그" /></label>
+        <label className="small">연결할 조사 질문<input className="input" value={f.linked_questions} onChange={(e) => set("linked_questions", e.target.value)} placeholder="예: Q01, Q09" /></label>
+      </div>
+      {text("action_values", "장비 처리값 (한 줄에 하나, 예: block, alert)")}
+      {text("observes", "이 공격명이 관측하는 것 (한 줄에 하나)")}
+      {text("cannot_prove", "이 공격명만으로 입증하지 못하는 것 (한 줄에 하나)")}
+      {text("followup_data", "필요한 후속 자료 (한 줄에 하나)")}
+      {text("scope_note", "특정 관계사 예외 (공통 의미와 구분해 적기)")}
       <ErrorBox error={save.error} />
       <div className="row"><button className="btn primary" disabled={!f.original_name.trim() || save.isPending} onClick={() => save.mutate()}>{initial ? `저장 (v${initial.version + 1})` : "등록"}</button><button className="btn" onClick={onDone}>닫기</button></div>
     </section>
