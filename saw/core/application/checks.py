@@ -173,6 +173,44 @@ def compare(then: dict, now: dict) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------- write
+def _set_total(inv_id: str, query: dict) -> int | None:
+    from saw import container
+
+    try:
+        filters = [Filter.model_validate(f) for f in (query or {}).get("filters") or []]
+        time = TimeRange.model_validate(query["time"]) if (query or {}).get("time") else None
+    except Exception:  # noqa: BLE001 - an unreadable stored query cannot be counted; the claim is then refused below
+        return None
+    return container.get().events.count(inv_id, filters, time)
+
+
+def _existing(inv_id: str, ids: list[str]) -> int:
+    from saw import container
+
+    return container.get().events.count(inv_id, [Filter(field="event_id", op="in", value=sorted(set(ids)))], None)
+
+
+ORIGIN_KEYS = {"kind", "bundle", "title", "description", "parameters", "preset", "scope", "completeness",
+               "partial_reasons", "item", "questions"}
+ITEM_KEYS = {"title", "observed", "basis", "records", "unknown", "normal_possibilities", "next_questions", "time", "strength"}
+
+
+def _origin(origin: Any, inv_id: str) -> dict:
+    """Where a check came from: the question, its exact condition and run scope, and the whole item it records."""
+    import json
+
+    if not isinstance(origin, dict) or origin.get("kind") != "question":
+        raise ValueError("확인 기록의 출처 형식이 올바르지 않습니다")
+    clean = {k: v for k, v in origin.items() if k in ORIGIN_KEYS}
+    clean["item"] = {k: v for k, v in (origin.get("item") or {}).items() if k in ITEM_KEYS}
+    scope = clean.get("scope") or {}
+    if scope.get("investigation_id") not in (None, inv_id):
+        raise ValueError("다른 조사에서 계산한 질문 결과는 이 조사의 확인 기록으로 남길 수 없습니다")
+    if len(json.dumps(clean, ensure_ascii=False, default=str)) > 32_000:
+        raise ValueError("확인 기록의 출처 내용이 너무 깁니다")
+    return clean
+
+
 def _clean(data: dict, inv_id: str) -> dict[str, Any]:
     tt = str(data.get("target_type") or "")
     if tt not in TARGETS:
@@ -200,17 +238,36 @@ def _clean(data: dict, inv_id: str) -> dict[str, Any]:
         raise ValueError(f"coverage must be one of {sorted(COVERAGE)}")
     ids = [str(x) for x in (scope_in.get("event_ids") or [])][:MAX_IDS]
     total, checked = scope_in.get("total"), scope_in.get("checked")
+    loaded = scope_in.get("loaded")
+    loaded = len(loaded) if isinstance(loaded, list) else loaded
+    if tt == "set":
+        # The server counts the search itself: a client cannot claim a larger or smaller result than it has.
+        total = _set_total(inv_id, query)
+        if ids and _existing(inv_id, ids) != len(set(ids)):
+            raise ValueError("확인 기록의 대표 기록 중 이 조사에 없는 기록이 있습니다")
+        if loaded is not None and total is not None and int(loaded) > total:
+            raise ValueError("불러온 건수가 검색 결과 전체보다 많을 수 없습니다")
     if coverage == "sample":
         checked = int(checked or len(ids) or 0)
         if not total or not checked or checked >= int(total):
             raise ValueError("표본 확인은 본 건수가 전체보다 적어야 합니다(전체를 봤다면 '전체'를 고르세요)")
+        if tt == "set" and checked > max(len(set(ids)), int(loaded or 0)):
+            # Looked-at records are bounded by what was loaded on screen; the kept references are a part of those.
+            raise ValueError(f"확인한 건수({checked})가 화면에 불러온 기록 수({int(loaded or len(set(ids)))})보다 많습니다. "
+                             "불러온 기록 안에서만 표본으로 기록할 수 있습니다")
     if coverage == "all" and tt == "set" and total is not None:
         # Only records actually loaded can have been looked at: 20,000 shown of 100,000 is a sample, not "all".
-        seen = scope_in.get("loaded", checked)
+        seen = loaded if loaded is not None else checked
         if seen is not None and int(seen) < int(total):
             raise ValueError("불러온 기록이 검색 결과 전체보다 적어 '전체 확인'으로 기록할 수 없습니다. '표본'으로 기록하세요")
+        # Without a loaded count the record says nothing about how many rows were read (checked stays unknown).
+        checked = total if seen is not None else None
     scope = {"coverage": coverage, "checked": int(checked) if checked is not None else (len(ids) or None),
              "total": int(total) if total is not None else None, "query": query, "event_ids": ids}
+    if scope_in.get("origin"):
+        scope["origin"] = _origin(scope_in["origin"], inv_id)
+    if tt == "set":
+        scope.update(loaded=int(loaded) if loaded is not None else None, kept_refs=len(ids))
     return {"target_type": tt, "target_key": key[:512], "target_label": str(data.get("target_label") or key)[:512],
             "scope": scope, "questions": questions, "judgement": judgement, "note": note,
             "evidence": [str(x) for x in (data.get("evidence") or [])][:20],

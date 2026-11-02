@@ -55,8 +55,9 @@ def _counter(value):
         return None
     if isinstance(value, int):
         return value if value >= 0 else None
-    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
-        return int(value)
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+", value.strip()):
+        # "60,000,000" from spreadsheet exports is the same count normalisation already reads as 60000000.
+        return int(value.strip().replace(",", ""))
     return None
 
 

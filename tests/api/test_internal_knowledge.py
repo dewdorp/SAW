@@ -88,10 +88,10 @@ def test_alert_names_are_matched_exactly_and_unregistered_names_stay_open(senior
     _process(senior, inv["id"], "ndr.csv", _ndr([name, name, name.lower(), name + " ", "Unknown Vendor Label"]))
     out = senior.get(f"/investigations/{inv['id']}/alert-names").json()
     status = {x["alert_name"]: x["registry"] for x in out["items"]}
-    assert status[name] == "confirmed"
+    assert status[name] == "name_only"  # registered without any device: shown as a name-only match
     assert status[name.lower()] == "needs_confirmation"  # similar is not the same
     assert status["Unknown Vendor Label"] == "needs_confirmation"
-    entry = next(x for x in out["items"] if x["alert_name"] == name)["entries"][0]
+    entry = next(x for x in out["items"] if x["alert_name"] == name)["applied"]
     assert entry["original_name"] == name and entry["meaning"].startswith("Path discovery")
 
     sid = created.json()["id"]
@@ -103,3 +103,54 @@ def test_alert_names_are_matched_exactly_and_unregistered_names_stay_open(senior
     assert updated.status_code == 200 and updated.json()["version"] == 2
     history = senior.get(f"/knowledge/device-signatures/{sid}/history").json()["items"]
     assert [h["version"] for h in history] == [2, 1]
+
+
+def test_a_meaning_applies_only_to_the_same_device_and_validity_period(senior):
+    """SIG-01: an expired meaning registered for vendor A is never applied to vendor B's records of the same name."""
+    from saw import container
+
+    name = f"Shared Label {uuid.uuid4().hex[:4]}"
+    expired_a = senior.post("/knowledge/device-signatures", json={
+        "vendor": "Vendor A", "product": "Sensor", "original_name": name, "meaning": "A: path discovery",
+        "valid_from": "2019-01-01", "valid_to": "2020-12-31"})
+    assert expired_a.status_code == 201, expired_a.text
+    inv = senior.post("/investigations", json={"title": "vendors"}).json()
+
+    def index(vendor, ts, n=3):
+        container.get().events.index([{"event_id": f"{vendor}-{uuid.uuid4().hex[:6]}", "investigation_id": inv["id"],
+                                       "timestamp": ts, "alert_name": name, "src_ip": "198.51.100.9",
+                                       "ext": {"cef_vendor": vendor, "cef_product": "Sensor"}} for _ in range(n)])
+    index("Vendor B", "2026-10-13T01:00:00Z")
+    index("Vendor A", "2026-10-13T01:00:00Z", 2)
+    out = senior.get(f"/investigations/{inv['id']}/alert-names").json()["items"]
+    by_vendor = {x["vendor"]: x for x in out}
+    assert by_vendor["Vendor B"]["registry"] == "needs_confirmation" and by_vendor["Vendor B"]["applied"] is None
+    assert "다릅니다" in by_vendor["Vendor B"]["entries"][0]["not_applied_reason"]
+    assert by_vendor["Vendor A"]["registry"] == "needs_confirmation"  # same vendor, but 2026 is outside 2019-2020
+    assert "유효기간" in by_vendor["Vendor A"]["entries"][0]["not_applied_reason"]
+
+    current_b = senior.post("/knowledge/device-signatures", json={
+        "vendor": "Vendor B", "product": "Sensor", "original_name": name, "meaning": "B: brute force counter",
+        "valid_from": "2026-01-01"})
+    assert current_b.status_code == 201, current_b.text
+    out = senior.get(f"/investigations/{inv['id']}/alert-names").json()["items"]
+    b = next(x for x in out if x["vendor"] == "Vendor B")
+    assert b["registry"] == "confirmed" and b["applied"]["meaning"] == "B: brute force counter"
+    assert b["applied"]["version"] == 1
+    assert next(x for x in out if x["vendor"] == "Vendor A")["registry"] == "needs_confirmation"
+
+
+def test_an_alert_meaning_records_what_it_observes_cannot_prove_and_which_questions_it_feeds(senior):
+    body = {"vendor": "가상벤더", "product": "WAF", "original_name": "SYNTH-SQLI-PROBE", "signature_id": "9001",
+            "meaning": "요청 값에 SQL 구문 형태", "log_source": "WAF 차단 로그", "action_values": ["block", "alert"],
+            "observes": ["요청 값의 구문 형태"], "cannot_prove": ["DB에서 실행됐는지", "데이터가 나갔는지"],
+            "followup_data": ["애플리케이션 오류 로그", "DB 감사 로그"], "linked_questions": ["Q02", "Q09"],
+            "scope_note": "가상 관계사 A는 점검 서버 예외"}
+    created = senior.post("/knowledge/device-signatures", json=body)
+    assert created.status_code == 201, created.text
+    row = next(x for x in senior.get("/knowledge/device-signatures", params={"q": "SYNTH-SQLI-PROBE"}).json()["items"]
+               if x["id"] == created.json()["id"])
+    for key in ("log_source", "action_values", "observes", "cannot_prove", "followup_data", "linked_questions", "scope_note"):
+        assert row[key] == body[key], key
+    bad = senior.post("/knowledge/device-signatures", json={**body, "original_name": "SYNTH-2", "linked_questions": ["Q11"]})
+    assert bad.status_code == 422

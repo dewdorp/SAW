@@ -11,8 +11,13 @@ from saw.devtools.release_manifest import BundleError, digest, safe_relative, se
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.compact.json',
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
- 'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt')
+ 'data/enrichment/cloud_ranges.csv','data/enrichment/tor_exits.txt','data/question_examples/examples.json')
 PUBLIC_DOCS = (
+ 'docs/ANALYST-WORKFLOW-GUIDE-20261029.md',
+ 'docs/verification/analyst-fixes-20261030.md',
+ 'docs/verification/ndr-fw-fields-20261030.md',
+ 'docs/verification/review-scope-20261102.md',
+ 'docs/OPERATIONS-INSTALL-v0.2.3.md',
  'docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md',
  'docs/samples/security-csv/fw-mixed-devices.csv',
  'docs/samples/security-csv/ndr-potential-chain.csv',

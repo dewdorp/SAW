@@ -31,15 +31,18 @@ import { StatisticsTab } from "./StatisticsTab";
 import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
-/** Three work areas. Every earlier tab is still here; specialist views fold under "전문 분석". */
+/** Basic work areas: the whole picture, investigating, the whole log, then checks and judgement. Every earlier tab
+ * is still here; specialist views fold under "전문 분석". */
 type Area = { key: string; label: string; hint: string; tabs: [string, string][]; advanced?: [string, string][] };
 const AREAS: Area[] = [
-  { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명",
-    tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["statistics", "로그 통계"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
-  { key: "investigate", label: "② 조사", hint: "조사 제안과 근거, 직접 검색, 반복 행위 묶음, 시계열",
-    tabs: [["findings", "조사 제안"], ["raw", "로그 검색·원문"], ["behavior", "행위 묶음·시계열"], ["timeline", "타임라인"]],
+  { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명·확인할 질문",
+    tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
+  { key: "investigate", label: "② 조사", hint: "조사 제안과 생성 이유, 반복 행위 묶음, 시계열",
+    tabs: [["findings", "조사 제안"], ["behavior", "행위 묶음·시계열"], ["timeline", "타임라인"]],
     advanced: [["story", "공격 스토리"], ["relations", "관계 그래프"], ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"]] },
-  { key: "decide", label: "③ 확인 및 판단", hint: "확인이 필요한 사항, 확인 요청과 회신, 판단 근거, 골든셋 저장",
+  { key: "logs", label: "③ 전체 로그", hint: "조사 제안에 없는 기록까지 검색·정렬·집계·원문 확인, 전체 결과 내보내기",
+    tabs: [["raw", "전체 로그·원문"], ["statistics", "로그 통계"]] },
+  { key: "decide", label: "④ 확인 및 판단", hint: "확인이 필요한 사항, 확인 요청과 회신, 판단 근거, 골든셋 저장",
     tabs: [["checks", "확인 요청·검토"], ["golden", "골든셋 저장"], ["notes", "메모"]] },
 ];
 const TABS: [string, string][] = AREAS.flatMap((a) => [...a.tabs, ...(a.advanced || [])]);
@@ -63,6 +66,9 @@ export function Workbench() {
   const ctx = useInv(id);
   const tabs = useInvTabs();
   const qc = useQueryClient();
+  // One refresh contract: anything that changes the period, data or analysis refreshes every view built on it.
+  const refreshScope = () => ["inv", "scope-summary", "alert-names", "findings", "internal-golden", "checks"]
+    .forEach((key) => qc.invalidateQueries({ queryKey: [key, id] }));
   const [upload, setUpload] = useState(false);
   const [closing, setClosing] = useState(false);
   const [siem, setSiem] = useState(false);
@@ -114,7 +120,7 @@ export function Workbench() {
           <div className="grow" />
           <button className="btn sm" onClick={() => setUpload(true)}><Icon name="upload" size={14} /> 증거 추가</button>
           <button className="btn sm" onClick={() => setSiem(true)}>SIEM에서 가져오기</button>
-          <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); qc.invalidateQueries({ queryKey: ["inv", id] }); }}>재분석</button>
+          <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); refreshScope(); }}>재분석</button>
           <Link className="btn sm" to={`/inv/${id}/report`} title="임원 보고용으로 한 장에 정리한 화면 (인쇄·PDF 저장)"><Icon name="report" size={14} /> 보고용 요약</Link>
           <button className="btn sm ghost" aria-expanded={left} aria-controls="workbench-evidence" onClick={() => setLeft(!left)}>{left ? "증거·필터 숨기기" : "증거·필터 보기"}</button>
           <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "조사 안내·참고 숨기기" : "조사 안내·참고 보기"}</button>
@@ -128,7 +134,7 @@ export function Workbench() {
           <span><span className="muted">탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
         </div>
         {(!i.org_unit_id || !i.period_start) && <div role="note" className="small" style={{ color: "var(--warn)" }}>
-          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={() => qc.invalidateQueries({ queryKey: ["inv", id] })} />}
+          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={refreshScope} />}
         </div>}
         <form className="row wrap small" role="search" aria-label="로그 직접 검색" style={{ gap: 6 }} onSubmit={(e) => {
           e.preventDefault();
@@ -152,7 +158,8 @@ export function Workbench() {
           {ctx.filters.map((f, k) => (
             <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
               {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건`
-                : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
+                : f.op === "exists" || f.op === "not_exists" ? `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${f.op === "exists" ? "값 있음" : "값 없음"}`
+                : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠", in: "중 하나", not_in: "제외" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
             </span>
           ))}
           {ctx.time && <span className="tag" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)} ×</span>}
@@ -239,9 +246,9 @@ export function Workbench() {
         {right && <aside id="workbench-context" className="wb-right" aria-label="컨텍스트"><ContextPanel inv={id} /></aside>}
       </div>
       <EventDrawer inv={id} />
-      {upload && <UploadModal invId={id} onClose={() => { setUpload(false); qc.invalidateQueries({ queryKey: ["inv", id] }); }} />}
+      {upload && <UploadModal invId={id} onClose={() => { setUpload(false); refreshScope(); }} />}
       {siem && <ConnectorImport inv={id} onClose={() => { setSiem(false); qc.invalidateQueries(); }} />}
-      {closing && <CloseDialog inv={i} onClose={() => { setClosing(false); qc.invalidateQueries({ queryKey: ["inv", id] }); }} />}
+      {closing && <CloseDialog inv={i} onClose={() => { setClosing(false); refreshScope(); }} />}
     </div>
   );
 }

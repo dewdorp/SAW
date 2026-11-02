@@ -273,3 +273,19 @@ def test_explicit_empty_configuration_does_not_fall_back_to_disabled_defaults():
 
     with pytest.raises(ValueError):
         NdrPolicy().run(SimpleNamespace(params={"ndr_policy": {}}))
+
+
+def test_all_rules_off_is_reported_as_disabled_not_as_zero_findings():
+    """With every NDR connection rule off, the run says the policy is disabled instead of 'analysed, 0 found'."""
+    from types import SimpleNamespace
+
+    from saw.detectors.ndr_policy import NdrPolicy, load
+
+    config = load()
+    assert not any(rule["enabled"] for rule in config["rules"])
+    ctx = SimpleNamespace(params={"ndr_policy": config}, investigation_id="i", events=None)
+    assert NdrPolicy().run(ctx) == []
+    report = ctx.params["execution_reports"]["ndr.policy"]
+    assert report["status"] == "disabled" and report["reason"] == "policy_disabled"
+    assert report["enabled_rules"] == 0 and report["rules"] == len(config["rules"])
+

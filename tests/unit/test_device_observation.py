@@ -475,3 +475,39 @@ def test_ddos_overlap_sweep_handles_nested_and_equal_start_intervals():
     result=analyze("ddos",events)
     assert result["quality"]["overlapping_intervals"]==3
     assert result["counts"]["intervals"]==1
+
+
+def test_device_candidates_carry_the_span_of_their_representative_records():
+    """A device-observation finding gets a time and IP entities, so timelines and scenarios can use it."""
+    from saw.detectors.device_observation import IpsObservation
+
+    class Store:
+        def __init__(self, events):
+            self.by_id = {e["event_id"]: e for e in events}
+
+        def get(self, inv, event_id):
+            return self.by_id.get(event_id)
+
+        def iterate(self, *args, **kwargs):
+            return iter(())
+
+    events = [{"event_id": "a", "timestamp": "2026-10-20T00:00:00.000Z"},
+              {"event_id": "b", "timestamp": "2026-10-20T00:05:00.000Z"}]
+    candidate = {"kind": "repeated_alert", "event_refs": [{"event_id": "a"}, {"event_id": "b"}],
+                 "metrics": {"src_ip": "198.51.100.9", "dst_ip": "10.20.1.10", "denominator": 7}}
+
+    class Ctx:
+        investigation_id = "i"
+        params = {}
+
+    ctx = Ctx()
+    ctx.events = Store(events)
+    detector = IpsObservation()
+    from unittest import mock
+    with mock.patch("saw.detectors.device_observation.analyze_device",
+                    return_value={"candidates": [candidate], "status": "completed_match"}):
+        (finding,) = detector.run(ctx)
+    assert (finding.time_start, finding.time_end) == ("2026-10-20T00:00:00.000Z", "2026-10-20T00:05:00.000Z")
+    assert finding.entities == ["ip:198.51.100.9", "ip:10.20.1.10"] and finding.total_events == 7
+    assert "대표 근거 2건" in finding.explanation
+

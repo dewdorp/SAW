@@ -1,9 +1,9 @@
 // One Investigation Context shared by every visualization (docs/15 §2).
 import { create } from "zustand";
 
-export type Filter = { field: string; op: "is" | "is_not" | "in" | "not_in" | "range" | "exists" | "prefix" | "contains"; value?: unknown };
+export type Filter = { field: string; op: "is" | "is_not" | "in" | "not_in" | "range" | "exists" | "not_exists" | "prefix" | "contains"; value?: unknown };
 export type EntityRef = { type: string; value: string };
-export type TimeRange = { start?: string; end?: string } | null;
+export type TimeRange = { start?: string; end?: string; end_exclusive?: boolean } | null;
 
 type InvState = {
   filters: Filter[];

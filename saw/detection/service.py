@@ -344,9 +344,16 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
         hits_all += [(inv_id, e) for e in matched]
         if truncated or evaluation_errors:
             break
+    from saw.core.domain.enums import ATTACK_VERDICTS, BENIGN_VERDICTS
+
     verdict = {i: readable[i].verdict for i in scope}
-    tp = sum(n for i, n in per_inv.items() if verdict.get(i) == "attack")
-    fp = sum(n for i, n in per_inv.items() if verdict.get(i) in ("normal", "false_positive"))
+    # Attack attempt and confirmed compromise are both attack labels here; the breakdown keeps them apart.
+    tp = sum(n for i, n in per_inv.items() if verdict.get(i) in ATTACK_VERDICTS)
+    fp = sum(n for i, n in per_inv.items() if verdict.get(i) in BENIGN_VERDICTS)
+    by_verdict = Counter()
+    for i, n in per_inv.items():
+        if n and verdict.get(i):
+            by_verdict[str(verdict[i])] += n
     unl = sum(per_inv.values()) - tp - fp
     tss = sorted(e.get("timestamp") for _, e in hits_all if e.get("timestamp"))
     days = max(1.0, (datetime.fromisoformat(tss[-1]) - datetime.fromisoformat(tss[0])).total_seconds() / 86400) if tss else 1.0
@@ -357,12 +364,14 @@ def run_test(s: Session, p: Principal, det_id: str, investigation_ids: list[str]
             unit.append({"expected": t.get("expected"), "matched": got, "ok": got == (t.get("expected") == "match")})
         except SigmaError as e:
             unit.append({"expected": t.get("expected"), "error": str(e), "ok": False})
-    fp_groups = Counter(str(e.get("src_ip")) for i, e in hits_all if verdict.get(i) in ("normal", "false_positive")).most_common(3)
-    attack_invs = [i for i in scope if verdict.get(i) == "attack"]
+    fp_groups = Counter(str(e.get("src_ip")) for i, e in hits_all if verdict.get(i) in BENIGN_VERDICTS).most_common(3)
+    attack_invs = [i for i in scope if verdict.get(i) in ATTACK_VERDICTS]
     recall_ok = all(per_inv[i] > 0 for i in attack_invs) if attack_invs else None
     result = {"hits": len(hits_all), "scanned": scanned, "truncated": truncated, "evaluation_errors": evaluation_errors,
               "execution": "partial" if truncated or evaluation_errors else "complete", "investigations": len(scope),
-              "tp": tp, "fp": fp, "unlabeled": unl, "days": round(days, 2), "est_daily_alerts": round(len(hits_all) / days, 2),
+              "tp": tp, "fp": fp, "unlabeled": unl, "by_verdict": dict(by_verdict),
+              "label_note": "조사 전체의 종결 판정을 그 조사의 모든 일치 이벤트에 붙인 근사치입니다. 이벤트별 정답이 아니며, "
+                            "공격 시도와 침해 확인을 모두 공격 라벨로 셉니다(구분은 by_verdict).", "days": round(days, 2), "est_daily_alerts": round(len(hits_all) / days, 2),
               "per_investigation": [{"id": i, "display_id": readable[i].display_id, "verdict": verdict.get(i), "hits": n}
                                     for i, n in per_inv.most_common() if n],
               "fp_common": [{"src_ip": k, "count": n} for k, n in fp_groups], "unit_tests": unit,

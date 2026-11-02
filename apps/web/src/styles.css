@@ -192,6 +192,15 @@ table.t tr.hl td { background: var(--hl-bg); }
   .wb-left, .wb-right { min-height: 240px; max-height: 300px; border-top: 1px solid var(--line); }
 }
 .wb-left, .wb-right { overflow: auto; border-right: 1px solid var(--line); background: var(--bg-1); }
+/* Short windows: the workbench grows with its content and the page scrolls, so the event drawer comes after the
+   content instead of sitting over the question cards' buttons. */
+@media (max-height: 760px) {
+  .wb { height: auto; min-height: 100%; }
+  .wb-body, .wb-center { min-height: 0; }
+  .tab-body { overflow: visible; }
+  .drawer { height: 240px; }
+  .drawer.closed { height: auto; }
+}
 .wb-right { border-right: 0; border-left: 1px solid var(--line); }
 .wb-center { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); background: var(--bg-1); overflow-x: auto; }

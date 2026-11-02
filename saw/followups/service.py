@@ -372,12 +372,117 @@ def collect_followup_sources(s, inv_id, version_ids=None):
 
 
 
+def _readable_span(start, end) -> str:
+    """"2026-10-13 10:01 ~ 10:04 (KST)" for the person reading the request; the period field keeps exact values."""
+    from zoneinfo import ZoneInfo
+
+    def local(value):
+        try:
+            moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return moment.astimezone(ZoneInfo("Asia/Seoul")) if moment.tzinfo else None
+
+    a, z = local(start), local(end)
+    if a is None or z is None:
+        return f"{start} ~ {end}"
+    tail = z.strftime("%H:%M") if z.date() == a.date() else z.strftime("%Y-%m-%d %H:%M")
+    return f"{a.strftime('%Y-%m-%d %H:%M')} ~ {tail} (KST)"
+
+
+def suggest(s, p, inv_id, check_id) -> dict:
+    """Prefill a follow-up from what the check points at, so no address, port or time is copied by hand.
+
+    Targets keep their pairing: each (source, destination, port) seen together in the check's records is
+    listed, and the period spans those records. Nothing here is a conclusion; the analyst edits and saves.
+    """
+    from saw.core.application.checks import _get as get_check
+
+    authorize(s, p, {inv_id})
+    check = get_check(s, inv_id, check_id)
+    ids = list(dict.fromkeys([*(check.evidence or []), *((check.scope or {}).get("event_ids") or [])]))[:50]
+    label = check.target_label or check.target_key
+    finding = None
+    if check.target_type == "finding":
+        # A check on a suggested item points at the item: use its kept representative records and title.
+        from saw.storage.models import Finding
+        finding = s.get(Finding, check.target_key)
+        if finding is not None and finding.investigation_id == inv_id:
+            ids = list(dict.fromkeys([*ids, *((finding.evidence_refs or {}).get("sample_event_ids") or [])]))[:50]
+            label = finding.title or label
+    events = [e for e in (container.get().events.get(inv_id, i) for i in ids) if e]
+    if not events and check.target_type == "finding" and finding is not None:
+        # Some suggestions keep a query rather than event ids: read up to 50 of the records it selects.
+        from saw.core.schemas.query import Filter, TimeRange
+        query = (finding.evidence_refs or {}).get("query") or {}
+        try:
+            filters = [Filter(**x) for x in query.get("filters", [])]
+            time = TimeRange(**query["time"]) if query.get("time") else None
+            events = container.get().events.search(inv_id, filters, time, limit=50).get("events") or []
+        except (ValueError, TypeError):
+            events = []
+    src = list(dict.fromkeys(str(e["src_ip"]) for e in events if e.get("src_ip")))[:50]
+    dst = list(dict.fromkeys(str(e["dst_ip"]) for e in events if e.get("dst_ip")))[:50]
+    ports = list(dict.fromkeys(int(e["dst_port"]) for e in events if isinstance(e.get("dst_port"), int)))[:50]
+    pairs = list(dict.fromkeys((e.get("src_ip"), e.get("dst_ip"), e.get("dst_port")) for e in events))[:20]
+    if not events and check.target_key.startswith("ip:"):
+        src = [check.target_key[3:]]
+    times = sorted(str(e["timestamp"]) for e in events if e.get("timestamp"))
+    start = times[0] if times else check.time_start
+    end = times[-1] if times else check.time_end
+    origin = (check.scope or {}).get("origin") or {}
+    item = origin.get("item") or {}
+    if (item.get("time") or {}).get("start"):
+        # A question item knows its whole group's first and last record; the kept records are only a sample.
+        start, end = item["time"].get("start"), item["time"].get("end") or item["time"].get("start")
+    span = _readable_span(start, end) if start and end else "기록된 기간"
+    from saw.storage.models import Investigation
+
+    inv = s.get(Investigation, inv_id)
+    affiliate = (inv.org_unit or "") if inv is not None else ""
+    reason = (check.note or "로그만으로는 업무 여부와 수행 주체를 알 수 없습니다.")
+    needed = ["작업·변경 기록(작업 번호, 수행자, 대상, 시간)", "해당 시간의 서버·애플리케이션 처리 기록"]
+    if origin:
+        # Every next question of the item travels with the request, with the condition that raised it.
+        lines = [f"계산 조건: {origin.get('description', '')}", f"관측: {item.get('observed', '')}"]
+        if item.get("unknown"):
+            lines.append(f"아직 알 수 없는 것: {' · '.join(item['unknown'])}")
+        reason = "\n".join([reason, "", *lines])
+        needed = [*dict.fromkeys([*(f"확인: {q}" for q in item.get("next_questions") or []), *needed])]
+    return {"check_id": check.id, "evidence_records": len(events),
+            "question": f"{(affiliate + ' ') if affiliate else ''}{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? "
+                        "수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
+            "reason": reason[:8000], "affiliate": affiliate,
+            "target": {"src_ips": src, "dst_ips": dst, "dst_ports": ports, "behavior": label[:1000]},
+            "period": {"start": start, "end": end} if start and end else None,
+            "observed_pairs": [{"src_ip": a, "dst_ip": b, "dst_port": c} for a, b, c in pairs],
+            "needed_data": needed[:20], "origin": origin or None,
+            "note": "근거 기록에서 자동으로 채운 초안입니다. 저장 전에 내용을 확인하세요."}
+
+
+def _period_widened(checked: dict, current: tuple) -> bool:
+    """A request that inherited the investigation period no longer covers it after the period grew."""
+    from saw.followups.scope import _time
+
+    if not checked.get("inherited"):
+        return False
+    cs, ce, ns, ne = _time(checked.get("start")), _time(checked.get("end")), _time(current[0]), _time(current[1])
+    if not (cs and ce and ns and ne):
+        return bool(ns or ne) and not (cs and ce)
+    return ns < cs or ne > ce
+
+
 def benign_blockers(s, inv_id) -> list[dict]:
     """Follow-ups that keep a 'normal / false positive' conclusion from being recorded.
 
     Explicitly cancelled or 'closed with limits' requests do not block (the analyst decided knowingly).
     Unanswered, unverified, unconfirmed, partly confirmed or out-of-scope replies do.
     """
+    from saw.core.application.investigations import declared_period
+    from saw.storage.models import Investigation
+
+    inv = s.get(Investigation, inv_id)
+    period = declared_period(inv) if inv is not None else (None, None)
     out = []
     for row in s.scalars(select(FollowUp).where(FollowUp.investigation_id == inv_id)):
         version = s.get(FollowUpVersion, row.current_version_id) if row.current_version_id else None
@@ -397,6 +502,10 @@ def benign_blockers(s, inv_id) -> list[dict]:
                       "insufficient_data": "확인 자료가 부족합니다."}.get(verification.get("outcome"), "확인이 끝나지 않았습니다.")
         elif status == "verified" and check.get("result") not in (None, "matches", "no_request_scope"):
             reason = check.get("summary") or "회신 범위가 확인 대상과 일치하지 않습니다."
+        elif status == "verified" and _period_widened(check.get("checked_period") or {}, period):
+            checked = check["checked_period"]
+            reason = (f"조사 기간이 바뀌어 이 확인 요청이 검증한 기간({checked.get('start')} ~ {checked.get('end')}) 밖의 "
+                      "구간은 확인되지 않았습니다. 새 구간에 대해 다시 확인하세요.")
         if reason:
             out.append({"followup_id": row.id, "question": payload.get("question"), "status": status, "reason": reason})
     return out

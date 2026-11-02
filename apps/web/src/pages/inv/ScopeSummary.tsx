@@ -1,13 +1,20 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ErrorBox, Loading, Panel } from "../../components/common";
+import { FieldMeanings } from "./FieldMeanings";
+import { QuestionBundles } from "./QuestionBundles";
 import { useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtNum, fmtTime } from "../../lib/format";
 import { axisStyle, EChart, safeTooltip } from "../../viz/EChart";
 
 const SOURCE_KO: Record<string, string> = { connection: "연결(방화벽·NDR 세션)", web: "HTTP 요청(NDR·웹)", waf: "웹 방화벽", zeek_conn: "네트워크 연결", zeek_http: "패킷 속 HTTP", suricata: "IDS 경보" };
-const REGISTRY_KO: Record<string, string> = { confirmed: "의미 확인됨", ambiguous: "등록 항목 여러 개 — 확인 필요", needs_confirmation: "미등록 — 의미 확인 필요" };
+const REGISTRY_KO: Record<string, string> = { confirmed: "의미 확인됨(같은 장비·유효기간)", name_only: "이름만 일치 — 장비 미지정 등록",
+  ambiguous: "적용 가능한 등록 여러 개 — 확인 필요", needs_confirmation: "의미 확인 필요" };
+// The tooltip explains the meaning that actually applies, or why no registered meaning applies — never just the first entry.
+const alertTitle = (a: any) => a.applied ? `${a.applied.meaning} (v${a.applied.version} · ${a.applied.basis})`
+  : (a.entries || []).map((e: any) => e.not_applied_reason).filter(Boolean).join(" / ") || "등록된 의미가 없습니다.";
+const RUN_KO: Record<string, string> = { queued: "대기 중", running: "진행 중", complete: "완료", partial: "일부만 처리", failed: "실패", cancelled: "취소" };
 const PICKABLE = new Set(["data_source", "enforcement_action", "alert_name", "src_ip", "dst_ip", "dst_port", "protocol"]);
 
 /** Inline editor for the declared investigation period (shown while it is missing). */
@@ -51,8 +58,13 @@ function Breakdown({ name, data, onPick }: { name: string; data: any; onPick?: (
 export function ScopeSummary({ inv }: { inv: string }) {
   const ctx = useInv(inv);
   const [weekly, setWeekly] = useState(false);
-  const q = useQuery({ queryKey: ["scope-summary", inv, ctx.filters, ctx.time],
-    queryFn: () => api.post(`/investigations/${inv}/scope-summary`, { filters: ctx.filters, time: ctx.time }) });
+  // The summary is keyed by everything that changes it: investigation, period, data and analysis versions, filter.
+  const meta = useQuery<any>({ queryKey: ["inv", inv], queryFn: () => api.get(`/investigations/${inv}`) });
+  const version = [meta.data?.period_start, meta.data?.period_end, (meta.data?.evidence || []).map((e: any) => `${e.id}:${e.status}`).join(","),
+    JSON.stringify(meta.data?.finding_counts ?? null), meta.data?.time_start, meta.data?.time_end];
+  const q = useQuery({ queryKey: ["scope-summary", inv, version, ctx.filters, ctx.time],
+    queryFn: () => api.post(`/investigations/${inv}/scope-summary`, { filters: ctx.filters, time: ctx.time }),
+    refetchInterval: (query: any) => ["running", "queued"].includes(query.state.data?.analysis?.status) ? 5000 : false });
   const alerts = useQuery({ queryKey: ["alert-names", inv], queryFn: () => api.get(`/investigations/${inv}/alert-names`) });
   if (q.isLoading) return <Loading label="전체 현황 집계 중" />;
   if (q.error) return <ErrorBox error={q.error} />;
@@ -71,10 +83,14 @@ export function ScopeSummary({ inv }: { inv: string }) {
   };
   const openDay = (index: number) => {
     const day = t.daily[index]?.date;
-    if (!weekly && day) ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${day}T23:59:59.999+09:00` } });
+    // [day 00:00, next day 00:00): the whole day, with no millisecond trimmed off either end.
+    const next = day && new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+    if (!weekly && day) ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${next}T00:00:00+09:00`, end_exclusive: true } });
   };
   return (
     <div className="col" style={{ gap: 12 }}>
+      <QuestionBundles inv={inv} />
+      <FieldMeanings inv={inv} />
       <section aria-label="조사 범위와 기준" className="panel pb col" style={{ gap: 6 }}>
         <div className="row wrap" style={{ gap: 16 }}>
           <span><span className="muted">관계사</span> <b>{d.scope.org_unit || "미지정"}</b></span>
@@ -117,24 +133,34 @@ export function ScopeSummary({ inv }: { inv: string }) {
         right={<span className="row small" style={{ gap: 6 }}><button className={`btn sm ${weekly ? "" : "primary"}`} onClick={() => setWeekly(false)}>일별</button><button className={`btn sm ${weekly ? "primary" : ""}`} onClick={() => setWeekly(true)}>주별</button></span>}>
         <EChart ariaLabel="기간별 기록 수" height={200} option={option as any} onClick={(p: any) => openDay(p.dataIndex)} />
         {t.empty_days.length > 0 && <div className="small" style={{ color: "var(--warn)" }}>
-          기록이 하나도 없는 날 {t.empty_days.length}일: {t.empty_days.slice(0, 20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 공백인지, 실제로 통신이 없었는지는 수집 담당자에게 확인해야 합니다.
+          조사 전체에 기록이 하나도 없는 날 {t.empty_days.length}일: {t.empty_days.slice(0, 20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 공백인지, 실제로 통신이 없었는지는 수집 담당자에게 확인해야 합니다.
+        </div>}
+        {(t.no_result_days || []).length > 0 && <div className="small muted">
+          현재 검색 조건에서 결과가 없는 날 {t.no_result_days.length}일 — 이 날들에도 다른 기록은 있으므로 수집 공백이 아닙니다.
         </div>}
       </Panel>
 
       <div className="grid3">
         <Breakdown name="enforcement_action" data={d.breakdown.enforcement_action} onPick={pick("enforcement_action")} />
         <Breakdown name="data_source" data={d.breakdown.data_source} onPick={pick("data_source")} />
-        <Panel title="장비 공격명 (장비의 주장 · 의미 등록 상태)">
+        <Panel title={`장비 공격명 (장비의 주장 · 의미 등록 상태)${d.basis.kind === "filter" ? " — 현재 필터 기준 건수" : ""}`}>
           {alerts.isLoading && <Loading />}
-          {(alerts.data?.items || []).slice(0, 10).map((a: any) => (
-            <div key={a.alert_name} className="row small" style={{ gap: 6 }}>
-              <span className="grow ellipsis mono" title={a.alert_name}>{a.alert_name}</span>
-              <span className="num">{fmtNum(a.count)}</span>
-              <span className={`tag ${a.registry === "confirmed" ? "" : "warn"}`} title={a.entries?.[0]?.meaning || ""}>{REGISTRY_KO[a.registry]}</span>
-              <button className="btn ghost sm" onClick={() => pick("alert_name")(a.alert_name)}>좁혀 보기</button>
-            </div>
-          ))}
-          {alerts.data && !alerts.data.items.length && <div className="small muted">공격명이 기록된 로그가 없습니다.</div>}
+          {/* Counts follow the same basis as every other card; the registry state comes from the whole investigation. */}
+          {(d.breakdown.alert_name?.buckets || []).slice(0, 10).map((b: any) => {
+            const rows = (alerts.data?.items || []).filter((a: any) => a.alert_name === String(b.key));
+            const states = [...new Set(rows.map((a: any) => a.registry))];
+            const a = rows.length === 1 ? rows[0] : null;
+            return (
+              <div key={String(b.key)} className="row small" style={{ gap: 6 }}>
+                <span className="grow ellipsis mono" title={String(b.key)}>{String(b.key)}</span>
+                <span className="num">{fmtNum(b.count)}</span>
+                {a ? <span className={`tag ${a.registry === "confirmed" ? "" : "warn"}`} title={alertTitle(a)}>{REGISTRY_KO[a.registry] || a.registry}</span>
+                  : <span className="tag warn" title="같은 이름이 장비마다 다르게 해석될 수 있습니다. 원문의 장비를 확인하세요.">{states.length > 1 ? "장비별로 다름 — 확인 필요" : REGISTRY_KO[String(states[0] || "needs_confirmation")]}</span>}
+                <button className="btn ghost sm" onClick={() => pick("alert_name")(b.key)}>좁혀 보기</button>
+              </div>
+            );
+          })}
+          {!(d.breakdown.alert_name?.buckets || []).length && <div className="small muted">{d.basis.kind === "filter" ? "현재 필터에 해당하는 기록에는 공격명이 없습니다." : "공격명이 기록된 로그가 없습니다."}</div>}
           {alerts.data && <div className="small muted">{alerts.data.note}</div>}
         </Panel>
         <Breakdown name="src_ip" data={d.breakdown.src_ip} onPick={pick("src_ip")} />
@@ -143,9 +169,12 @@ export function ScopeSummary({ inv }: { inv: string }) {
         <Breakdown name="protocol" data={d.breakdown.protocol} onPick={pick("protocol")} />
       </div>
 
-      {d.analysis && <Panel title={`최근 분석 실행 v${d.analysis.version} — 일부만 처리·자료 부족인 분석`}>
-        {d.analysis.incomplete.length ? <ul className="small">{d.analysis.incomplete.map((x: any) => <li key={x.detector_id}>{x.detector_id}: {x.label}{x.reason_label ? ` — ${x.reason_label}` : ""}</li>)}</ul>
-          : <div className="small muted">모든 분석이 설정된 범위에서 끝났습니다. 수집의 완전성은 별도로 확인해야 합니다.</div>}
+      {d.analysis && <Panel title={`최근 분석 실행 v${d.analysis.version} — ${RUN_KO[d.analysis.status] || d.analysis.status}`}>
+        {d.analysis.incomplete.length > 0 && <ul className="small">{d.analysis.incomplete.map((x: any) => <li key={x.detector_id}>{x.detector_id}: {x.label}{x.reason_label ? ` — ${x.reason_label}` : ""}</li>)}</ul>}
+        {/* "Everything finished" is said only for a finished run; a running or failed run is never reported as complete. */}
+        {d.analysis.status === "complete" && !d.analysis.incomplete.length && <div className="small muted">모든 분석이 설정된 범위에서 끝났습니다. 수집의 완전성은 별도로 확인해야 합니다.</div>}
+        {["running", "queued"].includes(d.analysis.status) && <div className="small" role="status">분석이 아직 진행 중입니다. 지금 보이는 후보와 미완료 목록은 바뀔 수 있습니다.</div>}
+        {["failed", "cancelled"].includes(d.analysis.status) && <div className="small" role="alert">이 분석 실행은 {RUN_KO[d.analysis.status]}되었습니다. 결과가 일부이거나 없을 수 있습니다. 분석 실행 이력 탭에서 이유를 확인하세요.</div>}
         <div className="small muted">'자료 부족'·'일부만 처리'는 정상 판정이 아닙니다. 분석 실행 이력 탭에서 범위와 이유를 확인하세요.</div>
       </Panel>}
       {!d.analysis && <div className="small muted">아직 분석이 실행되지 않았습니다. 분석하지 못한 상태는 '이상 없음'과 다릅니다.</div>}
