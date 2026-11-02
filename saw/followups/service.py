@@ -432,9 +432,9 @@ def suggest(s, p, inv_id, check_id) -> dict:
     end = times[-1] if times else check.time_end
     origin = (check.scope or {}).get("origin") or {}
     item = origin.get("item") or {}
-    if not times and (item.get("time") or {}).get("start"):
-        # A question item knows its whole group's first and last record even when only a few are kept.
-        start, end = item["time"].get("start"), item["time"].get("end")
+    if (item.get("time") or {}).get("start"):
+        # A question item knows its whole group's first and last record; the kept records are only a sample.
+        start, end = item["time"].get("start"), item["time"].get("end") or item["time"].get("start")
     span = _readable_span(start, end) if start and end else "기록된 기간"
     from saw.storage.models import Investigation
 

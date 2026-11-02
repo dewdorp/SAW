@@ -282,7 +282,10 @@ def _fact(c) -> str:
     origin = (c.scope or {}).get("origin") or {}
     if origin:
         run = origin.get("scope") or {}
-        line += (f" [질문 {origin.get('title', '')} · 조건 {origin.get('description', '')} · 계산 {origin.get('completeness', '')}"
+        done = {"complete": "전체 계산", "partial": "일부만 계산"}.get(origin.get("completeness"), "계산 상태 미상")
+        preset = origin.get("preset") or {}
+        saved = f" · 저장 조건 {preset.get('name', '')} v{preset.get('version', '')}" if preset else " · 저장 안 한 조건"
+        line += (f" [질문 {origin.get('title', '')} · 조건 {origin.get('description', '')} · {done}{saved}"
                  f" · 버전 {run.get('version', '')} · 실행 {run.get('run_at', '')}]")
     return line
 

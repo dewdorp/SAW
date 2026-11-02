@@ -195,6 +195,14 @@ def _ts(value):
         return None
 
 
+def _kst(value) -> str:
+    """A moment as Korean local time for a sentence (the item's time fields keep exact values)."""
+    from zoneinfo import ZoneInfo
+
+    t = _ts(value)
+    return datetime.fromtimestamp(t, ZoneInfo("Asia/Seoul")).strftime("%m-%d %H:%M:%S") if t is not None else "?"
+
+
 def _mb(n):
     return f"{n / 1024 ** 2:,.1f}MB"
 
@@ -251,6 +259,7 @@ def _spread(es, inv, time, v) -> dict:
         if not src or not hit(r.get("targets") or 0, r.get("ports") or 0):
             continue  # the whole-period counts bound any window's counts, so this source cannot match
         targets, ports, span = r.get("targets") or 0, r.get("ports") or 0, {"start": r.get("first"), "end": r.get("last")}
+        best_window = None
         if v["window_minutes"]:
             timelines += 1
             best = _best_window(es, inv, base + [Filter(field="src_ip", value=src)], time, v["window_minutes"] * 60)
@@ -259,14 +268,15 @@ def _spread(es, inv, time, v) -> dict:
             targets, ports = best["targets"], best["ports"]
             if not hit(targets, ports):
                 continue
-            span = best["span"]
+            best_window = best["span"]
         flt = base + [Filter(field="src_ip", value=src)]
         inside = affiliate_local(src)
         window = f"{v['window_minutes']}분 안에 " if v["window_minutes"] else ""
         items.append(_item(
             f"{src}가 {window}목적지 {targets}개·포트 {ports}개에 접근",
             f"{'관계사 내부' if inside else '외부'} 출발지 {src}의 기록 {r['count']}건(조건 범위 전체): {window}목적지 {targets}개, "
-            f"포트 {ports}개, 허용 {r.get('allowed') or 0}건·차단 {r.get('blocked') or 0}건.",
+            f"포트 {ports}개, 허용 {r.get('allowed') or 0}건·차단 {r.get('blocked') or 0}건."
+            + (f" 가장 많이 접근한 {v['window_minutes']}분 구간: {_kst(best_window['start'])} ~ {_kst(best_window['end'])}." if best_window else ""),
             {"metric": "출발지별 서로 다른 목적지·포트 수", "window_minutes": v["window_minutes"],
              "threshold_targets": v["min_targets"], "threshold_ports": v["min_ports"], "match": v["match"]},
             r["count"], _dump(flt),

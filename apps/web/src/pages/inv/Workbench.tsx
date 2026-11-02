@@ -158,7 +158,8 @@ export function Workbench() {
           {ctx.filters.map((f, k) => (
             <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
               {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건`
-                : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
+                : f.op === "exists" || f.op === "not_exists" ? `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${f.op === "exists" ? "값 있음" : "값 없음"}`
+                : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠", in: "중 하나", not_in: "제외" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
             </span>
           ))}
           {ctx.time && <span className="tag" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)} ×</span>}
