@@ -31,15 +31,18 @@ import { StatisticsTab } from "./StatisticsTab";
 import { StoryTab } from "./StoryTab";
 import { TimelineTab } from "./TimelineTab";
 
-/** Three work areas. Every earlier tab is still here; specialist views fold under "전문 분석". */
+/** Basic work areas: the whole picture, investigating, the whole log, then checks and judgement. Every earlier tab
+ * is still here; specialist views fold under "전문 분석". */
 type Area = { key: string; label: string; hint: string; tabs: [string, string][]; advanced?: [string, string][] };
 const AREAS: Area[] = [
-  { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명",
-    tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["statistics", "로그 통계"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
-  { key: "investigate", label: "② 조사", hint: "조사 제안과 근거, 직접 검색, 반복 행위 묶음, 시계열",
-    tabs: [["findings", "조사 제안"], ["raw", "로그 검색·원문"], ["behavior", "행위 묶음·시계열"], ["timeline", "타임라인"]],
+  { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명·확인할 질문",
+    tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
+  { key: "investigate", label: "② 조사", hint: "조사 제안과 생성 이유, 반복 행위 묶음, 시계열",
+    tabs: [["findings", "조사 제안"], ["behavior", "행위 묶음·시계열"], ["timeline", "타임라인"]],
     advanced: [["story", "공격 스토리"], ["relations", "관계 그래프"], ["http", "HTTP"], ["forensics", "PCAP 포렌식"], ["dns", "DNS"], ["tls", "TLS"], ["conn", "연결"], ["attack", "ATT&CK"]] },
-  { key: "decide", label: "③ 확인 및 판단", hint: "확인이 필요한 사항, 확인 요청과 회신, 판단 근거, 골든셋 저장",
+  { key: "logs", label: "③ 전체 로그", hint: "조사 제안에 없는 기록까지 검색·정렬·집계·원문 확인, 전체 결과 내보내기",
+    tabs: [["raw", "전체 로그·원문"], ["statistics", "로그 통계"]] },
+  { key: "decide", label: "④ 확인 및 판단", hint: "확인이 필요한 사항, 확인 요청과 회신, 판단 근거, 골든셋 저장",
     tabs: [["checks", "확인 요청·검토"], ["golden", "골든셋 저장"], ["notes", "메모"]] },
 ];
 const TABS: [string, string][] = AREAS.flatMap((a) => [...a.tabs, ...(a.advanced || [])]);

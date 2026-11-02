@@ -126,14 +126,17 @@ describe("three work areas", () => {
     expect(await screen.findByText("집계 기준: 조사 전체 100,000건", {}, { timeout: 5000 })).toBeTruthy();
     const scope = screen.getByRole("group", { name: "조사 범위" });
     expect(within(scope).getByText("가상 한빛금융")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "로그 통계" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "장비·자료 의미" })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "HTTP" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "② 조사" }));
     expect(screen.getByRole("tab", { name: "조사 제안" })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "HTTP" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /전문 분석 8개 펼치기/ }));
     expect(screen.getByRole("tab", { name: "HTTP" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "③ 확인 및 판단" }));
+    fireEvent.click(screen.getByRole("button", { name: "③ 전체 로그" }));
+    expect(screen.getByRole("tab", { name: "전체 로그·원문" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "로그 통계" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "④ 확인 및 판단" }));
     expect(screen.getByRole("tab", { name: "골든셋 저장" })).toBeTruthy();
   });
 
