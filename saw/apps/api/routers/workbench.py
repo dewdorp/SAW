@@ -349,8 +349,25 @@ def raw_context(inv_id: str, event_id: str, lines: int = Query(50, le=200), ctx:
     after_all = [x.decode(enc, errors="replace").rstrip("\r") for x in data[rel:].split(b"\n")]
     target, after = after_all[0], after_all[1:lines + 1]
     first_no = ref["line_no"] - len(before)
+    shown = before + [target] + after
+    column = _cookie_column_of(e, enc) if e.get("parser") == "en_ndr_http_csv" else None
+    if column:
+        # Neighbouring lines carry other requests' cookies: keep only the names, as the event detail does.
+        from saw.parsers.security_csv import hide_cookie_values
+
+        shown = [x if first_no + i == 1 else hide_cookie_values(x, column) for i, x in enumerate(shown)]
+    elif e.get("parser") == "en_ndr_http_csv":
+        shown = ["[쿠키 열을 확인하지 못해 이 줄을 가렸습니다]" if first_no + i != ref["line_no"] else
+                 mask_event(hydrate_raw(e))[0].get("raw_event", "") for i, x in enumerate(shown)]
     return {"source_file": e.get("source_file"), "first_line_no": first_no,
-            "lines": [mask_text(x).text for x in before + [target] + after], "target_index": len(before)}
+            "lines": [mask_text(x).text for x in shown], "target_index": len(before)}
+
+
+def _cookie_column_of(event: dict, enc: str):
+    from saw.parsers.security_csv import cookie_column
+
+    head = _es().read_raw_range(event, 0, 64 * 1024)
+    return cookie_column(head.split(b"\n", 1)[0].decode(enc, errors="replace").rstrip("\r"))
 
 
 # ------------------------------------------------------------------ timeline

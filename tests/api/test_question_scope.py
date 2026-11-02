@@ -228,3 +228,23 @@ def test_the_whole_search_exports_on_the_server_beyond_what_a_screen_loads(senio
     assert lines[0] == "timestamp,src_ip,dst_ip,dst_port,enforcement_action" and len(lines) == 61
     assert all(",10.20.5.99," in line for line in lines[1:])
     assert senior.post(f"/investigations/{inv['id']}/query/events/export", json={**body, "columns": ["bad field"]}).status_code == 400
+
+
+def test_cookie_values_stay_out_of_normal_views_but_an_authorized_unmask_reads_the_original_line(senior, analyst):
+    inv = _inv(senior)
+    job = _process(senior, inv["id"], "ndr.csv", ndr_csv("web_probe"))
+    event = senior.post(f"/investigations/{inv['id']}/query/events", json={"filters": [], "limit": 1}).json()["events"][0]
+    detail = senior.get(f"/investigations/{inv['id']}/events/{event['event_id']}").json()
+    assert "sid=s0" not in str(detail["event"]) and detail["event"]["ext"]["security_csv"]["req_cookie_names"] == ["sid"]
+    assert "sid=[가림]" in detail["event"]["raw_event"]
+    # Neighbouring lines of the original file and the upload preview keep the names, never the values.
+    context = senior.get(f"/investigations/{inv['id']}/events/{event['event_id']}/context", params={"lines": 5}).json()
+    assert len(context["lines"]) > 1 and not any("sid=s" in x and "sid=[" not in x for x in context["lines"])
+    assert any("sid=[가림]" in x for x in context["lines"])
+    sample = senior.get(f"/evidence/{job['evidence_id']}/files/{job['files'][0]['id']}/sample", params={"lines": 10}).json()["lines"]
+    assert "req_cookie" in sample[0] and all("sid=s" not in x for x in sample[1:] if x) and "sid=[가림]" in sample[1]
+    url = f"/investigations/{inv['id']}/events/{event['event_id']}/unmask"
+    opened = senior.post(url, json={"reason": "쿠키 값 원문 비교(합성 시험)"})
+    assert opened.status_code == 200, opened.text
+    assert "sid=s0" in opened.json()["event"]["raw_event"]
+    assert analyst.post(url, json={"reason": "권한 없는 열람 시도"}).status_code == 403
