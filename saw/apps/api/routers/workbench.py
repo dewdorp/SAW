@@ -220,6 +220,63 @@ def query_events(inv_id: str, body: SearchRequest, ctx: AuthContext = Depends(au
     return {"events": evs, "next_cursor": page["next_cursor"]}
 
 
+EXPORT_MAX_ROWS = 1_000_000
+
+
+class ExportIn(BaseModel):
+    filters: list[Filter] = Field(default_factory=list)
+    time: TimeRange | None = None  # rows are written oldest first
+    columns: list[str] = Field(default_factory=lambda: ["timestamp", "data_source", "src_ip", "dst_ip", "dst_port"],
+                               min_length=1, max_length=60)
+
+
+@router.post("/query/events/export")
+def export_events(inv_id: str, body: ExportIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """Every record of the search (not just the rows a screen loaded) as masked CSV, written in batches.
+
+    The file is built on the server so the browser never holds the whole result; past EXPORT_MAX_ROWS the
+    export stops and says so in its headers rather than silently dropping rows.
+    """
+    import csv
+    import os
+    import tempfile
+
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    _read(s, ctx, inv_id)
+    for column in body.columns:
+        Filter(field=column)  # the same field-name rule as filters
+    total = _es().count(inv_id, body.filters, body.time)
+    handle = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8-sig", newline="")
+    written = 0
+    try:
+        with handle:
+            out = csv.writer(handle, lineterminator="\r\n")
+            out.writerow(body.columns)
+            for event in _es().iterate(inv_id, body.filters, body.time):
+                if written >= EXPORT_MAX_ROWS:
+                    break
+                masked, _ = mask_event(event)
+                row = []
+                for column in body.columns:
+                    value = masked.get(column)
+                    text = "|".join(map(str, value)) if isinstance(value, list) else "" if value is None else str(value)
+                    row.append("'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text)  # CSV injection guard
+                out.writerow(row)
+                written += 1
+    except Exception:
+        os.unlink(handle.name)
+        raise
+    audit.record(s, "events.export", actor_id=ctx.principal.user_id, actor_name=ctx.principal.username,
+                 investigation_id=inv_id, detail={"rows": written, "total": total, "columns": body.columns,
+                                                  "filter_fields": sorted({x.field for x in body.filters})})
+    return FileResponse(handle.name, media_type="text/csv; charset=utf-8", filename=f"saw_events_{inv_id[:8]}_all.csv",
+                        background=BackgroundTask(os.unlink, handle.name),
+                        headers={"X-SAW-Total": str(total), "X-SAW-Rows": str(written),
+                                 "X-SAW-Truncated": "true" if written < total else "false"})
+
+
 @router.post("/query/aggregate")
 def query_aggregate(inv_id: str, body: AggregateRequest, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     _read(s, ctx, inv_id)

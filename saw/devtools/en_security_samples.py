@@ -82,6 +82,11 @@ def fw_csv(case: str) -> bytes:
                     action="deny" if i % 3 == 0 else "allow") for i in range(60)]
     elif case == "few_targets":  # an admin host reaching two servers: below the spread threshold
         rows = [_fw(i, BASE + timedelta(minutes=i), "10.20.5.7", f"10.20.1.{1 + i % 2}", 22) for i in range(20)]
+    elif case == "spread_slow":  # twelve hosts over six hours: many targets in the period, few in any 10 minutes
+        rows = [_fw(i, BASE + timedelta(minutes=30 * i), "10.20.5.98", f"10.20.2.{1 + i}", 445) for i in range(12)]
+    elif case == "pair_large":  # the firewall's record of the same pair as the NDR large responses, other layer
+        rows = [_fw(i, BASE + timedelta(minutes=i), "198.51.100.50", "10.20.1.10", 443, sent=600, rcvd=40 * 1024 ** 2)
+                for i in range(3)]
     else:
         raise ValueError(case)
     return _csv(FW, rows)

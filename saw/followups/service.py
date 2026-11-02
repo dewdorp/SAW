@@ -430,14 +430,33 @@ def suggest(s, p, inv_id, check_id) -> dict:
     times = sorted(str(e["timestamp"]) for e in events if e.get("timestamp"))
     start = times[0] if times else check.time_start
     end = times[-1] if times else check.time_end
+    origin = (check.scope or {}).get("origin") or {}
+    item = origin.get("item") or {}
+    if not times and (item.get("time") or {}).get("start"):
+        # A question item knows its whole group's first and last record even when only a few are kept.
+        start, end = item["time"].get("start"), item["time"].get("end")
     span = _readable_span(start, end) if start and end else "기록된 기간"
+    from saw.storage.models import Investigation
+
+    inv = s.get(Investigation, inv_id)
+    affiliate = (inv.org_unit or "") if inv is not None else ""
+    reason = (check.note or "로그만으로는 업무 여부와 수행 주체를 알 수 없습니다.")
+    needed = ["작업·변경 기록(작업 번호, 수행자, 대상, 시간)", "해당 시간의 서버·애플리케이션 처리 기록"]
+    if origin:
+        # Every next question of the item travels with the request, with the condition that raised it.
+        lines = [f"계산 조건: {origin.get('description', '')}", f"관측: {item.get('observed', '')}"]
+        if item.get("unknown"):
+            lines.append(f"아직 알 수 없는 것: {' · '.join(item['unknown'])}")
+        reason = "\n".join([reason, "", *lines])
+        needed = [*dict.fromkeys([*(f"확인: {q}" for q in item.get("next_questions") or []), *needed])]
     return {"check_id": check.id, "evidence_records": len(events),
-            "question": f"{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? 수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
-            "reason": (check.note or "로그만으로는 업무 여부와 수행 주체를 알 수 없습니다.")[:8000],
+            "question": f"{(affiliate + ' ') if affiliate else ''}{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? "
+                        "수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
+            "reason": reason[:8000], "affiliate": affiliate,
             "target": {"src_ips": src, "dst_ips": dst, "dst_ports": ports, "behavior": label[:1000]},
             "period": {"start": start, "end": end} if start and end else None,
             "observed_pairs": [{"src_ip": a, "dst_ip": b, "dst_port": c} for a, b, c in pairs],
-            "needed_data": ["작업·변경 기록(작업 번호, 수행자, 대상, 시간)", "해당 시간의 서버·애플리케이션 처리 기록"],
+            "needed_data": needed[:20], "origin": origin or None,
             "note": "근거 기록에서 자동으로 채운 초안입니다. 저장 전에 내용을 확인하세요."}
 
 

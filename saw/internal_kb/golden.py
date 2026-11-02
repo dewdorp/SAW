@@ -276,12 +276,23 @@ def _followup_item(row, payload) -> tuple[dict, str | None]:
     return item, (f"{question}: {open_reason}" if open_reason is not None and status != "cancelled" else None)
 
 
+def _fact(c) -> str:
+    """A check as an observed fact; a question result keeps its condition, run and count so it can be re-run."""
+    line = f"{c.target_label or c.target_key}: {c.note}".strip(": ")
+    origin = (c.scope or {}).get("origin") or {}
+    if origin:
+        run = origin.get("scope") or {}
+        line += (f" [질문 {origin.get('title', '')} · 조건 {origin.get('description', '')} · 계산 {origin.get('completeness', '')}"
+                 f" · 버전 {run.get('version', '')} · 실행 {run.get('run_at', '')}]")
+    return line
+
+
 def draft(s, p, inv_id: str) -> dict:
     """Prefill from what the investigation already holds; the analyst edits before saving."""
     inv = require(s, p, "investigation.read", inv_id)
     start, end = declared_period(inv)
     view = _view(s, p, inv)
-    facts = [_fit(f"{c.target_label or c.target_key}: {c.note}".strip(": ")) for c in view["initial_checks"] if c.note]
+    facts = [_fit(_fact(c)) for c in view["initial_checks"] if c.note or (c.scope or {}).get("origin")]
     cutoff = view["cutoff"]
     findings = list(s.scalars(select(Finding).where(Finding.investigation_id == inv_id)
                               .order_by(Finding.risk_score.desc()).limit(10)))
