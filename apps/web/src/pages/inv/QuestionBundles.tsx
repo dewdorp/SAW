@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ErrorBox, Loading, Panel } from "../../components/common";
 import { useInv } from "../../context/invContext";
 import { ApiError, api } from "../../lib/api";
@@ -125,6 +125,40 @@ function Coverage({ b, limits }: { b: any; limits: any }) {
   );
 }
 
+/** The 120 example specifications: searchable knowledge with three separate states, never shown as installed rules. */
+function ExampleSearch({ inv, onOpen }: { inv: string; onOpen: (bundle: string) => void }) {
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const list = useQuery<any>({ queryKey: ["question-examples", inv, q, kind], queryFn: () => api.get(`/investigations/${inv}/question-examples?q=${encodeURIComponent(q)}&kind=${kind}`) });
+  return (
+    <details className="small" style={{ marginTop: 8 }}>
+      <summary><b>더 많은 예제 찾기</b> — 명세 {list.data?.catalog_total ?? 120}개(탐지·헌팅·시나리오), 실행 룰이 아님</summary>
+      <p className="muted">{list.data?.note}</p>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <input className="input" aria-label="예제 검색" placeholder="예: 포트, 반복, Q06, D027" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="input" aria-label="예제 종류" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="">전체</option><option value="detection">탐지 조건 명세</option><option value="hunt">헌팅 질문</option><option value="scenario">조사 시나리오</option></select>
+        <span className="muted">{fmtNum(list.data?.total || 0)}개</span>
+      </div>
+      <ErrorBox error={list.error} />
+      <table className="t small"><thead><tr><th>예제</th><th>실행 연결</th><th>자료 준비</th><th>계산</th></tr></thead><tbody>
+        {(list.data?.items || []).map((x: any) => (<Fragment key={x.id}>
+          <tr><td><button className="btn ghost sm" aria-expanded={open === x.id} onClick={() => setOpen(open === x.id ? null : x.id)}>{x.id}</button> {x.kind_ko} · {x.title}</td>
+            <td>{x.execution.label}</td><td>{x.data_readiness.label}</td><td>{x.calculation.label}</td></tr>
+          {open === x.id && <tr><td colSpan={4}><div className="col" style={{ gap: 3 }}>
+            <div><b>질문</b> {x.question}</div>{x.logic && <div><b>조건 설명</b> {x.logic}</div>}
+            <div><b>결론 낼 수 없는 것</b> {(x.cannot_conclude || []).join(" · ")}</div>
+            <div><b>정상 설명</b> {(x.normal_explanations || []).join(" · ")}</div>
+            <div><b>다음 확인</b> {(x.followup_questions || []).map((f: any) => `${f.question} (${(f.needed_data || []).join(", ")})`).join(" / ")}</div>
+            <div className="muted">시작값(현장 보정 전): {(x.parameters || []).map((p: any) => `${p.label_ko} ${Array.isArray(p.default) ? p.default.join(",") : p.default}${p.unit ? ` ${p.unit}` : ""}`).join(" · ")}</div>
+            {x.execution.bundle && <div><button className="btn sm" onClick={() => onOpen(x.execution.bundle)}>가까운 질문 {x.execution.question}의 조건 열기</button>
+              <span className="muted"> 이 명세의 조건이 그대로 실행되는 것은 아닙니다. 연결된 질문의 조건을 고쳐 현재 로그로 확인하세요.</span></div>}
+          </div></td></tr>}</Fragment>))}</tbody></table>
+    </details>
+  );
+}
+
 /** The investigation questions, computed from the logs; each item leads to its logs and to a check, in one scope. */
 export function QuestionBundles({ inv }: { inv: string }) {
   const ctx = useInv(inv);
@@ -170,6 +204,7 @@ export function QuestionBundles({ inv }: { inv: string }) {
                 <td>{x.bundle ? `${(STATUS[x.status] || [x.status])[0]}${x.completeness === "partial" ? " · 일부만 계산" : ""}` : "실행 안 함"}</td>
                 <td>{x.needs || x.inputs.join("·")}</td></tr>))}</tbody></table>
         </details>)}
+      <ExampleSearch inv={inv} onOpen={(bundle) => setEditing(bundle)} />
       {(q.data?.bundles || []).map((base: any) => {
         const b = previews[base.id] || base;
         const [label, cls] = STATUS[b.status] || [b.status, ""];

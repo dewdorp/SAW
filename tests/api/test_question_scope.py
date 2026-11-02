@@ -248,3 +248,23 @@ def test_cookie_values_stay_out_of_normal_views_but_an_authorized_unmask_reads_t
     assert opened.status_code == 200, opened.text
     assert "sid=s0" in opened.json()["event"]["raw_event"]
     assert analyst.post(url, json={"reason": "권한 없는 열람 시도"}).status_code == 403
+
+
+def test_example_specifications_keep_execution_data_and_calculation_apart(senior):
+    inv = _inv(senior)
+    _process(senior, inv["id"], "spread.csv", fw_csv("spread"))
+    out = senior.get(f"/investigations/{inv['id']}/question-examples").json()
+    assert out["catalog_total"] == 120 and out["total"] == 120
+    by = {x["id"]: x for x in out["items"]}
+    assert {x["kind"] for x in out["items"]} == {"detection", "hunt", "scenario"}
+    d027 = by["D027"]
+    assert d027["execution"] == {"state": "nearby_question", "label": "자체 실행기 없음 · 가까운 계산 Q06 연결됨",
+                                 "question": "Q06", "bundle": "spread"}
+    assert d027["calculation"]["state"] == "not_run" and "장비 설정" in d027["data_readiness"]["label"]
+    # A spec whose question has no computation is kept as knowledge, never shown as runnable.
+    assert all(x["execution"]["state"] == "spec_only" for x in out["items"] if not x["basic_questions"])
+    # NDR examples in an FW-only investigation say the NDR data is missing here.
+    ndr_only = next(x for x in out["items"] if x["inputs"] == ["NDR"])
+    assert "NDR 자료 없음" in ndr_only["data_readiness"]["label"]
+    found = senior.get(f"/investigations/{inv['id']}/question-examples", params={"q": "Q06", "kind": "hunt"}).json()
+    assert found["total"] >= 1 and all(x["kind"] == "hunt" and "Q06" in x["basic_questions"] for x in found["items"])

@@ -43,6 +43,17 @@ def preview(inv_id: str, bundle: str, body: PreviewIn, ctx: AuthContext = Depend
     return {**result, "scope": qb.scope_of(inv, time), "preset": preset, "preview": preset is None}
 
 
+@router.get("/investigations/{inv_id}/question-examples")
+def examples(inv_id: str, q: str = Query("", max_length=200), kind: str = Query("", pattern="^(|detection|hunt|scenario)$"),
+             ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """The 120 example specifications with their execution, data and calculation states for this investigation."""
+    from saw.core.application.investigations import require
+    from saw.core.application.question_examples import search
+
+    require(s, ctx.principal, "investigation.read", inv_id)
+    return search(inv_id, q, kind)
+
+
 @router.get("/investigations/{inv_id}/question-presets")
 def presets(inv_id: str, bundle: str | None = None, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     return {"items": service.list_for(s, ctx.principal, inv_id, bundle), "scopes": service.SCOPES}

@@ -34,6 +34,7 @@ describe("question bundles", () => {
     const events = Array.from({ length: 12 }, (_, i) => ({ event_id: `e${i}` }));
     const api = mockApi({
       "GET /investigations/i1/question-bundles": [200, data],
+      "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
       "POST /investigations/i1/query/events": [200, { events }],
       "POST /investigations/i1/checks": [201, { id: "c1" }],
     }) as any;
@@ -61,6 +62,7 @@ describe("question bundles", () => {
     let saved = 0;
     const api = mockApi({
       "GET /investigations/i1/question-bundles": [200, data],
+      "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
       "GET /investigations/i1/question-presets": [200, { items: [] }],
       "POST /investigations/i1/question-bundles/spread/preview": (c) => [200, { ...data.bundles[2], status: "found", completeness: "complete",
         partial_reasons: [], parameters: c.body.parameters, description: `${c.body.parameters.window_minutes}분 동안 서로 다른 목적지 ${c.body.parameters.min_targets}개 이상`,
@@ -90,5 +92,26 @@ describe("question bundles", () => {
     fireEvent.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
     expect((await screen.findByRole("alert")).textContent).toContain("먼저 이 조건을 수정했습니다");
     expect(api.find("PUT", "/investigations/i1/question-presets/p1")[0].body.expected_version).toBe(1);
+  });
+});
+
+describe("example specifications", () => {
+  it("lists the examples with execution, data and calculation states and opens the nearby question's condition", async () => {
+    const examples = { catalog_total: 120, total: 1, note: "SAW에 설치된 실행 룰이 아닙니다.", items: [{ id: "D027", kind: "detection", kind_ko: "탐지 조건 명세",
+      title: "하나의 서비스 포트를 향한 수평 접촉 확산", question: "한 출발지가 같은 서비스 포트로 많은 목적지를 접촉하는가?", logic: "", cannot_conclude: ["출발지가 침해되었다는 결론"],
+      normal_explanations: ["자산 점검"], followup_questions: [], parameters: [{ label_ko: "서로 다른 목적지 주소 수", default: 25, unit: "addresses" }],
+      execution: { state: "nearby_question", label: "자체 실행기 없음 · 가까운 계산 Q06 연결됨", question: "Q06", bundle: "spread" },
+      data_readiness: { state: "profile_required", label: "장비 설정·원천 의미 확인 필요" }, calculation: { state: "not_run", label: "아직 실행 안 함" } }] };
+    mockApi({
+      "GET /investigations/i1/question-bundles": [200, data],
+      "GET /investigations/i1/question-examples": [200, examples],
+      "GET /investigations/i1/question-presets": [200, { items: [] }],
+    });
+    renderUI(<QuestionBundles inv="i1" />);
+    expect(await screen.findByText("자체 실행기 없음 · 가까운 계산 Q06 연결됨")).toBeTruthy();
+    expect(screen.getByText("아직 실행 안 함")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "D027" }));
+    fireEvent.click(screen.getByRole("button", { name: "가까운 질문 Q06의 조건 열기" }));
+    expect(await screen.findByRole("region", { name: "조건 수정" })).toBeTruthy();
   });
 });
