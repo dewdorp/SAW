@@ -6,7 +6,7 @@ import { UploadModal } from "../../components/UploadModal";
 import { Icon } from "../../components/ui";
 import { useInv, useInvTabs } from "../../context/invContext";
 import { api } from "../../lib/api";
-import { fmtBytes, fmtNum, fmtTime, fmtPeriod, getTz } from "../../lib/format";
+import { fmtBytes, fmtNum, fmtPeriod, getTz } from "../../lib/format";
 import { AnalysisHistoryTab } from "./AnalysisHistoryTab";
 import { SourceContextTab } from "./SourceContextTab";
 import { AttackTab } from "./AttackTab";
@@ -173,7 +173,7 @@ export function Workbench() {
                 : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠", in: "중 하나", not_in: "제외" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
             </button>
           ))}
-          {ctx.time && <button type="button" className="tag direct-filter" aria-label="선택한 기간 해제" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)}{ctx.time.end_exclusive ? " 미만" : ""} ×</button>}
+          {ctx.time && <button type="button" className="tag direct-filter" aria-label="검색 기간 해제" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>검색 기간 {fmtPeriod(ctx.time.start, ctx.time.end)} {getTz()}{ctx.time.end_exclusive ? " (끝 시각 제외)" : ""} ×</button>}
           {ctx.selection && <span className="tag" style={{ borderColor: "var(--hl)", color: "var(--hl)" }}>선택: {ctx.selection.type} {ctx.selection.value} <a onClick={() => ctx.addFilter({ field: ({ ip: "src_ip", uri: "uri_template" } as any)[ctx.selection!.type] || ctx.selection!.type, op: "is", value: ctx.selection!.value })}>이 값으로 필터</a> <a onClick={() => ctx.set({ selection: null })}>×</a></span>}
         </div>}
       </div>
