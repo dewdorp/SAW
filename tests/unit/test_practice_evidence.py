@@ -33,3 +33,17 @@ def test_practice_answers_and_csv_evidence_match_the_bundled_files():
             assert sum(o["id"] == stage["correctId"] for o in opts) == 1
             assert stage["rationale"].strip() and all(o["explanation"].strip() for o in opts)
     assert rows == 6216
+
+
+def test_each_practice_case_is_set_in_a_named_financial_sector():
+    """Examples read as the affiliates an analyst works with; all are synthetic names."""
+    web = Path(__file__).resolve().parents[2] / "apps" / "web"
+    text = (web / "src/pages/practice/practice-cases.json").read_text("utf-8")
+    cases = json.loads(text)["cases"]
+    sectors = ["가상 은행", "가상 카드사", "가상 증권사", "가상 캐피탈", "가상 생명보험사", "가상 손해보험사", "가상 저축은행"]
+    seen = []
+    for c in cases:
+        named = [s for s in sectors if c["summary"].startswith(s + " ·") and c["initial"]["observation"].startswith(s + " ·")]
+        assert len(named) == 1, c["id"]
+        seen.append(named[0])
+    assert set(seen) == set(sectors) and "가상 관계사 A" not in text and "가상 관계사 B" not in text
