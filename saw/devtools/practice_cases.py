@@ -760,8 +760,10 @@ def build() -> tuple[list, dict]:
                 if r[outcome] not in {rows[j][outcome] for j in picked}:
                     picked.append(i)
             evidence = [cite(sc.kind, rows[i], first_line + i) for i in sorted(picked)]
-            key = "event_time" if sc.kind == "ndr" else "_time"
-            w0, w1 = datetime.fromisoformat(rows[0][key]), datetime.fromisoformat(rows[-1][key])
+            # The window covers every scenario row of both files, so "NDR n건·FW m건 in this window" holds.
+            moments = [datetime.fromisoformat(r["event_time"]) for r in c.ndr[base["ndr"]:]]
+            moments += [datetime.fromisoformat(r["_time"]) for r in c.fw[base["fw"]:]]
+            w0, w1 = min(moments), max(moments)
             n_ndr, n_fw = len(c.ndr) - base["ndr"], len(c.fw) - base["fw"]
             observation = (f"가상 {sector} · 관심 구간 {hm(w0)}–{hm(w1)} KST. 이 구간 NDR {n_ndr}건·FW {n_fw}건. "
                            f"아래는 대표 행입니다. 관심 구간 집계({sc.kind}.csv {first_line}–{first_line + len(rows) - 1}행): {sc.agg}.")

@@ -18,10 +18,28 @@ export type Draft = {
     /** Exact source→destination:port connections of the activity; dropped once the analyst edits the addresses. */
     connections?: Connection[];
 };
-export type ScopeDraft = { src: string; dst: string; ports: string; start: string; end: string; org: string };
+export type ScopeDraft = { src: string; dst: string; ports: string; start: string; end: string; org: string; conns: string };
 export const blankDraft = (): Draft => ({ question: "", reason: "", needed: "", items: "", priority: "normal", owner: { org_unit_id: null, department: null, user_id: null }, due: "",
     src: "", dst: "", ports: "", behavior: "", start: "", end: "" });
-export const blankScope = (): ScopeDraft => ({ src: "", dst: "", ports: "", start: "", end: "", org: "" });
+export const blankScope = (): ScopeDraft => ({ src: "", dst: "", ports: "", start: "", end: "", org: "", conns: "" });
+/** "10.0.0.5 → 10.0.1.1:443" (or "10.0.0.5, 10.0.1.1, 443"), one per line; "미기록" for a missing part. */
+export function parseConnections(value: string): Connection[] {
+    return lines(value).map((line, i) => {
+        const parts = line.replace(/→|->/g, " ").split(/[\s,]+/).filter(Boolean);
+        let [src, dst, port] = parts;
+        if (parts.length === 2) {
+            const cut = parts[1].lastIndexOf(":");
+            [dst, port] = cut > 0 ? [parts[1].slice(0, cut), parts[1].slice(cut + 1)] : [parts[1], ""];
+        }
+        else if (parts.length !== 3)
+            throw new Error(`연결 ${i + 1}번째 줄을 '출발지 → 목적지:포트' 형식으로 입력하세요.`);
+        const none = (v?: string) => !v || v === "미기록";
+        const n = Number(port);
+        if (!none(port) && (!Number.isInteger(n) || n < 0 || n > 65535))
+            throw new Error(`연결 ${i + 1}번째 줄의 포트는 0~65535 숫자로 입력하세요.`);
+        return { src_ip: none(src) ? null : src, dst_ip: none(dst) ? null : dst, dst_port: none(port) ? null : n };
+    });
+}
 export const fromPayload = (p: FollowUpPayload): Draft => ({ question: p.question, reason: p.reason, needed: p.needed_data.join("\n"), items: p.items.join("\n"), priority: p.priority, owner: { ...p.owner }, due: p.due_at || "",
     src: (p.target?.src_ips || []).join(", "), dst: (p.target?.dst_ips || []).join(", "), ports: (p.target?.dst_ports || []).join(", "),
     behavior: p.target?.behavior || "", start: p.period?.start || "", end: p.period?.end || "" });
@@ -57,12 +75,13 @@ export function draftBody(d: Draft) {
 }
 export function replyScopeBody(s: ScopeDraft) {
     const start = instant(s.start, "회신 범위 시작"), end = instant(s.end, "회신 범위 끝");
-    if (!s.src.trim() && !s.dst.trim() && !s.ports.trim() && !start && !end && !s.org)
+    if (!s.src.trim() && !s.dst.trim() && !s.ports.trim() && !s.conns.trim() && !start && !end && !s.org)
         return null;
-    return { org_unit_id: s.org || null, src_ips: list(s.src), dst_ips: list(s.dst), dst_ports: ports(s.ports), start, end };
+    return { org_unit_id: s.org || null, src_ips: list(s.src), dst_ips: list(s.dst), dst_ports: ports(s.ports),
+        connections: parseConnections(s.conns), start, end };
 }
 /** One line for the whole target, with the full connection list folded; a kept sample is never called the whole group. */
-export function TargetSummary({ summary: s, connections }: { summary?: any; connections?: Connection[] }) {
+export function TargetSummary({ summary: s, connections, draft }: { summary?: any; connections?: Connection[]; draft?: Draft }) {
     if (!s)
         return null;
     const ports: number[] = s.ports || [];
@@ -70,11 +89,17 @@ export function TargetSummary({ summary: s, connections }: { summary?: any; conn
     const span = s.start && s.end ? ` · ${fmtPeriod(s.start, s.end)} (${getTz()})` : "";
     const basis = s.basis === "whole_group"
         ? (s.complete ? `계산한 그룹 전체: 기록 ${Number(s.records || 0).toLocaleString()}건 · 연결 ${s.connections}개`
+            : s.unlisted_records ? `기록 ${Number(s.records || 0).toLocaleString()}건 중 주소·포트가 빠진 ${Number(s.unlisted_records).toLocaleString()}건은 연결 목록에 없습니다. 그룹 전체가 아닙니다.`
             : `연결이 많아 처음 ${s.connections}개만 담았습니다. 그룹 전체가 아닙니다.`)
         : `근거로 남긴 표본 기록 ${s.records}건 기준입니다. 그룹 전체가 아닙니다.`;
     return <div className="col" style={{ gap: 4 }} aria-label="확인 대상 요약">
         <b>출발지 {s.sources}개 → 목적지 {s.destinations}개 · {portText}{span}</b>
         <span className="small muted">{basis}</span>
+        {draft && (() => {
+            const listed = { 출발지: list(draft.src).length, 목적지: list(draft.dst).length };
+            const short = Object.entries(listed).filter(([k, n]) => n < (k === "출발지" ? s.sources : s.destinations));
+            return short.length ? <span className="small" role="note">아래 칸에는 {short.map(([k, n]) => `${k} ${k === "출발지" ? s.sources : s.destinations}개 중 ${n}개`).join(", ")}만 담겼습니다. 연결 목록이 있는 동안은 전체 연결로 요청하지만, 주소·포트 칸을 고치면 연결 목록이 빠지고 칸에 적힌 주소로 요청이 좁아집니다.</span> : null;
+        })()}
         {connections?.length ? <details><summary>요청할 연결 {connections.length}개 펼치기</summary>
             <ul className="small mono">{connections.map((c, i) => <li key={i}>{c.src_ip || "출발지 미기록"} → {c.dst_ip || "목적지 미기록"}:{c.dst_port ?? "포트 미기록"}</li>)}</ul></details>
             : <span className="small muted">개별 연결 목록 없음: 회신은 주소·포트 목록으로만 비교합니다.</span>}
@@ -101,6 +126,8 @@ export function ReplyScopeFields({ value: s, onChange, choices }: { value: Scope
             <label>포트<input className="input" value={s.ports} onChange={e => set("ports", e.target.value)} /></label></div>
         <div className="row wrap"><label>작업 시작<input className="input" placeholder="2026-10-13T09:59:00+09:00" value={s.start} onChange={e => set("start", e.target.value)} /></label>
             <label>작업 끝<input className="input" placeholder="2026-10-13T10:06:00+09:00" value={s.end} onChange={e => set("end", e.target.value)} /></label></div>
+        <label>회신에 적힌 연결 (한 줄에 하나: 출발지 → 목적지:포트)<textarea className="input" rows={3} placeholder="10.31.1.30 → 10.31.0.30:443" value={s.conns} onChange={e => set("conns", e.target.value)} /></label>
+        <p className="small muted">요청에 연결 목록이 있으면 회신의 연결과 하나씩 맞춥니다. 회신 문서에 실제로 적힌 연결만 입력하세요. 비워 두면 '개별 연결 미확인'으로 일부만 설명됩니다.</p>
         <p className="small muted">기간이나 대상이 다른 회신, 범위가 적혀 있지 않은 회신은 '확인됨'으로 검증할 수 없습니다. 일부만 다루면 남은 부분은 계속 확인 대상으로 남습니다.</p>
     </fieldset>;
 }

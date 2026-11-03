@@ -486,7 +486,11 @@ def _whole_targets(inv_id: str, item: dict, query: dict) -> dict | None:
         return None
     es = container.get().events
     rows = es.group_by(inv_id, filters, ["src_ip", "dst_ip", "dst_port"], [], size=CONNECTION_LIMIT + 1, time=time)
-    complete = len(rows) <= CONNECTION_LIMIT
+    # Count the scope itself: a store may leave records without a source, destination or port out of the
+    # groups, and those must not disappear from a summary that calls itself the whole group.
+    total = es.count(inv_id, filters, time)
+    grouped = sum(r["count"] for r in rows)
+    complete = len(rows) <= CONNECTION_LIMIT and grouped >= total
     rows = rows[:CONNECTION_LIMIT]
     connections = [{"src_ip": r["key"]["src_ip"], "dst_ip": r["key"]["dst_ip"],
                     "dst_port": r["key"]["dst_port"]} for r in rows]
@@ -494,7 +498,8 @@ def _whole_targets(inv_id: str, item: dict, query: dict) -> dict | None:
     dst = list(dict.fromkeys(str(c["dst_ip"]) for c in connections if c["dst_ip"]))
     ports = sorted({int(c["dst_port"]) for c in connections if isinstance(c["dst_port"], int)})
     return {"src": src, "dst": dst, "ports": ports, "connections": connections,
-            "summary": {"basis": "whole_group", "records": sum(r["count"] for r in rows), "sources": len(src),
+            "summary": {"basis": "whole_group", "records": total, "unlisted_records": max(0, total - sum(r["count"] for r in rows)),
+                        "sources": len(src),
                         "destinations": len(dst), "ports": ports[:10], "port_count": len(ports),
                         "connections": len(connections), "complete": complete,
                         "start": (time.start if time else None), "end": (time.end if time else None)}}

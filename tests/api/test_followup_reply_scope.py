@@ -162,3 +162,14 @@ def test_a_routine_maintenance_reply_without_scope_does_not_make_the_activity_no
     refused = _verify(senior, url, replied, evidence)
     assert refused.status_code == 400 and "확인됨" in refused.text
     assert _close(senior, inv, "normal").status_code == 400
+
+
+def test_a_reply_stating_every_requested_connection_matches(senior):
+    org, url, item = _connection_case(senior)
+    scope = {"org_unit_id": org["id"], "start": PERIOD["start"], "end": PERIOD["end"], "src_ips": ["10.31.1.30"],
+             "dst_ips": ["10.31.0.30", "10.31.0.31"], "dst_ports": [443, 3389],
+             "connections": [{"src_ip": "10.31.1.30", "dst_ip": "10.31.0.31", "dst_port": 3389},
+                             {"src_ip": "10.31.1.30", "dst_ip": "10.31.0.30", "dst_port": 443}]}
+    check = _reply(senior, url, item, scope, [])["current"]["payload"]["reply"]["scope_check"]
+    assert check["result"] == "matches", check
+    assert check["components"]["connections"]["detail"] == "요청한 연결 2개 중 2개 일치"

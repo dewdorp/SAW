@@ -3,7 +3,7 @@ import { Fragment, useEffect, useId, useRef, useState } from "react";
 import "./question-worklist.css";
 import { Link } from "react-router-dom";
 import { ErrorBox, Loading, Panel } from "../../components/common";
-import { blankQuestionView, scopeKeyOf, useInv, type QuestionView } from "../../context/invContext";
+import { blankQuestionView, scopeKeyOf, useInv, useInvStore, type QuestionView } from "../../context/invContext";
 import { CLAIM_COLUMNS } from "./evidenceView";
 import { ApiError, api } from "../../lib/api";
 import { fmtNum, fmtPeriod, getTz } from "../../lib/format";
@@ -195,7 +195,11 @@ export function QuestionBundles({ inv }: { inv: string }) {
   // Everything the analyst set here lives with this investigation: a trip to the raw view and back keeps it,
   // and another investigation (another affiliate) starts from its own.
   const view: QuestionView = ctx.questionView || blankQuestionView();
-  const setView = (patch: Partial<QuestionView>) => ctx.set({ questionView: { ...(ctx.questionView || blankQuestionView()), ...patch } });
+  // Always patch the latest stored view: two updates in one event (or one after an await) must not undo each other.
+  const setView = (patch: Partial<QuestionView> | ((v: QuestionView) => Partial<QuestionView>)) => {
+    const latest = useInvStore.getState().get(inv).questionView || blankQuestionView();
+    ctx.set({ questionView: { ...latest, ...(typeof patch === "function" ? patch(latest) : patch) } });
+  };
   const { sensitivity, previews, editing } = view;
   const settings = useRef<HTMLDetailsElement>(null);
   const focusEditor = () => {
@@ -253,7 +257,7 @@ export function QuestionBundles({ inv }: { inv: string }) {
   const incomplete = !!(partial || missing || failed || !bundles.length);
   const found = groups.reduce((n, g) => n + (g.b.found ?? g.items.length), 0);
   // The first type opens by itself; the rest show their one-line summary until the analyst opens them.
-  const openTypes = view.openTypes.length ? view.openTypes : groups.slice(0, 1).map(g => g.b.id);
+  const openTypes = view.openTypes ?? groups.slice(0, 1).map(g => g.b.id);
   const toggleType = (id: string) => setView({ openTypes: openTypes.includes(id) ? openTypes.filter(x => x !== id) : [...openTypes, id] });
   const adjust = (id: string) => {
     if (editing && editing !== id) return;
@@ -315,14 +319,14 @@ export function QuestionBundles({ inv }: { inv: string }) {
             </div>}
           </article>;
         })}
-        {items.length > shown && <button className="btn sm" onClick={() => setView({ pages: { ...view.pages, [b.id]: shown + PAGE } })}>
+        {items.length > shown && <button className="btn sm" onClick={() => setView(v => ({ pages: { ...v.pages, [b.id]: shown + PAGE } }))}>
           {NAMES[b.id] || b.title} 더 보기 ({fmtNum(shown)}/{fmtNum(items.length)})</button>}
         {computed > items.length && <p className="queue-scope">계산된 {fmtNum(computed)}개 중 {fmtNum(items.length)}개만 받아 왔습니다. 조건을 좁혀 나머지를 보세요.</p>}
         </>}
       </section>;
     })}</div>
     <details className="queue-tools" ref={settings}><summary><b>계산 결과와 조건</b> · {bundles.length}개 유형 · 민감도</summary>
-      <label className="queue-filter">질문 민감도 <select className="input" aria-label="질문 민감도" disabled={!!editing} value={sensitivity} onChange={e => { setView({ sensitivity: e.target.value, previews: {}, pages: {}, openTypes: [] }); ctx.set({ questionActivity: null }); }}>
+      <label className="queue-filter">질문 민감도 <select className="input" aria-label="질문 민감도" disabled={!!editing} value={sensitivity} onChange={e => { setView({ sensitivity: e.target.value, previews: {}, pages: {}, openTypes: null }); ctx.set({ questionActivity: null }); }}>
         <option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option></select></label>
       {bundles.map(b => { const [label, cls] = STATUS[b.status] || [b.status, ""];
         return <section className="queue-calculation" key={b.id} aria-label={b.title}><div className="row wrap">
@@ -334,11 +338,12 @@ export function QuestionBundles({ inv }: { inv: string }) {
           {b.missing && <div>필요한 자료: {b.missing.join(", ")}</div>}
           <Coverage b={b} limits={q.data.limits} />
           {editing === b.id && defs[b.id] && <ConditionEditor inv={inv} bundle={b.id} def={defs[b.id]} sensitivity={sensitivity}
-            initial={view.editorValues[b.id]} onValues={v => setView({ editorValues: { ...view.editorValues, [b.id]: v } })}
-            onResult={r => { const next = { ...previews }; if (r) next[b.id] = r; else delete next[b.id];
+            initial={view.editorValues[b.id]} onValues={v => setView(cur => ({ editorValues: { ...cur.editorValues, [b.id]: v } }))}
+            onResult={r => setView(cur => { const next = { ...cur.previews }; if (r) next[b.id] = r; else delete next[b.id];
               // A previewed condition opens its type, so the changed candidates are in view.
-              setView({ previews: next, openTypes: r && !openTypes.includes(b.id) ? [...openTypes, b.id] : openTypes }); }}
-            onClose={() => { const values = { ...view.editorValues }; delete values[b.id]; setView({ editing: null, editorValues: values }); }} />}
+              const opened = cur.openTypes ?? openTypes;
+              return { previews: next, openTypes: r && !opened.includes(b.id) ? [...opened, b.id] : opened }; })}
+            onClose={() => setView(cur => { const values = { ...cur.editorValues }; delete values[b.id]; return { editing: null, editorValues: values }; })} />}
         </section>;
       })}
       {q.data.note && <p className="queue-scope">{q.data.note} · {q.data.version}</p>}

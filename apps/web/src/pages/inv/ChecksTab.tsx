@@ -25,9 +25,18 @@ function CheckRecords({ inv }: { inv: string }) {
   const [createCheck,setCreateCheck]=useState<any>(ctx.followUpCheck || ctx.followUpDraft?.check || null);
   const followupPanel = useRef<HTMLDivElement>(null);
   const write = !!me.data?.permissions.includes("investigation.write");
+  // Starting a request for another check replaces the draft in progress only after the analyst agrees.
+  const startDraft = (c: any) => {
+    const kept = useInvStore.getState().get(inv).followUpDraft;
+    if (kept && kept.checkId !== c.id && kept.touched.length
+        && !window.confirm(`작성 중인 후속확인 초안(${kept.label})이 있습니다. 버리고 이 확인 기록으로 새로 작성할까요?`))
+      return false;
+    setCreateCheck(c);
+    return true;
+  };
   useEffect(() => {
     if (!ctx.followUpCheck) return;
-    setCreateCheck(ctx.followUpCheck);
+    startDraft(ctx.followUpCheck);
     useInvStore.getState().set(inv, { followUpCheck: null });
   }, [ctx.followUpCheck, inv]);
   useEffect(() => {
@@ -69,7 +78,7 @@ function CheckRecords({ inv }: { inv: string }) {
                 <td>{c.judgement ? <span className={`ck ${c.judgement}`}>{c.judgement_ko}</span> : <span className="muted small">판단 없음</span>}</td>
                 <td className="small">{c.coverage === "sample" ? `표본 ${fmtNum(c.checked)}/${fmtNum(c.total)}` : c.coverage === "all" && c.total != null ? `전체 ${fmtNum(c.total)}` : c.coverage === "observation" ? "자동 관측 근거" : ""}</td>
                 <td className="small ellipsis" style={{ maxWidth: 300 }} title={c.note}>{c.note}{c.state === "cancelled" ? ` (취소: ${c.state_note || "사유 없음"})` : c.state === "superseded" ? " (이전 기록)" : ""}</td>
-                <td className="small">{c.author}</td><td className="small">{fmtTime(c.created_at)}</td><td>{c.state === "active" && me.data?.permissions.includes("investigation.write") && <button className="btn sm" onClick={()=>setCreateCheck(c)}>이 확인에서 후속확인 만들기</button>}</td>
+                <td className="small">{c.author}</td><td className="small">{fmtTime(c.created_at)}</td><td>{c.state === "active" && me.data?.permissions.includes("investigation.write") && <button className="btn sm" onClick={()=>startDraft(c)}>이 확인에서 후속확인 만들기</button>}</td>
               </tr>))}</tbody></table>
         ) : !q.isLoading && <span className="muted small">아직 확인 기록이 없습니다. 이벤트 상세의 "확인" 탭이나 원본 로그의 "검색 결과 확인 기록"에서 남길 수 있습니다.</span>}
       </Panel>

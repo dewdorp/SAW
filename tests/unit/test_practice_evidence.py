@@ -68,6 +68,16 @@ def test_generated_cases_are_reproducible_and_their_aggregates_match_the_rows():
             assert sum(r["status"] == label for r in rows) == int(value), (c["id"], label)
         for label, value in re.findall(r"\b(allow|deny) (\d+)건", c["initial"]["observation"]):
             assert sum(r["action"] == label for r in rows) == int(value), (c["id"], label)
+        # "이 구간 NDR n건·FW m건" counts the rows of both files inside the stated window.
+        w = re.search(r"관심 구간 (\d\d/\d\d \d\d:\d\d:\d\d)–(\d\d/\d\d \d\d:\d\d:\d\d) KST\. 이 구간 NDR (\d+)건·FW (\d+)건",
+                      c["initial"]["observation"])
+        assert w, c["id"]
+
+        def inside(value, w=w):
+            return w[1] <= f"{value[5:7]}/{value[8:10]} {value[11:19]}" <= w[2]
+
+        assert sum(inside(r["event_time"]) for r in logs["ndr"]) == int(w[3]), c["id"]
+        assert sum(inside(r["_time"]) for r in logs["fw"]) == int(w[4]), c["id"]
 
 
 def test_every_address_is_private_or_documentation_and_payloads_are_defanged():

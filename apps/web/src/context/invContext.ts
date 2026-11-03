@@ -27,14 +27,16 @@ type InvState = {
 
 export type QuestionView = {
   sensitivity: string; category: string; pages: Record<string, number>; previews: Record<string, any>;
-  editing: string | null; editorValues: Record<string, Record<string, any>>; openTypes: string[];
+  editing: string | null; editorValues: Record<string, Record<string, any>>;
+  /** Types the analyst opened; null until they choose, when the first type is shown open. */
+  openTypes: string[] | null;
 };
 export type FollowUpDraftState = {
   checkId: string; label: string; draft: Record<string, any>; touched: string[]; filled: boolean;
   summary?: any; connections?: any[]; check?: any; legacy?: boolean; updatedAt: string;
 };
 export const blankQuestionView = (): QuestionView => ({ sensitivity: "normal", category: "", pages: {}, previews: {},
-  editing: null, editorValues: {}, openTypes: [] });
+  editing: null, editorValues: {}, openTypes: null });
 /** The scope a raw view was opened for: its filters and period. */
 export const scopeKeyOf = (filters: Filter[], time: TimeRange) => JSON.stringify([filters, time]);
 

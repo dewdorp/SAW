@@ -21,18 +21,16 @@ function sourceCounts(d: any): { label: string; count: number }[] {
   return (d.breakdown.data_source?.buckets || []).map((b:any) => ({label:SOURCE_NAMES[b.key] || String(b.key),count:b.count}));
 }
 
-/** "2026년 9월 5일 ~ 10월 10일" in the investigation's zone; an exclusive midnight end names the last included day. */
+/** "2026년 9월 5일 ~ 10월 10일" in the investigation's zone. Both ends are inclusive (a declared end is 23:59:59). */
 export function dayRange(start?: string | null, end?: string | null, zone = "Asia/Seoul"): string {
-  const day = (s: string, back = false) => {
-    let t = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(s) ? s : s.replace(" ", "T") + "Z").getTime();
+  const day = (s: string) => {
+    const t = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(s) ? s : s.replace(" ", "T") + "Z").getTime();
     if (!Number.isFinite(t)) return null;
-    const hm = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(t);
-    if (back && hm === "00:00:00") t -= 1000;
     const v = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric", month: "numeric", day: "numeric" })
       .formatToParts(t).map(x => [x.type, x.value]));
     return { y: v.year, text: `${Number(v.month)}월 ${Number(v.day)}일` };
   };
-  const a = start ? day(start) : null, b = end ? day(end, true) : null;
+  const a = start ? day(start) : null, b = end ? day(end) : null;
   if (!a && !b) return "기간 미확인";
   if (!a || !b) return `${(a || b)!.y}년 ${(a || b)!.text}`;
   return `${a.y}년 ${a.text} ~ ${b.y === a.y ? "" : b.y + "년 "}${b.text}`;

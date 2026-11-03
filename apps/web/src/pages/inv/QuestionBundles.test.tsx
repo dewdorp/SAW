@@ -137,6 +137,31 @@ describe("question bundles", () => {
     expect(screen.queryByText(/표시할 후보가 없습니다/)).toBeNull();
   });
 
+  it("closing the editor removes its unsaved preview, and the first type can be collapsed", async () => {
+    mockApi({
+      "GET /investigations/i1/question-bundles": [200, data],
+      "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
+      "GET /investigations/i1/question-presets": [200, { items: [] }],
+      "POST /investigations/i1/question-bundles/spread/preview": [200, { ...data.bundles[2], status: "found", completeness: "complete",
+        partial_reasons: [], items: [{ ...item, title: "미리 본 후보 10.20.5.99" }], scope: SCOPE, preset: null }],
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderUI(<QuestionBundles inv="i1" />);
+    const head = await screen.findByRole("button", { name: /^대량 전송/ });
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(await screen.findByText("계산 결과와 조건"));
+    fireEvent.click(await screen.findByRole("button", { name: "조건 수정" }));
+    fireEvent.change(screen.getByLabelText("서로 다른 목적지 수"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "현재 로그로 미리 보기" }));
+    expect(await screen.findByText("미리 본 후보 10.20.5.99")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByText("미리 본 후보 10.20.5.99")).toBeNull();
+    expect(screen.queryByText(/조건 미리 보기 적용 중/)).toBeNull();
+    expect(useInvStore.getState().get("i1").questionView?.previews).toEqual({});
+  });
+
   it("edits a condition with typed inputs, runs it on the current logs and saves it as a versioned condition", async () => {
     let saved = 0;
     const api = mockApi({

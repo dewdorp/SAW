@@ -44,6 +44,25 @@ describe("follow-up draft",()=>{
     expect(api.find("POST","/investigations/i1/follow-ups")[0].body).toMatchObject({question:"고친 질문",target:{connections}});
     await waitFor(()=>expect(useInvStore.getState().get("i1").followUpDraft).toBeNull());
   });
+  it("asks before a request for another check replaces a draft in progress",async()=>{
+    const other={...check,id:"c2",target_label:"다른 확인"};
+    mockApi(routes({"GET /investigations/i1/checks":[200,{checks:[check,other],summary:{direct:2,by_question:{}}}]}));
+    const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
+    renderUI(<ChecksTab inv="i1"/>);
+    const buttons=await screen.findAllByRole("button",{name:"이 확인에서 후속확인 만들기"});
+    fireEvent.click(buttons[0]);
+    await waitFor(()=>expect((screen.getByLabelText("확인할 질문") as HTMLTextAreaElement).value).toBe("자동 질문"));
+    fireEvent.change(screen.getByLabelText("확인할 질문"),{target:{value:"쓰던 질문"}});
+    fireEvent.click(buttons[1]);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText("확인할 질문") as HTMLTextAreaElement).value).toBe("쓰던 질문");
+    expect(useInvStore.getState().get("i1").followUpDraft?.checkId).toBe("c1");
+  });
+  it("says when the address fields hold fewer destinations than the whole group",async()=>{
+    mockApi(routes({"GET /investigations/i1/follow-ups/draft":[200,{...suggestion,target_summary:{...suggestion.target_summary,destinations:120}}]}));
+    renderUI(<ChecksTab inv="i1"/>);fireEvent.click(await screen.findByRole("button",{name:"이 확인에서 후속확인 만들기"}));
+    expect((await screen.findByRole("note")).textContent).toContain("목적지 120개 중 2개");
+  });
   it("drops the connection list once the analyst edits the addresses",async()=>{
     const api=mockApi(routes({"POST /investigations/i1/follow-ups":[201,{id:"fu1"}]}));
     renderUI(<ChecksTab inv="i1"/>);fireEvent.click(await screen.findByRole("button",{name:"이 확인에서 후속확인 만들기"}));
