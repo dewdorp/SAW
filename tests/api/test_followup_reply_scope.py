@@ -144,3 +144,21 @@ def test_a_reply_with_lists_only_leaves_each_connection_unconfirmed(senior):
              "dst_ips": ["10.31.0.30", "10.31.0.31"], "dst_ports": [443, 3389]}
     check = _reply(senior, url, item, scope, [])["current"]["payload"]["reply"]["scope_check"]
     assert check["result"] == "partial" and "개별 연결 미확인" in check["components"]["connections"]["detail"]
+
+
+def test_a_routine_maintenance_reply_without_scope_does_not_make_the_activity_normal(senior):
+    """'정기 점검' with no source, target or time is a claim, not an explanation of the observed connections."""
+    org, inv, url, item = _case(senior)
+    evidence = [_event(inv, "2026-10-13T01:01:00+00:00")]
+    r = senior.post(f"{url}/{item['id']}/reply", json={"expected_version_id": item["current"]["id"],
+                                                       "reason": "Reply received", "note": "정기 점검입니다",
+                                                       "evidence": evidence, "scope": None})
+    assert r.status_code == 200, r.text
+    replied = r.json()
+    assert replied["current"]["payload"]["status"] == "replied"
+    assert replied["current"]["payload"]["reply"]["scope_check"]["result"] == "not_stated"
+    # Received is not verified: the case cannot close as normal on the reply alone.
+    assert _close(senior, inv, "normal").status_code == 400
+    refused = _verify(senior, url, replied, evidence)
+    assert refused.status_code == 400 and "확인됨" in refused.text
+    assert _close(senior, inv, "normal").status_code == 400

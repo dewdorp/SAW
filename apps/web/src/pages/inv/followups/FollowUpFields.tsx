@@ -1,4 +1,6 @@
 import type { Choices, Owner, EvidenceRef, FollowUpPayload } from "./types";
+import { fmtPeriod, getTz } from "../../../lib/format";
+export type Connection = { src_ip: string | null; dst_ip: string | null; dst_port: number | null };
 export type Draft = {
     question: string;
     reason: string;
@@ -13,6 +15,8 @@ export type Draft = {
     behavior: string;
     start: string;
     end: string;
+    /** Exact source→destination:port connections of the activity; dropped once the analyst edits the addresses. */
+    connections?: Connection[];
 };
 export type ScopeDraft = { src: string; dst: string; ports: string; start: string; end: string; org: string };
 export const blankDraft = (): Draft => ({ question: "", reason: "", needed: "", items: "", priority: "normal", owner: { org_unit_id: null, department: null, user_id: null }, due: "",
@@ -48,7 +52,7 @@ export function draftBody(d: Draft) {
         throw new Error("확인 대상 기간은 시작과 끝을 함께 입력하세요.");
     const hasTarget = d.src.trim() || d.dst.trim() || d.ports.trim() || d.behavior.trim();
     return { question: d.question, reason: d.reason, needed_data: lines(d.needed), items: lines(d.items), priority: d.priority, owner: d.owner, due_at,
-        target: hasTarget ? { src_ips: list(d.src), dst_ips: list(d.dst), dst_ports: ports(d.ports), behavior: d.behavior.trim() || null } : null,
+        target: hasTarget ? { src_ips: list(d.src), dst_ips: list(d.dst), dst_ports: ports(d.ports), behavior: d.behavior.trim() || null, connections: d.connections || [] } : null,
         period: start && end ? { start, end } : null };
 }
 export function replyScopeBody(s: ScopeDraft) {
@@ -56,6 +60,25 @@ export function replyScopeBody(s: ScopeDraft) {
     if (!s.src.trim() && !s.dst.trim() && !s.ports.trim() && !start && !end && !s.org)
         return null;
     return { org_unit_id: s.org || null, src_ips: list(s.src), dst_ips: list(s.dst), dst_ports: ports(s.ports), start, end };
+}
+/** One line for the whole target, with the full connection list folded; a kept sample is never called the whole group. */
+export function TargetSummary({ summary: s, connections }: { summary?: any; connections?: Connection[] }) {
+    if (!s)
+        return null;
+    const ports: number[] = s.ports || [];
+    const portText = s.port_count ? (s.port_count <= 3 ? `포트 ${ports.join("·")}` : `포트 ${s.port_count}개`) : "포트 미기록";
+    const span = s.start && s.end ? ` · ${fmtPeriod(s.start, s.end)} (${getTz()})` : "";
+    const basis = s.basis === "whole_group"
+        ? (s.complete ? `계산한 그룹 전체: 기록 ${Number(s.records || 0).toLocaleString()}건 · 연결 ${s.connections}개`
+            : `연결이 많아 처음 ${s.connections}개만 담았습니다. 그룹 전체가 아닙니다.`)
+        : `근거로 남긴 표본 기록 ${s.records}건 기준입니다. 그룹 전체가 아닙니다.`;
+    return <div className="col" style={{ gap: 4 }} aria-label="확인 대상 요약">
+        <b>출발지 {s.sources}개 → 목적지 {s.destinations}개 · {portText}{span}</b>
+        <span className="small muted">{basis}</span>
+        {connections?.length ? <details><summary>요청할 연결 {connections.length}개 펼치기</summary>
+            <ul className="small mono">{connections.map((c, i) => <li key={i}>{c.src_ip || "출발지 미기록"} → {c.dst_ip || "목적지 미기록"}:{c.dst_port ?? "포트 미기록"}</li>)}</ul></details>
+            : <span className="small muted">개별 연결 목록 없음: 회신은 주소·포트 목록으로만 비교합니다.</span>}
+    </div>;
 }
 /** What the request is about. A reply is compared with exactly this before it can explain the activity. */
 function TargetFields({ d, change }: { d: Draft; change: (key: keyof Draft, value: any) => void }) {

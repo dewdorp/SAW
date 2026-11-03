@@ -21,7 +21,8 @@ function CheckRecords({ inv }: { inv: string }) {
   const ctx = useInv(inv);
   const me=useMe();
   const [history, setHistory] = useState(false);
-  const [createCheck,setCreateCheck]=useState<any>(ctx.followUpCheck || null);
+  // A draft left open keeps its check, so coming back from the raw records reopens the same form.
+  const [createCheck,setCreateCheck]=useState<any>(ctx.followUpCheck || ctx.followUpDraft?.check || null);
   const followupPanel = useRef<HTMLDivElement>(null);
   const write = !!me.data?.permissions.includes("investigation.write");
   useEffect(() => {

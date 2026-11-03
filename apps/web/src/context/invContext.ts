@@ -31,7 +31,7 @@ export type QuestionView = {
 };
 export type FollowUpDraftState = {
   checkId: string; label: string; draft: Record<string, any>; touched: string[]; filled: boolean;
-  summary?: any; connections?: any[]; updatedAt: string;
+  summary?: any; connections?: any[]; check?: any; legacy?: boolean; updatedAt: string;
 };
 export const blankQuestionView = (): QuestionView => ({ sensitivity: "normal", category: "", pages: {}, previews: {},
   editing: null, editorValues: {}, openTypes: [] });
