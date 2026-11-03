@@ -54,6 +54,7 @@ export function Home() {
   return (
     <div className="page">
       <PageHeader eyebrow="SOC Analysis Workbench" title="무엇을 분석할까요?"
+        actions={<Link to="/practice" className="btn" title="가상 NDR·FW 로그로 판단하고 정답과 오답의 근거를 비교합니다"><Icon name="book" size={16} /> 가상 로그 예제</Link>}
         desc="로그·IOC·HTTP 요청·인코딩된 문자열을 붙여넣거나 파일을 올리세요. 결과는 이야기 → 근거 → 원본 순서로 보여 드립니다." />
       <div className="stats">
         <Stat label="진행 중인 조사" value={open.length} onClick={() => nav("/investigations")} />
