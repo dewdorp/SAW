@@ -338,3 +338,5 @@ def test_a_request_drafted_from_an_activity_covers_its_whole_group_not_the_kept_
     assert summary["basis"] == "whole_group" and summary["complete"] is True and summary["records"] == 60
     assert (summary["destinations"], summary["port_count"], summary["connections"]) == (15, 4, 60)
     assert len(draft["target"]["dst_ips"]) == 15 and len(draft["target"]["connections"]) == 60
+    # The activity sentence is quoted, not glued to a postposition ("…했습니다.에서").
+    assert ".에서" not in draft["question"] and item["title"] in draft["question"]

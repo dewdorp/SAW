@@ -1,5 +1,5 @@
 import type { Filter } from "../../context/invContext";
-import { fmtTime } from "../../lib/format";
+import { fmtInstant } from "../../lib/format";
 
 export type LogProfile = "common" | "http" | "network";
 export type ColumnMode = "auto" | LogProfile | "custom";
@@ -55,7 +55,7 @@ export function profileForScope(filters: Filter[], inventory?: {buckets?: {key: 
 }
 export function displayField(c: string, val: unknown): string {
   if(val == null || val === "" || (Array.isArray(val) && !val.length)) return "—";
-  if(c === "timestamp") return fmtTime(val as string);
+  if(c === "timestamp") return fmtInstant(val as string);
   if(c === "data_source") return ({firewall:"방화벽",connection:"연결",web:"웹",waf:"WAF",ips:"IPS",ddos:"DDoS",zeek_conn:"Zeek 연결",zeek_http:"Zeek HTTP"} as Record<string,string>)[String(val)] || String(val);
   if(c === "enforcement_action") return ({allowed:"허용",blocked:"차단",unknown:"미확인",detected:"탐지"} as Record<string,string>)[String(val)] || String(val);
   if((c === "bytes_in" || c === "bytes_out") && /^\d+$/.test(String(val))) return String(val).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + " B";

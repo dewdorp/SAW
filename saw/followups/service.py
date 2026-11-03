@@ -458,9 +458,15 @@ def suggest(s, p, inv_id, check_id) -> dict:
             lines.append(f"아직 알 수 없는 것: {' · '.join(item['unknown'])}")
         reason = "\n".join([reason, "", *lines])
         needed = [*dict.fromkeys([*(f"확인: {q}" for q in item.get("next_questions") or []), *needed])]
+    who = (affiliate + " ") if affiliate else ""
+    if label.rstrip().endswith("."):
+        # A question item's title is already a sentence ("…에 접촉했습니다."): quote it rather than append "에서".
+        question = (f"{who}{span}에 관측된 다음 활동이 승인된 업무였습니까? {label.rstrip()} "
+                    "수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.")
+    else:
+        question = f"{who}{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? 수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요."
     return {"check_id": check.id, "evidence_records": len(events),
-            "question": f"{(affiliate + ' ') if affiliate else ''}{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? "
-                        "수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
+            "question": question,
             "reason": reason[:8000], "affiliate": affiliate,
             "target": {"src_ips": src[:50], "dst_ips": dst[:50], "dst_ports": ports[:50], "behavior": label[:1000],
                        "connections": connections[:200]},

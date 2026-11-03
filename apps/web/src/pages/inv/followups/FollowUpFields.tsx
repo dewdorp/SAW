@@ -86,7 +86,9 @@ export function TargetSummary({ summary: s, connections, draft }: { summary?: an
         return null;
     const ports: number[] = s.ports || [];
     const portText = s.port_count ? (s.port_count <= 3 ? `포트 ${ports.join("·")}` : `포트 ${s.port_count}개`) : "포트 미기록";
-    const span = s.start && s.end ? ` · ${fmtPeriod(s.start, s.end)} (${getTz()})` : "";
+    // The group period, or the request period the draft carries when the group has no separate window.
+    const from = s.start || draft?.start, to = s.end || draft?.end;
+    const span = from && to ? ` · ${fmtPeriod(from, to)} (${getTz()})` : "";
     const basis = s.basis === "whole_group"
         ? (s.complete ? `계산한 그룹 전체: 기록 ${Number(s.records || 0).toLocaleString()}건 · 연결 ${s.connections}개`
             : s.unlisted_records ? `기록 ${Number(s.records || 0).toLocaleString()}건 중 주소·포트가 빠진 ${Number(s.unlisted_records).toLocaleString()}건은 연결 목록에 없습니다. 그룹 전체가 아닙니다.`

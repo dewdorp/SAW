@@ -5,7 +5,7 @@ import { CheckDialog, MarkBadges, useMarks } from "../../components/Checks";
 import { ErrorBox, Loading } from "../../components/common";
 import { entityKey, useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
-import { fmtNum, fmtTime, getTz } from "../../lib/format";
+import { fmtNum, fmtPeriod, getTz } from "../../lib/format";
 import { scopeKeyOf } from "../../context/invContext";
 import { ALL_COLS, columnLabel, type ColumnMode, displayField, PRESETS, PROFILE_NAMES, profileForScope, readColumnPref, valueOf } from "./evidenceView";
 import "./evidenceView.css";
@@ -99,14 +99,14 @@ export function RawTab({ inv }: { inv: string }) {
     a.download = `saw_events_${inv.slice(0, 8)}.csv`;
     a.click();
   };
-  const w = (c: string) => widths[c] || (c === "uri" || c === "user_agent" ? 200 : c === "hostname" ? 150 : c === "timestamp" ? 138 : ["src_ip","dst_ip"].includes(c) ? 128 : 96);
+  const w = (c: string) => widths[c] || (c === "uri" || c === "user_agent" ? 200 : c === "hostname" ? 150 : c === "timestamp" ? 176 : ["src_ip","dst_ip"].includes(c) ? 128 : 96);
   const changeMode = (mode: ColumnMode) => { setPref({mode, custom:pref.custom.length ? pref.custom : [...cols]}); setHead(null); };
   return (
     <div className="col evidence-table">
       <section className="evidence-scope" aria-label="로그 조회 범위">
         <div className="row wrap"><h3>로그 기록</h3><span className="tag">{scoped ? "현재 검색 범위" : "조사 전체"}</span>{scoped && <span className="muted">조사 전체 {wholeCount == null ? "건수 미확인" : `${fmtNum(wholeCount)}건`}</span>}</div>
         <div role="status">조건에 맞는 전체 {totalCount == null ? (all.isError ? "건수 미확인" : "집계 중") : `${fmtNum(totalCount)}건`}{rows.length ? ` · 화면 ${fmtNum(before + 1)}~${fmtNum(before + rows.length)}번째` : ""}{q.hasNextPage ? " · 다음 기록 있음" : ""}</div>
-        <div className="muted small">{ctx.time ? `${fmtTime(ctx.time.start)} ~ ${fmtTime(ctx.time.end)} ${getTz()}${ctx.time.end_exclusive ? " (끝 시각 제외)" : ""}` : "전체 저장 기간"} · {ctx.filters.length ? `검색 조건 ${ctx.filters.length}개` : "검색 조건 없음"} · 민감값 가림</div>
+        <div className="muted small">{ctx.time ? `검색 기간 ${fmtPeriod(ctx.time.start, ctx.time.end)} ${getTz()}${ctx.time.end_exclusive ? " (끝 시각 제외)" : ""}` : "전체 저장 기간"} · {ctx.filters.length ? `검색 조건 ${ctx.filters.length}개` : "검색 조건 없음"} · 민감값 가림</div>
       </section>
       <div className="row wrap evidence-tools">
         <select className="input" aria-label="로그 표 구성" value={pref.mode} onChange={e=>changeMode(e.target.value as ColumnMode)}>

@@ -25,6 +25,12 @@ export function subscribeTz(listener: () => void) {
 /** Human-readable investigation range, including the year for multi-month or historic cases. */
 export function fmtPeriod(start?: string | null, end?: string | null): string {
   if (!start && !end) return "미확인";
+  const a = fmtInstant(start), b = fmtInstant(end);
+  return a + " ~ " + (/^\d{4}-/.test(a) && /^\d{4}-/.test(b) && a.slice(0,10) === b.slice(0,10) ? b.slice(11) : b);
+}
+
+/** One instant with year, seconds and any recorded fraction, in the display time zone. */
+export function fmtInstant(s?: string | null): string {
   const fmt = (s?: string | null) => {
     if (!s) return "미확인";
     const utc = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(s) ? s.replace(" ", "T") + "Z" : s;
@@ -36,8 +42,7 @@ export function fmtPeriod(start?: string | null, end?: string | null): string {
     const fraction = s.match(/[T ]\d{2}:\d{2}:\d{2}\.(\d+)/)?.[1].replace(/0+$/, "");
     return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute}:${v.second}${fraction ? "." + fraction : ""}`;
   };
-  const a = fmt(start), b = fmt(end);
-  return a + " ~ " + (/^\d{4}-/.test(a) && /^\d{4}-/.test(b) && a.slice(0,10) === b.slice(0,10) ? b.slice(11) : b);
+  return fmt(s);
 }
 
 export function fmtTime(ts?: string | number | null, withDate = true): string {
