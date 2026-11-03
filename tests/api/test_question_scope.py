@@ -275,3 +275,24 @@ def test_example_specifications_keep_execution_data_and_calculation_apart(senior
     assert "NDR 자료 없음" in ndr_only["data_readiness"]["label"]
     found = senior.get(f"/investigations/{inv['id']}/question-examples", params={"q": "Q06", "kind": "hunt"}).json()
     assert found["total"] >= 1 and all(x["kind"] == "hunt" and "Q06" in x["basic_questions"] for x in found["items"])
+
+
+def test_a_large_ndr_request_is_described_as_a_request_not_a_download(senior):
+    """An internal client's large requests to an external server are an outbound transfer candidate."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "ndr.csv", ndr_csv("upload_out"))
+    item = _preview(senior, inv, "transfer")["items"][0]
+    assert "10.20.5.12" in item["title"] and "요청" in item["title"] and "90.0" in item["title"]
+    assert "다운로드" not in item["title"] and "응답 0.0" not in item["title"]
+    # Restricting to the response direction finds nothing large: the size was in the request.
+    assert _preview(senior, inv, "transfer", direction="out")["items"] == []
+
+
+def test_a_window_that_meets_the_port_criterion_is_found_even_when_another_has_more_targets(senior):
+    """The busiest-by-targets window (9 hosts, 1 port) does not hide a later one with 6 ports."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "late.csv", fw_csv("spread_ports_late"))
+    out = _preview(senior, inv, "spread", window_minutes=10, min_targets=10, min_ports=5, match="any")
+    assert [i["entities"] for i in out["items"]] == [["ip:10.20.5.97"]]
+    assert "10분 안에 목적지 3개·포트 6개" in out["items"][0]["title"]
+    assert "10-13 11:00:00" in out["items"][0]["observed"]
