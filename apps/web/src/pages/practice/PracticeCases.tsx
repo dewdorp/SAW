@@ -93,6 +93,10 @@ function Exercise({ item }: { item: PracticeCase }) {
   const showFollowups = !!item.followups.length && (answers[0]?.revealed || step !== 0);
 
   return <>
+    <p className="row wrap small" role="note" style={{ gap: 6 }}>
+      <span className="tag warn">가상 로그</span>
+      <span>합성 자료입니다. 관계사 이름·주소·회신은 모두 가상이며 실제 관계사나 실제 로그가 아닙니다.</span>
+    </p>
     {showFollowups && <Panel>
       <div className="col">
         <label className="row wrap"><b>검토할 자료</b>
@@ -115,7 +119,7 @@ function Exercise({ item }: { item: PracticeCase }) {
         <div className="row wrap small">
           <span className="muted">처음 자료 전체</span>
           {item.sources.filter(s => s === "NDR" || s === "FW").map(s =>
-            <a className="btn sm" key={s} href={`${files}${s.toLowerCase()}.csv`} download={`${item.id}-${s.toLowerCase()}.csv`}>{s} 전체 CSV</a>)}
+            <a className="btn sm" key={s} href={`${files}${s.toLowerCase()}.csv`} download={`가상-${item.id}-${s.toLowerCase()}.csv`}>가상 {s} 전체 CSV</a>)}
         </div>
       </div>
     </Panel>
@@ -193,7 +197,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
       {!shown.length && <p role="status">검색어에 맞는 예제가 없습니다. <button className="btn sm" onClick={() => setSearch("")}>검색 지우기</button></p>}
       <div className="quick" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 235px), 1fr))" }}>
         {shown.map(c => <button key={c.id} onClick={() => choose(c.id)} ref={c.id === lastOpened ? listButton : undefined}>
-          <b>{c.id} · {c.title}</b><small>{c.sources.join(" · ")} · 추가 자료 {c.followups.length}가지</small>
+          <b>{c.id} · {c.title}</b><small>가상 로그 · {c.sources.join(" · ")} · 추가 자료 {c.followups.length}가지</small>
         </button>)}
       </div>
     </Panel>

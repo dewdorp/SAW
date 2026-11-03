@@ -47,3 +47,5 @@ def test_each_practice_case_is_set_in_a_named_financial_sector():
         assert len(named) == 1, c["id"]
         seen.append(named[0])
     assert set(seen) == set(sectors) and "가상 관계사 A" not in text and "가상 관계사 B" not in text
+    # Every case says on its face that its logs are synthetic.
+    assert all(c["title"].startswith("[가상] ") for c in cases)

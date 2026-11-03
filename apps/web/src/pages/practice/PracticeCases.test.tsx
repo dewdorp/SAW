@@ -35,8 +35,9 @@ describe("가상 로그 예제", () => {
   it("원문을 바로 열 수 있고 명시적으로 해설을 열기 전에는 정답·후속 증거가 나오지 않는다", async () => {
     await openFirst();
     expect(screen.getByText("근거 I1")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "NDR 전체 CSV" }).getAttribute("href")).toBe("/practice-data/v1/C001/ndr.csv");
-    expect(screen.getByRole("link", { name: "FW 전체 CSV" }).hasAttribute("download")).toBe(true);
+    expect(screen.getByRole("link", { name: "가상 NDR 전체 CSV" }).getAttribute("href")).toBe("/practice-data/v1/C001/ndr.csv");
+    expect(screen.getByRole("link", { name: "가상 FW 전체 CSV" }).getAttribute("download")).toBe("가상-C001-fw.csv");
+    expect(screen.getByRole("note").textContent).toContain("가상 로그");
     expect(screen.queryByText("근거 F1")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "이미 전체가 확인됐습니다" }));
     expect(screen.queryByText("전체 대상 근거는 없습니다 I1")).toBeNull();
