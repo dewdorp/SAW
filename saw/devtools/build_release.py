@@ -232,8 +232,12 @@ def copy_web_dist(out: Path):
     dist, target = web / 'dist', out / 'app/apps/web/dist'
     # The practice subtree is reserved. Vite copies public/ into dist/; catch
     # a missing or stale build before any release can be sealed.
-    samples = [f'practice-data/v1/C{i:03d}/{name}.csv'
-               for i in range(1, 21) for name in ('ndr', 'fw')]
+    # Every case in the authored pack ships both of its CSVs; nothing else under practice-data does.
+    pack = json.loads((web / 'src/pages/practice/practice-cases.json').read_text(encoding='utf-8'))
+    ids = [c['id'] for c in pack['cases']]
+    if not ids or len(ids) != len(set(ids)) or any(not re.fullmatch(r'C\d{3}', i) for i in ids):
+        raise BundleError('practice-data: invalid practice case list')
+    samples = [f'practice-data/v1/{i}/{name}.csv' for i in ids for name in ('ndr', 'fw')]
     for rel in samples:
         original, built = web / 'public' / rel, dist / rel
         for p in (original, built):

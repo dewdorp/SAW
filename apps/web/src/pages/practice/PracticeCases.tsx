@@ -161,6 +161,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
   const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [sector, setSector] = useState("");
   const heading = useRef<HTMLDivElement>(null);
   const listButton = useRef<HTMLButtonElement>(null);
   const [lastOpened, setLastOpened] = useState("");
@@ -181,7 +182,11 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
   const choose = (id: string) => { setLastOpened(id); setSelected(id); };
   const item = pack?.cases.find(c => c.id === selected);
   const term = search.trim().toLowerCase();
-  const shown = pack?.cases.filter(c => `${c.id} ${c.title} ${c.summary ?? ""}`.toLowerCase().includes(term)) || [];
+  // The synthetic sector is the first part of each summary ("가상 은행 · ...").
+  const sectorOf = (c: PracticeCase) => (c.summary ?? "").split(" · ")[0];
+  const sectors = [...new Set((pack?.cases || []).map(sectorOf).filter(Boolean))];
+  const shown = pack?.cases.filter(c => (!sector || sectorOf(c) === sector)
+    && `${c.id} ${c.title} ${c.summary ?? ""}`.toLowerCase().includes(term)) || [];
   return <div className="page practice-page">
     <div ref={heading} tabIndex={-1}>
       <PageHeader eyebrow="연습용 합성 자료" title={item ? `${item.id} · ${item.title}` : "가상 로그 예제"}
@@ -191,13 +196,21 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
       <div><button className="btn" onClick={() => setRetry(n => n + 1)}>다시 불러오기</button></div></div>
     : !pack ? <Loading label="가상 예제를 불러오는 중…" />
     : !item ? <Panel title={`예제 ${pack.cases.length}개 · 추가 자료 ${pack.cases.reduce((n, c) => n + c.followups.length, 0)}가지`}>
-      <label className="row wrap" style={{ marginBottom: 12 }}>예제 찾기
-        <input className="input" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="제목 또는 사례 번호" />
-      </label>
-      {!shown.length && <p role="status">검색어에 맞는 예제가 없습니다. <button className="btn sm" onClick={() => setSearch("")}>검색 지우기</button></p>}
+      <div className="row wrap" style={{ marginBottom: 12, gap: 12 }}>
+        <label className="row wrap">예제 찾기
+          <input className="input" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="제목·사례 번호·주제" />
+        </label>
+        {sectors.length > 1 && <label className="row wrap">업권
+          <select className="input" value={sector} onChange={e => setSector(e.target.value)}>
+            <option value="">전체</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>}
+        {(term || sector) && <span className="small muted" role="status">{shown.length}개 표시</span>}
+      </div>
+      {!shown.length && <p role="status">검색어에 맞는 예제가 없습니다. <button className="btn sm" onClick={() => { setSearch(""); setSector(""); }}>검색 지우기</button></p>}
       <div className="quick" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 235px), 1fr))" }}>
         {shown.map(c => <button key={c.id} onClick={() => choose(c.id)} ref={c.id === lastOpened ? listButton : undefined}>
-          <b>{c.id} · {c.title}</b><small>가상 로그 · {c.sources.join(" · ")} · 추가 자료 {c.followups.length}가지</small>
+          <b>{c.id} · {c.title}</b><small>{sectorOf(c) || "가상 로그"} · {c.sources.join(" · ")} · 추가 자료 {c.followups.length}가지</small>
         </button>)}
       </div>
     </Panel>

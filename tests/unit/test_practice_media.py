@@ -1,4 +1,5 @@
 """The distribution must ship the complete, authored offline practice corpus only."""
+import json
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,8 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
     monkeypatch.setattr(build_release, "ROOT", tmp_path)
     expected = {f"practice-data/v1/C{i:03d}/{kind}.csv": f"{i},{kind}\r\n".encode()
                 for i in range(1, 21) for kind in ("ndr", "fw")}
+    put(web / "src/pages/practice/practice-cases.json",
+        json.dumps({"cases": [{"id": f"C{i:03d}"} for i in range(1, 21)]}).encode())
     for rel, content in expected.items():
         put(web / "public" / rel, content)
         put(web / "dist" / rel, content)
@@ -42,5 +45,13 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
 def test_empty_web_build_cannot_be_packaged_as_having_practice_data(tmp_path, monkeypatch):
     monkeypatch.setattr(build_release, "ROOT", tmp_path)
     put(tmp_path / "apps/web/dist/index.html", b"web application")
+    put(tmp_path / "apps/web/src/pages/practice/practice-cases.json", json.dumps({"cases": [{"id": "C001"}]}).encode())
     with pytest.raises(BundleError, match="practice-data"):
         build_release.copy_web_dist(tmp_path / "incomplete")
+
+
+def test_a_case_list_without_ids_cannot_be_packaged(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_release, "ROOT", tmp_path)
+    put(tmp_path / "apps/web/src/pages/practice/practice-cases.json", json.dumps({"cases": []}).encode())
+    with pytest.raises(BundleError, match="practice"):
+        build_release.copy_web_dist(tmp_path / "none")

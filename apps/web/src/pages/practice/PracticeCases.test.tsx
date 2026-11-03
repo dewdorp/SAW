@@ -120,6 +120,16 @@ describe("가상 로그 예제", () => {
     expect(screen.getByRole("button", { name: /C001.*웹 서비스 접촉/ })).toBeTruthy();
   });
 
+  it("업권으로 예제를 좁히고 몇 개가 남았는지 알려 준다", async () => {
+    const sectorPack: PracticePack = { version: "test", cases: [
+      { ...pack.cases[0], summary: "가상 은행 · 원본 NDR 1건" }, { ...pack.cases[1], summary: "가상 카드사 · 원본 FW 1건" }] };
+    render(<PracticeCases loadPack={async () => sectorPack} />);
+    fireEvent.change(await screen.findByLabelText("업권"), { target: { value: "가상 카드사" } });
+    expect(screen.queryByRole("button", { name: /C001/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /C002.*가상 카드사/ })).toBeTruthy();
+    expect(screen.getByText("1개 표시")).toBeTruthy();
+  });
+
   it("업데이트 후 예제 자산을 못 읽으면 빈 목록 대신 오류와 재시도를 제공한다", async () => {
     const load = vi.fn().mockRejectedValueOnce(new Error("chunk missing")).mockResolvedValueOnce(pack);
     render(<PracticeCases loadPack={load} />);
