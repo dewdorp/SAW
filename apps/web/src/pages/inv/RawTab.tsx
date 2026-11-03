@@ -5,8 +5,9 @@ import { CheckDialog, MarkBadges, useMarks } from "../../components/Checks";
 import { ErrorBox, Loading } from "../../components/common";
 import { entityKey, useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
-import { fmtNum, fmtTime, getTz } from "../../lib/format";
-import { ALL_COLS, columnLabel, type ColumnMode, displayField, PRESETS, PROFILE_NAMES, profileForScope, readColumnPref } from "./evidenceView";
+import { fmtNum, fmtPeriod, getTz } from "../../lib/format";
+import { scopeKeyOf } from "../../context/invContext";
+import { ALL_COLS, columnLabel, type ColumnMode, displayField, PRESETS, PROFILE_NAMES, profileForScope, readColumnPref, valueOf } from "./evidenceView";
 import "./evidenceView.css";
 
 // The table keeps one section of the result in memory. Past it the analyst moves to the next section (the
@@ -21,7 +22,10 @@ export function RawTab({ inv }: { inv: string }) {
   const sources = useQuery({ queryKey: ["agg", inv, "data_source"], staleTime: 30_000,
     queryFn: () => api.post(`/investigations/${inv}/query/aggregate`, {filters:[],agg:{type:"terms",field:"data_source",size:20}}) });
   const profile = profileForScope(ctx.filters, sources.data);
-  const cols = pref.mode === "custom" ? pref.custom : PRESETS[pref.mode === "auto" ? profile : pref.mode];
+  // An activity's evidence opens with the columns that check its claim (e.g. allowed/blocked for a FW sweep),
+  // for exactly the scope it opened; the analyst's own column choice always wins.
+  const claim = ctx.evidenceColumns && ctx.evidenceColumns.key === scopeKeyOf(ctx.filters, ctx.time) ? ctx.evidenceColumns : null;
+  const cols = pref.mode === "custom" ? pref.custom : pref.mode === "auto" && claim ? claim.cols : PRESETS[pref.mode === "auto" ? profile : pref.mode];
   const setCols = (custom: string[]) => { if(custom.length) setPref({mode:"custom",custom}); };
   const label = (field: string) => columnLabel(field, profile);
   const [widths, setWidths] = useState<Record<string, number>>({});
@@ -66,6 +70,13 @@ export function RawTab({ inv }: { inv: string }) {
   const sel = entityKey(ctx.selection);
   const marks = useMarks(inv);
   const [checking, setChecking] = useState(false);
+  // "판단 남기기" from an activity: once its records are loaded, open the dialog for exactly that scope, so the
+  // judgement states how many records were actually loaded and read.
+  useEffect(() => {
+    if (ctx.judgeScope && ctx.judgeScope === scopeKeyOf(ctx.filters, ctx.time) && rows.length && !q.isFetching) {
+      setChecking(true); ctx.set({ judgeScope: null });
+    }
+  }, [ctx.judgeScope, rows.length, q.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = all;
   const before = (sections.length - 1) * MAX_LOADED;
   const nextSection = () => { const last = (q.data?.pages || []).slice(-1)[0]?.next_cursor; if (last) setSections([...sections, last]); };
@@ -82,24 +93,24 @@ export function RawTab({ inv }: { inv: string }) {
   const parentMarks = (e: any) => [e.src_ip && marks.data?.entities?.[`ip:${e.src_ip}`], e.dst_ip && marks.data?.entities?.[`ip:${e.dst_ip}`], e.domain && marks.data?.entities?.[`domain:${String(e.domain).toLowerCase()}`]].flatMap((x) => x || []);
   const exportCsv = () => {
     const esc = (x: unknown) => { let s = String(x ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // CSV injection guard
-    const csv = [cols.join(","), ...rows.map((r: any) => cols.map((c) => esc(Array.isArray(r[c]) ? r[c].join("|") : r[c])).join(","))].join("\n");
+    const csv = [cols.join(","), ...rows.map((r: any) => cols.map((c) => { const x = valueOf(r, c); return esc(Array.isArray(x) ? x.join("|") : x); }).join(","))].join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `saw_events_${inv.slice(0, 8)}.csv`;
     a.click();
   };
-  const w = (c: string) => widths[c] || (c === "uri" || c === "user_agent" ? 200 : c === "hostname" ? 150 : c === "timestamp" ? 138 : ["src_ip","dst_ip"].includes(c) ? 128 : 96);
+  const w = (c: string) => widths[c] || (c === "uri" || c === "user_agent" ? 200 : c === "hostname" ? 150 : c === "timestamp" ? 176 : ["src_ip","dst_ip"].includes(c) ? 128 : 96);
   const changeMode = (mode: ColumnMode) => { setPref({mode, custom:pref.custom.length ? pref.custom : [...cols]}); setHead(null); };
   return (
     <div className="col evidence-table">
       <section className="evidence-scope" aria-label="로그 조회 범위">
         <div className="row wrap"><h3>로그 기록</h3><span className="tag">{scoped ? "현재 검색 범위" : "조사 전체"}</span>{scoped && <span className="muted">조사 전체 {wholeCount == null ? "건수 미확인" : `${fmtNum(wholeCount)}건`}</span>}</div>
         <div role="status">조건에 맞는 전체 {totalCount == null ? (all.isError ? "건수 미확인" : "집계 중") : `${fmtNum(totalCount)}건`}{rows.length ? ` · 화면 ${fmtNum(before + 1)}~${fmtNum(before + rows.length)}번째` : ""}{q.hasNextPage ? " · 다음 기록 있음" : ""}</div>
-        <div className="muted small">{ctx.time ? `${fmtTime(ctx.time.start)} ~ ${fmtTime(ctx.time.end)} ${getTz()}${ctx.time.end_exclusive ? " (끝 시각 제외)" : ""}` : "전체 저장 기간"} · {ctx.filters.length ? `검색 조건 ${ctx.filters.length}개` : "검색 조건 없음"} · 민감값 가림</div>
+        <div className="muted small">{ctx.time ? `검색 기간 ${fmtPeriod(ctx.time.start, ctx.time.end)} ${getTz()}${ctx.time.end_exclusive ? " (끝 시각 제외)" : ""}` : "전체 저장 기간"} · {ctx.filters.length ? `검색 조건 ${ctx.filters.length}개` : "검색 조건 없음"} · 민감값 가림</div>
       </section>
       <div className="row wrap evidence-tools">
         <select className="input" aria-label="로그 표 구성" value={pref.mode} onChange={e=>changeMode(e.target.value as ColumnMode)}>
-          <option value="auto">자동 · {PROFILE_NAMES[profile]}</option><option value="http">NDR·HTTP 열</option><option value="network">FW·연결 열</option>
+          <option value="auto">자동 · {claim ? claim.label : PROFILE_NAMES[profile]}</option><option value="http">NDR·HTTP 열</option><option value="network">FW·연결 열</option>
           <option value="common">공통 열</option><option value="custom">내가 선택한 열</option>
         </select>
         <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>{sort === "asc" ? "시간순 ↑" : "최신순 ↓"}</button>
@@ -159,7 +170,7 @@ export function RawTab({ inv }: { inv: string }) {
             return (
               <div key={r.key} role="row" className="evidence-row" onClick={() => ctx.set({ eventId: e.event_id })} style={{ transform: `translateY(${r.start}px)`, background: ctx.eventId === e.event_id ? "var(--accent-weak)" : hl ? "var(--hl-bg)" : undefined }}>
                 <div role="cell" className="evidence-open"><button className="btn sm" aria-label={`${before+r.index+1}번째 기록 상세 보기`} onClick={evt=>{evt.stopPropagation();ctx.set({eventId:e.event_id});}}>보기</button><MarkBadges own={marks.data?.events?.[e.event_id]} parent={parentMarks(e)} /></div>
-                {cols.map((c) => <div key={c} role="cell" className="mono ellipsis evidence-cell" style={{ width: w(c) }} title={String(e[c] ?? "")}>{displayField(c, e[c])}</div>)}
+                {cols.map((c) => <div key={c} role="cell" className="mono ellipsis evidence-cell" style={{ width: w(c) }} title={String(valueOf(e, c) ?? "")}>{displayField(c, valueOf(e, c))}</div>)}
               </div>
             );
           })}

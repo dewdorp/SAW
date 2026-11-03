@@ -53,14 +53,20 @@ describe("question bundles", () => {
     expect(activity.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("정상 백업")).toBeNull();
     expect(screen.getByText(/자료 부족 1개/)).toBeTruthy();
-    expect(screen.getByText(/일부 계산 1개/)).toBeTruthy();
+    expect(screen.getByText(/일부만 계산 1개/)).toBeTruthy();
     fireEvent.click(activity);
     expect(screen.getByText("정상 백업")).toBeTruthy();
     expect(api.find("POST", "/investigations/i1/checks")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "근거 원문 보기" }));
+    expect(screen.getByText(/판단 범위/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "근거 12건 보기" }));
     const st = useInvStore.getState().byInv.i1;
     expect(st.tab).toBe("raw"); expect(st.filters).toEqual(item.filters); expect(st.time).toEqual(span);
-    fireEvent.click(screen.getByRole("button", { name: "확인 기록 저장·요청 초안 열기" }));
+    // The raw view opens with the columns that check this claim, allowed/blocked included.
+    expect(st.evidenceColumns?.cols).toContain("enforcement_action");
+    useInvStore.getState().set("i1", { tab: "summary" });
+    // Back on the list the activity is still open.
+    expect((await screen.findByRole("button", { name: new RegExp("10개 포트에 접촉") })).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "추가 확인 요청" }));
     await screen.findByDisplayValue("이 시간에 승인된 점검이 있었나요?");
     expect(api.find("GET", "/investigations/i1/follow-ups/draft")[0].url).toContain("check_id=new-c1");
     expect(api.find("POST", "/investigations/i1/follow-ups")).toHaveLength(0);
@@ -74,7 +80,7 @@ describe("question bundles", () => {
 
   it("shows a translated observed source, keeps the wider source condition in details, and opens the right editor", async () => {
     const mixed = { ...item, title: "같은 포트 접촉", filters: [{field:"data_source",op:"in",value:["connection","zeek_conn","firewall","web"]}] };
-    const exact = { ...item, title: "반복 통신", filters: [...mixed.filters, {field:"data_source",op:"is",value:"connection"}] };
+    const exact = { ...item, title: "통신 쌍 반복", filters: [...mixed.filters, {field:"data_source",op:"is",value:"connection"}] };
     mockApi({ "GET /investigations/i1/question-bundles": [200, { ...data, bundles: [
       {...data.bundles[1], id:"spread", items:[mixed]},
       {...data.bundles[1], id:"periodic", items:[exact]} ] }],
@@ -82,7 +88,10 @@ describe("question bundles", () => {
     renderUI(<QuestionBundles inv="i1" />);
     const row = await screen.findByRole("button", {name:/같은 포트 접촉/});
     expect(row.textContent).not.toMatch(/connection|zeek_conn|Zeek|자료 조건|원천:/);
-    expect(screen.getByRole("button", {name:/반복 통신/}).textContent).toContain("원천: 연결 기록");
+    // Types other than the first are folded to one line until opened.
+    expect(screen.queryByRole("button", {name:/통신 쌍 반복/})).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name:/^반복 통신계산된 1개/}));
+    expect(screen.getByRole("button", {name:/통신 쌍 반복/}).textContent).toContain("연결 기록");
     fireEvent.click(row);
     expect(screen.getByText("연결 기록 · Zeek 연결 · 방화벽 · HTTP 요청(NDR·웹)")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", {name:"이 유형의 검색 조건 조정"}));
@@ -98,11 +107,59 @@ describe("question bundles", () => {
     expect(screen.getByText(/자료 통계는 현재 검색 조건을 따르며/)).toBeTruthy();
   });
 
+  it("C010: a candidate seen only at high sensitivity is still open after reading its evidence and coming back", async () => {
+    const eight = { ...item, title: "10.31.1.30에서 약 1분 동안 목적지 8개의 TCP 443 포트에 접촉했습니다.", records: 24 };
+    const api = mockApi({
+      "GET /auth/me": [200, ME],
+      "GET /investigations/i1/question-bundles": (c) => [200, c.url.includes("sensitivity=high")
+        ? { ...data, bundles: [{ ...data.bundles[1], id: "spread", items: [eight], found: 1 }] } : { ...data, bundles: [] }],
+      "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
+    });
+    function Flow() { const ctx = useInv("i1"); return ctx.tab === "raw" ? <p>원문</p> : <QuestionBundles inv="i1" />; }
+    renderUI(<Flow />);
+    fireEvent.change(await screen.findByLabelText("질문 민감도"), { target: { value: "high" } });
+    fireEvent.click(await screen.findByRole("button", { name: /목적지 8개의 TCP 443/ }));
+    fireEvent.click(screen.getByRole("button", { name: "근거 24건 보기" }));
+    expect(await screen.findByText("원문")).toBeTruthy();
+    useInvStore.getState().set("i1", { tab: "summary" });
+    const back = await screen.findByRole("button", { name: /목적지 8개의 TCP 443/ });
+    expect(back.getAttribute("aria-expanded")).toBe("true");
+    expect((screen.getByLabelText("질문 민감도") as HTMLSelectElement).value).toBe("high");
+    expect(api.find("GET", "/investigations/i1/question-bundles").every((c: any, i: number) => i === 0 || c.url.includes("sensitivity=high"))).toBe(true);
+    // Another investigation starts from its own defaults.
+    expect(useInvStore.getState().byInv.i2?.questionView).toBeUndefined();
+  });
+
   it("never describes a failed request as no matching activity", async () => {
     mockApi({ "GET /investigations/i1/question-bundles": [500, { detail: "질문 조회 실패" }] });
     renderUI(<QuestionBundles inv="i1" />);
     expect((await screen.findByRole("alert")).textContent).toContain("질문 조회 실패");
     expect(screen.queryByText(/표시할 후보가 없습니다/)).toBeNull();
+  });
+
+  it("closing the editor removes its unsaved preview, and the first type can be collapsed", async () => {
+    mockApi({
+      "GET /investigations/i1/question-bundles": [200, data],
+      "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
+      "GET /investigations/i1/question-presets": [200, { items: [] }],
+      "POST /investigations/i1/question-bundles/spread/preview": [200, { ...data.bundles[2], status: "found", completeness: "complete",
+        partial_reasons: [], items: [{ ...item, title: "미리 본 후보 10.20.5.99" }], scope: SCOPE, preset: null }],
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderUI(<QuestionBundles inv="i1" />);
+    const head = await screen.findByRole("button", { name: /^대량 전송/ });
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(await screen.findByText("계산 결과와 조건"));
+    fireEvent.click(await screen.findByRole("button", { name: "조건 수정" }));
+    fireEvent.change(screen.getByLabelText("서로 다른 목적지 수"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "현재 로그로 미리 보기" }));
+    expect(await screen.findByText("미리 본 후보 10.20.5.99")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByText("미리 본 후보 10.20.5.99")).toBeNull();
+    expect(screen.queryByText(/조건 미리 보기 적용 중/)).toBeNull();
+    expect(useInvStore.getState().get("i1").questionView?.previews).toEqual({});
   });
 
   it("edits a condition with typed inputs, runs it on the current logs and saves it as a versioned condition", async () => {

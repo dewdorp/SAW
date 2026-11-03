@@ -108,7 +108,7 @@ export type Choices = {
     }[];
     department_kind: "descriptive_text";
 };
-export const STATUS: Record<string, string> = { open: "확인 대기", replied: "회신 수신 · 검증 전", verified: "검증 기록됨", closed_with_limits: "한계를 남기고 종료", cancelled: "취소됨" };
+export const STATUS: Record<string, string> = { open: "요청 등록 · 회신 대기", replied: "회신 수신 · 검증 전", verified: "검증 완료", closed_with_limits: "한계를 남기고 종료", cancelled: "취소됨" };
 export const PRIORITY: Record<string, string> = { low: "낮음", normal: "보통", high: "높음", urgent: "긴급" };
 export const OUTCOME: Record<string, string> = { confirmed: "확인됨", partially_confirmed: "일부만 확인됨(남은 의문 있음)", not_confirmed: "확인되지 않음", insufficient_data: "자료 부족" };
 export const SCOPE_RESULT: Record<string, string> = { matches: "범위 일치", partial: "일부만 설명", mismatch: "범위 불일치", not_stated: "범위 미기재", no_request_scope: "비교할 요청 범위 없음" };

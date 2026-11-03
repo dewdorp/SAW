@@ -60,6 +60,10 @@ def ndr_csv(case: str) -> bytes:
         for i in range(10):
             rows.append(_ndr(i, BASE + timedelta(minutes=i), "10.20.5.11", "203.0.113.66", "/files/update.bin", "",
                              sc=9 * 1024 ** 2))
+    elif case == "upload_out":  # internal client sending large requests to an external server (no large response)
+        for i in range(10):
+            rows.append(_ndr(i, BASE + timedelta(minutes=i), "10.20.5.12", "203.0.113.67", "/upload", "",
+                             method="POST", sc=900, cs=9 * 1024 ** 2))
     elif case == "no_bytes":  # HTTP records without byte counts: the transfer question cannot be answered
         for i in range(10):
             r = _ndr(i, BASE + timedelta(minutes=i), "203.0.113.20", "10.20.1.10", "/", "")
@@ -84,6 +88,20 @@ def fw_csv(case: str) -> bytes:
         rows = [_fw(i, BASE + timedelta(minutes=i), "10.20.5.7", f"10.20.1.{1 + i % 2}", 22) for i in range(20)]
     elif case == "spread_slow":  # twelve hosts over six hours: many targets in the period, few in any 10 minutes
         rows = [_fw(i, BASE + timedelta(minutes=30 * i), "10.20.5.98", f"10.20.2.{1 + i}", 445) for i in range(12)]
+    elif case == "spread_ports_late":  # nine hosts on one port, then later three hosts on six ports
+        rows = [_fw(i, BASE + timedelta(seconds=20 * i), "10.20.5.97", f"10.20.3.{1 + i}", 445) for i in range(9)]
+        rows += [_fw(9 + j, BASE + timedelta(hours=2, seconds=20 * j), "10.20.5.97", f"10.20.4.{1 + j % 3}",
+                     [22, 23, 80, 135, 139, 3389][j]) for j in range(6)]
+    elif case == "periodic_port_gap":  # every 10 s, alternating a record without a port and one on 443
+        rows = []
+        for i in range(16):
+            r = _fw(i, BASE + timedelta(seconds=10 * i), "10.20.5.14", "203.0.113.70", 443)
+            if i % 2 == 0:
+                r["dst_port"] = ""
+            rows.append(r)
+    elif case == "many_spreads":  # twelve sources, each touching ten hosts: more than one screen page
+        rows = [_fw(s * 10 + i, BASE + timedelta(minutes=s, seconds=i), f"10.20.6.{10 + s}", f"10.20.7.{1 + i}", 443)
+                for s in range(12) for i in range(10)]
     elif case == "pair_large":  # the firewall's record of the same pair as the NDR large responses, other layer
         rows = [_fw(i, BASE + timedelta(minutes=i), "198.51.100.50", "10.20.1.10", 443, sent=600, rcvd=40 * 1024 ** 2)
                 for i in range(3)]

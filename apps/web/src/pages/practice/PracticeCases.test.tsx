@@ -35,8 +35,9 @@ describe("가상 로그 예제", () => {
   it("원문을 바로 열 수 있고 명시적으로 해설을 열기 전에는 정답·후속 증거가 나오지 않는다", async () => {
     await openFirst();
     expect(screen.getByText("근거 I1")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "NDR 전체 CSV" }).getAttribute("href")).toBe("/practice-data/v1/C001/ndr.csv");
-    expect(screen.getByRole("link", { name: "FW 전체 CSV" }).hasAttribute("download")).toBe(true);
+    expect(screen.getByRole("link", { name: "가상 NDR 전체 CSV" }).getAttribute("href")).toBe("/practice-data/v1/C001/ndr.csv");
+    expect(screen.getByRole("link", { name: "가상 FW 전체 CSV" }).getAttribute("download")).toBe("가상-C001-fw.csv");
+    expect(screen.getByRole("note").textContent).toContain("가상 로그");
     expect(screen.queryByText("근거 F1")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "이미 전체가 확인됐습니다" }));
     expect(screen.queryByText("전체 대상 근거는 없습니다 I1")).toBeNull();
@@ -117,6 +118,16 @@ describe("가상 로그 예제", () => {
     expect((screen.getByRole("radio", { name: "추가 대조가 필요합니다" }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "예제 목록" }));
     expect(screen.getByRole("button", { name: /C001.*웹 서비스 접촉/ })).toBeTruthy();
+  });
+
+  it("업권으로 예제를 좁히고 몇 개가 남았는지 알려 준다", async () => {
+    const sectorPack: PracticePack = { version: "test", cases: [
+      { ...pack.cases[0], summary: "가상 은행 · 원본 NDR 1건" }, { ...pack.cases[1], summary: "가상 카드사 · 원본 FW 1건" }] };
+    render(<PracticeCases loadPack={async () => sectorPack} />);
+    fireEvent.change(await screen.findByLabelText("업권"), { target: { value: "가상 카드사" } });
+    expect(screen.queryByRole("button", { name: /C001/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /C002.*가상 카드사/ })).toBeTruthy();
+    expect(screen.getByText("1개 표시")).toBeTruthy();
   });
 
   it("업데이트 후 예제 자산을 못 읽으면 빈 목록 대신 오류와 재시도를 제공한다", async () => {
