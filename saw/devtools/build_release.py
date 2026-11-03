@@ -19,6 +19,7 @@ PUBLIC_DOCS = (
  'docs/verification/review-scope-20261102.md',
  'docs/OPERATIONS-INSTALL-v0.2.3.md',
  'docs/verification/practice-integration-20261103.md',
+ 'docs/verification/readable-workbench-20261104.md',
  'docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md',
  'docs/samples/security-csv/fw-mixed-devices.csv',
  'docs/samples/security-csv/ndr-potential-chain.csv',
