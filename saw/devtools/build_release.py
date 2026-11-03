@@ -225,6 +225,30 @@ def copy_app_sources(out: Path):
             'saw/detectors/packs/web_extended_signatures.yaml','saw/detectors/packs/web_signatures.yaml'}: continue
         copy_file(p,out/'app'/p.relative_to(ROOT))
 
+def copy_web_dist(out: Path):
+    """Ship the built web UI and only the authored, versioned practice CSVs."""
+    web = ROOT / 'apps/web'
+    dist, target = web / 'dist', out / 'app/apps/web/dist'
+    # The practice subtree is reserved. Vite copies public/ into dist/; catch
+    # a missing or stale build before any release can be sealed.
+    samples = [f'practice-data/v1/C{i:03d}/{name}.csv'
+               for i in range(1, 21) for name in ('ndr', 'fw')]
+    for rel in samples:
+        original, built = web / 'public' / rel, dist / rel
+        for p in (original, built):
+            if not p.is_file() or p.resolve() != ROOT.resolve() / p.relative_to(ROOT):
+                raise BundleError('missing or linked practice sample: ' + rel)
+        if original.stat().st_size == 0 or digest(original) != digest(built):
+            raise BundleError('empty or stale practice sample: ' + rel)
+    for p in dist.rglob('*'):
+        rel = p.relative_to(dist)
+        if rel.parts[0].casefold() == 'practice-data':
+            continue
+        if p.is_file() and p.suffix in {'.html','.js','.css','.svg','.ico','.png','.woff','.woff2'}:
+            copy_file(p, target / rel)
+    for rel in samples:
+        copy_file(dist / rel, target / rel)
+
 def assemble(inputs: Path, out: Path, native: Path | None = None):
     if out.exists(): raise BundleError('output must be a fresh directory')
     if native is None: raise BundleError('native AI runtime required for this release')
@@ -247,9 +271,7 @@ def assemble(inputs: Path, out: Path, native: Path | None = None):
     for rel in PUBLIC_DATA + ('pyproject.toml',):
         if (ROOT/rel).is_file(): copy_file(ROOT/rel,out/'app'/rel)
     copy_windows_sources(out)
-    for p in (ROOT/'apps/web/dist').rglob('*'):
-        if p.is_file() and p.suffix in {'.html','.js','.css','.svg','.ico','.png','.woff','.woff2'}:
-            copy_file(p,out/'app/apps/web/dist'/p.relative_to(ROOT/'apps/web/dist'))
+    copy_web_dist(out)
     copy_public_guides(out)
     if native:
         for p in native.rglob('*'):

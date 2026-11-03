@@ -15,7 +15,7 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   ["지식·탐지", [["/knowledge", "SOC 지식", "book"], ["/registry", "관계사·공격명 관리", "book"], ["/detections", "탐지 룰", "shield"], ["/parsers", "파서 관리", "parser"], ["/content-packages", "오프라인 룰·파서", "shield"]]],
 ];
 const SECTION: [string, string][] = [["/analyze", "빠른 분석"], ["/investigations", "조사 목록"], ["/board", "현황판"], ["/inv/", "조사 작업대"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"],
-  ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/registry", "관계사·공격명 관리"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
+  ["/practice", "가상 로그 예제"], ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/registry", "관계사·공격명 관리"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
 const ROLE_KO: Record<string, string> = { analyst: "분석가", senior_analyst: "선임 분석가", soc_manager: "관제 매니저", viewer: "조회자", admin: "관리자" };
 
 /** null = no explicit choice: the sidebar then collapses itself on the (space-hungry) investigation workbench. */
