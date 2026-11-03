@@ -33,7 +33,7 @@ from saw.storage.models import Check, Investigation
 KST = ZoneInfo("Asia/Seoul")
 QUESTIONS = {"nature": "요청 성격", "success": "성공 여부", "impact": "피해 여부", "business": "정상 업무 여부"}
 JUDGEMENTS = {"normal": "정상", "suspicious": "의심", "malicious": "악성", "undetermined": "판단 불가"}
-COVERAGE = {"one": "이 대상", "selected": "고른 기록", "sample": "표본", "all": "전체"}
+COVERAGE = {"one": "이 대상", "selected": "고른 기록", "sample": "표본", "all": "전체", "observation": "자동 관측 근거"}
 TARGETS = ("event", "entity", "finding", "set")
 ENTITY_TYPES = ("ip", "domain", "hash", "uri", "user", "session", "ja4", "ja3")
 SHARE_STATUS = {"unreviewed": "미검토 참고", "reviewed": "검토됨", "recheck": "재확인 필요", "retracted": "철회"}
@@ -192,7 +192,7 @@ def _existing(inv_id: str, ids: list[str]) -> int:
 
 ORIGIN_KEYS = {"kind", "bundle", "title", "description", "parameters", "preset", "scope", "completeness",
                "partial_reasons", "item", "questions"}
-ITEM_KEYS = {"title", "observed", "basis", "records", "unknown", "normal_possibilities", "next_questions", "time", "strength"}
+ITEM_KEYS = {"title", "observed", "basis", "records", "filters", "unknown", "normal_possibilities", "next_questions", "time", "evidence_time", "strength"}
 
 
 def _origin(origin: Any, inv_id: str) -> dict:
@@ -247,6 +247,26 @@ def _clean(data: dict, inv_id: str) -> dict[str, Any]:
             raise ValueError("확인 기록의 대표 기록 중 이 조사에 없는 기록이 있습니다")
         if loaded is not None and total is not None and int(loaded) > total:
             raise ValueError("불러온 건수가 검색 결과 전체보다 많을 수 없습니다")
+    if coverage == "observation":
+        # Explicit, new coverage. Never infer this from old notes, a lack of judgement or checked=0.
+        origin = scope_in.get("origin") or {}
+        origin_scope = origin.get("scope") if isinstance(origin, dict) else None
+        item = origin.get("item") if isinstance(origin, dict) else None
+        if (tt != "set" or not isinstance(origin, dict) or origin.get("kind") != "question"
+                or not isinstance(origin_scope, dict) or origin_scope.get("investigation_id") != inv_id or not isinstance(item, dict)
+                or origin.get("bundle") not in {"web_attack", "transfer", "periodic", "spread"}
+                or item.get("filters") != query.get("filters") or not query.get("filters")
+                or (item.get("evidence_time") or origin_scope.get("time")) != query.get("time")
+                or type(checked) is not int or checked != 0 or ids or loaded is not None or judgement or data.get("shared")
+                or data.get("behavior") or data.get("guidance")):
+            raise ValueError("자동 관측 근거에는 이 조사의 계산 조건만 남길 수 있습니다. 직접 확인이나 판단은 따로 기록하세요.")
+        evidence = list(dict.fromkeys(str(x) for x in data.get("evidence") or []))
+        if not evidence or len(evidence) > 20 or not total:
+            raise ValueError("관측 근거를 다시 조회하세요. 현재 조건에 맞는 원문이 필요합니다.")
+        filters = [Filter.model_validate(f) for f in query["filters"]]
+        time = TimeRange.model_validate(query["time"]) if query.get("time") else None
+        if container.get().events.count(inv_id, [*filters, Filter(field="event_id", op="in", value=evidence)], time) != len(evidence):
+            raise ValueError("자동 관측의 대표 원문이 현재 조회 범위와 일치하지 않습니다. 다시 계산하세요.")
     if coverage == "sample":
         checked = int(checked or len(ids) or 0)
         if not total or not checked or checked >= int(total):
@@ -493,11 +513,13 @@ def marks(s: Session, inv_id: str, *, principal: Principal | None = None) -> dic
 
 def summary(s: Session, inv_id: str, *, principal: Principal | None = None) -> dict[str, Any]:
     rows = list_checks(s, inv_id, principal=principal)
-    direct = [c for c in rows if c.kind == "direct"]
+    direct = [c for c in rows if c.kind == "direct" and (c.scope or {}).get("coverage") != "observation"]
+    observations = sum(1 for c in rows if c.kind == "direct" and (c.scope or {}).get("coverage") == "observation")
     by_j: dict[str, int] = {}
     for c in direct:
         by_j[c.judgement or "none"] = by_j.get(c.judgement or "none", 0) + 1
-    return {"total": len(rows), "direct": len(direct), "cited": len(rows) - len(direct),
+    return {"total": len(rows), "direct": len(direct), "cited": sum(1 for c in rows if c.kind == "cited"),
+            "observations": observations,
             "by_judgement": by_j, "sample_only": sum(1 for c in direct if (c.scope or {}).get("coverage") == "sample"),
             "shared": sum(1 for c in direct if c.shared),
             "source_changed": sum(1 for c in rows if c.kind == "cited" and c.source_state),

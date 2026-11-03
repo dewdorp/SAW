@@ -22,6 +22,24 @@ export function subscribeTz(listener: () => void) {
   return () => { tzListeners.delete(listener); };
 }
 
+/** Human-readable investigation range, including the year for multi-month or historic cases. */
+export function fmtPeriod(start?: string | null, end?: string | null): string {
+  if (!start && !end) return "미확인";
+  const fmt = (s?: string | null) => {
+    if (!s) return "미확인";
+    const utc = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(s) ? s.replace(" ", "T") + "Z" : s;
+    const date = new Date(utc);
+    if (!Number.isFinite(date.getTime())) return "시각 확인 필요";
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tzMode === "KST" ? KST : "UTC",
+      year: "numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hourCycle:"h23" }).formatToParts(date);
+    const v = Object.fromEntries(parts.map(x => [x.type,x.value]));
+    const fraction = s.match(/[T ]\d{2}:\d{2}:\d{2}\.(\d+)/)?.[1].replace(/0+$/, "");
+    return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute}:${v.second}${fraction ? "." + fraction : ""}`;
+  };
+  const a = fmt(start), b = fmt(end);
+  return a + " ~ " + (/^\d{4}-/.test(a) && /^\d{4}-/.test(b) && a.slice(0,10) === b.slice(0,10) ? b.slice(11) : b);
+}
+
 export function fmtTime(ts?: string | number | null, withDate = true): string {
   if (ts === null || ts === undefined || ts === "") return "–";
   // API datetimes are stored in UTC; SQLite may return them without an offset.

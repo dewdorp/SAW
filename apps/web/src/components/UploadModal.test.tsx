@@ -79,6 +79,8 @@ it("pins the selected device profile, observed subject and collection scope befo
     "PUT /uploads/up1/parts/1": [200, {}], "POST /uploads/up1/complete": [200, {}], "POST /evidence/ev2/process": [200, { id: "job2" }],
   });
   renderUI(ui({ invId: "inv9" }));
+  expect(screen.queryByLabelText("관측 장비")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: /장비·귀속·수집 설정/}));
   await screen.findByRole("option", { name: "가상 FW" });
   fireEvent.change(screen.getByLabelText("관측 장비"), { target: { value: "dev1" } });
   await screen.findByRole("option", { name: /v3/ });
@@ -94,9 +96,14 @@ it("pins the selected device profile, observed subject and collection scope befo
 it("blocks verified attribution without a basis before any evidence is created", async () => {
   const api = mockApi({ "GET /investigations": [200, []], "GET /source-context/org-units": [200, []], "GET /source-context/investigations/inv9/devices": [200, []] });
   renderUI(ui({ invId: "inv9" }));
+  const settings = screen.getByRole("button", {name: /장비·귀속·수집 설정/});
+  fireEvent.click(settings);
   fireEvent.change(screen.getByLabelText("대상 귀속 상태"), { target: { value: "verified" } });
+  fireEvent.click(settings);
+  expect(settings.getAttribute("aria-expanded")).toBe("false");
   pick("synthetic.csv", "abc"); fireEvent.click(screen.getByRole("button", { name: /업로드 및 분석/ }));
   expect(await screen.findByText(/관측 대상 관계사와 귀속 확인 근거/)).toBeTruthy();
+  expect(settings.getAttribute("aria-expanded")).toBe("true");
   expect(api.find("POST", "/investigations/inv9/evidence")).toHaveLength(0);
 });
 it("creates a new investigation with an organization while keeping unconfigured context unknown", async () => {
@@ -109,7 +116,7 @@ it("creates a new investigation with an organization while keeping unconfigured 
   renderUI(ui());
   await screen.findByRole("option", { name: "가상 A사" });
   fireEvent.change(screen.getByLabelText("새 조사 관계사"), { target: { value: "org-a" } });
-  expect(screen.getByText(/장비·프로필을 먼저 설정/)).toBeTruthy();
+  expect(screen.getByText(/관측 대상과 장비 기준은 미확인/)).toBeTruthy();
   pick("synthetic.csv", "abc"); fireEvent.click(screen.getByRole("button", { name: /업로드 및 분석/ }));
   expect(await screen.findByText("job page")).toBeTruthy();
   expect(api.find("POST", "/investigations")[0].body.org_unit_id).toBe("org-a");
@@ -118,6 +125,10 @@ it("creates a new investigation with an organization while keeping unconfigured 
 
 it("shows recurring CSV guidance before upload while keeping context confirmation explicit", () => {
   routes(); renderUI(ui());
+  const help = screen.getByText("지원하는 CSV 형식과 수집 시 주의점").closest("details")!;
+  expect(help.open).toBe(false);
+  fireEvent.click(help.querySelector("summary")!);
+  expect(help.open).toBe(true);
   expect(screen.getByText(/FW 16개·NDR 19개 필수 헤더/)).toBeTruthy();
   expect(screen.getByText(/영문 헤더 NDR HTTP/)).toBeTruthy();
   expect(screen.getByText(/UTF-8·CP949/)).toBeTruthy();
@@ -126,4 +137,14 @@ it("shows recurring CSV guidance before upload while keeping context confirmatio
   expect(screen.getByText(/요약 표기는 실제 패킷·HTTP 버전의 증명이 아닙니다/)).toBeTruthy();
   expect(screen.getByText(/장비IP·그룹명만으로/)).toBeTruthy();
   expect(screen.getByText(/분석 실행 이력에서 CSV 자료 준비도/)).toBeTruthy();
+});
+
+it("opens the native chooser from a real button and can remove an accidental selection", () => {
+  routes(); renderUI(ui());
+  const input = screen.getByLabelText("추가할 원본 파일") as HTMLInputElement;
+  const openNative = vi.spyOn(input, "click");
+  fireEvent.click(screen.getByRole("button", {name: "원본 파일 선택"}));
+  expect(openNative).toHaveBeenCalledOnce();
+  pick("wrong.csv", "test"); fireEvent.click(screen.getByRole("button", {name: "wrong.csv 선택 해제"}));
+  expect((screen.getByRole("button", {name:"업로드 및 분석 시작"}) as HTMLButtonElement).disabled).toBe(true);
 });

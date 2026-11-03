@@ -1,5 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { ScopeSnapshot, SOURCE_NAMES } from "./ScopeSnapshot";
+import "./readable-workbench.css";
 import { ErrorBox, Loading, Panel } from "../../components/common";
 import { FieldMeanings } from "./FieldMeanings";
 import { QuestionBundles } from "./QuestionBundles";
@@ -8,7 +10,6 @@ import { api } from "../../lib/api";
 import { fmtNum, fmtTime } from "../../lib/format";
 import { axisStyle, EChart, safeTooltip } from "../../viz/EChart";
 
-const SOURCE_KO: Record<string, string> = { connection: "연결(방화벽·NDR 세션)", web: "HTTP 요청(NDR·웹)", waf: "웹 방화벽", zeek_conn: "네트워크 연결", zeek_http: "패킷 속 HTTP", suricata: "IDS 경보" };
 const REGISTRY_KO: Record<string, string> = { confirmed: "의미 확인됨(같은 장비·유효기간)", name_only: "이름만 일치 — 장비 미지정 등록",
   ambiguous: "적용 가능한 등록 여러 개 — 확인 필요", needs_confirmation: "의미 확인 필요" };
 // The tooltip explains the meaning that actually applies, or why no registered meaning applies — never just the first entry.
@@ -44,7 +45,7 @@ function Breakdown({ name, data, onPick }: { name: string; data: any; onPick?: (
       <table className="t"><tbody>
         {rows.map((b: any) => (
           <tr key={String(b.key)}>
-            <td className="mono ellipsis" style={{ maxWidth: 260 }}>{name === "data_source" ? (SOURCE_KO[b.key] || b.key) : (b.label || String(b.key))}</td>
+            <td className="mono ellipsis" style={{ maxWidth: 260 }}>{name === "data_source" ? (SOURCE_NAMES[b.key] || b.key) : (b.label || String(b.key))}</td>
             <td className="num">{fmtNum(b.count)}</td>
             {onPick && PICKABLE.has(name) && <td><button className="btn ghost sm" onClick={() => onPick(b.key)} title="이 값으로 좁혀 보기 (전체 기준은 그대로 표시됩니다)">좁혀 보기</button></td>}
           </tr>
@@ -58,6 +59,16 @@ function Breakdown({ name, data, onPick }: { name: string; data: any; onPick?: (
 export function ScopeSummary({ inv }: { inv: string }) {
   const ctx = useInv(inv);
   const [weekly, setWeekly] = useState(false);
+  const [timeExpanded, setTimeExpanded] = useState(false);
+  const qualityRef = useRef<HTMLDetailsElement>(null);
+  const timeRef = useRef<HTMLDetailsElement>(null);
+  const openDetail = (key: "quality" | "time") => {
+    const node = (key === "quality" ? qualityRef : timeRef).current;
+    if (!node) return;
+    node.open = true;
+    node.querySelector("summary")?.focus({ preventScroll: true });
+    node.scrollIntoView?.({ block: "start" });
+  };
   // The summary is keyed by everything that changes it: investigation, period, data and analysis versions, filter.
   const meta = useQuery<any>({ queryKey: ["inv", inv], queryFn: () => api.get(`/investigations/${inv}`) });
   const version = [meta.data?.period_start, meta.data?.period_end, (meta.data?.evidence || []).map((e: any) => `${e.id}:${e.status}`).join(","),
@@ -66,8 +77,15 @@ export function ScopeSummary({ inv }: { inv: string }) {
     queryFn: () => api.post(`/investigations/${inv}/scope-summary`, { filters: ctx.filters, time: ctx.time }),
     refetchInterval: (query: any) => ["running", "queued"].includes(query.state.data?.analysis?.status) ? 5000 : false });
   const alerts = useQuery({ queryKey: ["alert-names", inv], queryFn: () => api.get(`/investigations/${inv}/alert-names`) });
-  if (q.isLoading) return <Loading label="전체 현황 집계 중" />;
-  if (q.error) return <ErrorBox error={q.error} />;
+  const openAll = (tab: "raw" | "statistics") =>
+    ctx.set({ tab, filters: [], time: null, selection: null, findingId: null, eventId: null });
+  // Each result loads independently. A slow or failed aggregation must not block the basic investigation.
+  const frame = (details: ReactNode) => <div className="scope-reading">
+    <ScopeSnapshot data={q.data} error={q.error} openAll={() => openAll("raw")} openStats={() => openAll("statistics")} openDetail={openDetail} />
+    <QuestionBundles inv={inv} />
+    {details}
+  </div>;
+  if (!q.data) return frame(null);
   const d = q.data;
   const t = d.time;
   const inputs = d.inputs;
@@ -87,10 +105,12 @@ export function ScopeSummary({ inv }: { inv: string }) {
     const next = day && new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
     if (!weekly && day) ctx.set({ time: { start: `${day}T00:00:00+09:00`, end: `${next}T00:00:00+09:00`, end_exclusive: true } });
   };
-  return (
-    <div className="col" style={{ gap: 12 }}>
-      <QuestionBundles inv={inv} />
-      <FieldMeanings inv={inv} />
+  return frame(
+    <section className="scope-extras" aria-label="자료 상세">
+      <h3>자료 상세</h3>
+      <details ref={qualityRef} className="scope-fold">
+        <summary>수집·파싱과 조사 범위</summary>
+        <div className="scope-fold-content">
       <section aria-label="조사 범위와 기준" className="panel pb col" style={{ gap: 6 }}>
         <div className="row wrap" style={{ gap: 16 }}>
           <span><span className="muted">관계사</span> <b>{d.scope.org_unit || "미지정"}</b></span>
@@ -129,9 +149,13 @@ export function ScopeSummary({ inv }: { inv: string }) {
         {inputs.files_truncated && <div className="small muted">파일이 많아 처음 200개만 표시했습니다.</div>}
       </Panel>
 
+      {t.empty_days.length > 0 && <p className="small">기록 없는 날짜: {t.empty_days.slice(0,20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 중단 여부는 별도 확인이 필요합니다.</p>}
+      </div></details>
+      <details ref={timeRef} className="scope-fold" onToggle={e => setTimeExpanded(e.currentTarget.open)}>
+      <summary>기간별 추이와 자료 분포</summary><div className="scope-fold-content">
       <Panel title={weekly ? "주별 기록 수" : "일별 기록 수 (빈 날은 주황 · 날짜를 누르면 그 날로 좁혀 봅니다)"}
         right={<span className="row small" style={{ gap: 6 }}><button className={`btn sm ${weekly ? "" : "primary"}`} onClick={() => setWeekly(false)}>일별</button><button className={`btn sm ${weekly ? "primary" : ""}`} onClick={() => setWeekly(true)}>주별</button></span>}>
-        <EChart ariaLabel="기간별 기록 수" height={200} option={option as any} onClick={(p: any) => openDay(p.dataIndex)} />
+        {timeExpanded && <EChart ariaLabel="기간별 기록 수" height={200} option={option as any} onClick={(p: any) => openDay(p.dataIndex)} />}
         {t.empty_days.length > 0 && <div className="small" style={{ color: "var(--warn)" }}>
           조사 전체에 기록이 하나도 없는 날 {t.empty_days.length}일: {t.empty_days.slice(0, 20).join(", ")}{t.empty_days.length > 20 ? " …" : ""}. 수집 공백인지, 실제로 통신이 없었는지는 수집 담당자에게 확인해야 합니다.
         </div>}
@@ -169,7 +193,10 @@ export function ScopeSummary({ inv }: { inv: string }) {
         <Breakdown name="protocol" data={d.breakdown.protocol} onPick={pick("protocol")} />
       </div>
 
-      {d.analysis && <Panel title={`최근 분석 실행 v${d.analysis.version} — ${RUN_KO[d.analysis.status] || d.analysis.status}`}>
+      </div></details>
+      <FieldMeanings inv={inv} />
+      <details className="scope-fold"><summary>최근 탐지 실행 상세</summary><div className="scope-fold-content">
+      {d.analysis?.status && <Panel title={`최근 분석 실행 v${d.analysis.version} — ${RUN_KO[d.analysis.status] || d.analysis.status}`}>
         {d.analysis.incomplete.length > 0 && <ul className="small">{d.analysis.incomplete.map((x: any) => <li key={x.detector_id}>{x.detector_id}: {x.label}{x.reason_label ? ` — ${x.reason_label}` : ""}</li>)}</ul>}
         {/* "Everything finished" is said only for a finished run; a running or failed run is never reported as complete. */}
         {d.analysis.status === "complete" && !d.analysis.incomplete.length && <div className="small muted">모든 분석이 설정된 범위에서 끝났습니다. 수집의 완전성은 별도로 확인해야 합니다.</div>}
@@ -177,7 +204,8 @@ export function ScopeSummary({ inv }: { inv: string }) {
         {["failed", "cancelled"].includes(d.analysis.status) && <div className="small" role="alert">이 분석 실행은 {RUN_KO[d.analysis.status]}되었습니다. 결과가 일부이거나 없을 수 있습니다. 분석 실행 이력 탭에서 이유를 확인하세요.</div>}
         <div className="small muted">'자료 부족'·'일부만 처리'는 정상 판정이 아닙니다. 분석 실행 이력 탭에서 범위와 이유를 확인하세요.</div>
       </Panel>}
-      {!d.analysis && <div className="small muted">아직 분석이 실행되지 않았습니다. 분석하지 못한 상태는 '이상 없음'과 다릅니다.</div>}
-    </div>
+      {!d.analysis?.status && <div className="small muted">아직 분석이 실행되지 않았습니다. 분석하지 못한 상태는 '이상 없음'과 다릅니다.</div>}
+      </div></details>
+    </section>
   );
 }

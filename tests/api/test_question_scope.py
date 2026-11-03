@@ -91,10 +91,10 @@ def test_editing_the_condition_changes_what_is_computed(senior):
     windowed = _preview(senior, inv, "spread", min_targets=10, min_ports=99, window_minutes=10)
     assert [i["entities"][0] for i in windowed["items"]] == ["ip:10.20.5.99"]
     assert "10분 동안" in windowed["description"] and "10분 안에 목적지 15개" in windowed["items"][0]["title"]
-    # The item's time is its whole group (the 60 records it counts); the busiest window is named in the text.
+    # All 60 fast records happen to fall in the representative matching interval.
     fast = windowed["items"][0]
     assert fast["records"] == 60 and fast["time"]["start"].startswith("2026-10-13T00:00:00")
-    assert fast["time"]["end"].startswith("2026-10-13T00:01:58") and "가장 많이 접근한 10분 구간: 10-13 09:00:00 ~" in fast["observed"]
+    assert fast["time"]["end"].startswith("2026-10-13T00:01:58") and "조건을 충족한 대표 구간 10-13 09:00:00 ~" in fast["observed"]
     # By ports: the fast sweep used four admin ports, the slow one only 445. Limiting to port 445 leaves each
     # source one port, so the port criterion no longer matches anyone and only 445 records are counted.
     by_ports = _preview(senior, inv, "spread", min_targets=99, min_ports=4)
@@ -193,18 +193,19 @@ def test_a_question_result_recorded_as_a_check_keeps_its_whole_question_into_the
     run = _preview(senior, inv, "spread", min_targets=10, min_ports=99, window_minutes=10)
     item = run["items"][0]
     page = senior.post(f"/investigations/{inv['id']}/query/events",
-                       json={"filters": item["filters"], "time": run["scope"]["time"], "limit": 500}).json()
+                       json={"filters": item["filters"], "time": item["evidence_time"], "limit": 500}).json()
     origin = {"kind": "question", "bundle": "spread", "title": run["title"], "description": run["description"],
               "parameters": run["parameters"], "scope": run["scope"], "completeness": run["completeness"],
               "partial_reasons": run["partial_reasons"], "item": item}
     check = senior.post(f"/investigations/{inv['id']}/checks", json={
         "target_type": "set", "target_label": item["title"], "questions": ["nature"], "note": item["observed"],
         "evidence": [e["event_id"] for e in page["events"][:20]],
-        "scope": {"coverage": "all", "query": {"filters": item["filters"], "time": run["scope"]["time"]},
+        "scope": {"coverage": "all", "query": {"filters": item["filters"], "time": item["evidence_time"]},
                   "loaded": len(page["events"]), "event_ids": [e["event_id"] for e in page["events"][:20]], "origin": origin}})
     assert check.status_code == 201, check.text
     stored = check.json()["scope"]
-    assert stored["total"] == item["records"] == 60 and stored["query"]["time"] == run["scope"]["time"]
+    assert stored["total"] == item["records"] == 60 and stored["query"]["time"] == item["evidence_time"]
+    assert stored["origin"]["scope"]["time"] == run["scope"]["time"]
     assert stored["origin"]["parameters"]["window_minutes"] == 10 and stored["origin"]["item"]["next_questions"] == item["next_questions"]
     draft = senior.get(f"/investigations/{inv['id']}/follow-ups/draft", params={"check_id": check.json()["id"]}).json()
     assert [f"확인: {q}" for q in item["next_questions"]] == draft["needed_data"][:len(item["next_questions"])]
@@ -212,7 +213,7 @@ def test_a_question_result_recorded_as_a_check_keeps_its_whole_question_into_the
     # The request covers the whole group, not only the 20 records kept as references.
     assert draft["period"] == {"start": item["time"]["start"], "end": item["time"]["end"]} and "09:00 ~ 09:01 (KST)" in draft["question"]
     golden = senior.get(f"/investigations/{inv['id']}/internal-golden/draft").json()["content"]
-    assert any(run["description"] in f and "question-bundles/2" in f and "전체 계산 · 저장 안 한 조건" in f for f in golden["observed_facts"])
+    assert any(run["description"] in f and qb.VERSION in f and "전체 계산 · 저장 안 한 조건" in f for f in golden["observed_facts"])
     # A question result from another investigation cannot be filed here.
     other = _inv(senior)
     foreign = senior.post(f"/investigations/{other['id']}/checks", json={

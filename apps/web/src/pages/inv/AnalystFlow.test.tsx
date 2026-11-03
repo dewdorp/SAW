@@ -41,6 +41,24 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 beforeEach(() => { useInvStore.setState({ byInv: {} }); useInvTabs.setState({ tabs: [] }); });
 
 describe("whole picture", () => {
+  it("can leave a narrowed candidate scope to inspect all collected logs without losing the investigation", async () => {
+    useInvStore.getState().set("i1", { filters: [{ field: "src_ip", op: "is", value: "192.0.2.9" }], time: { start: "2026-10-01T00:00:00Z" }, eventId: "old-event" });
+    mockApi({ "POST /investigations/i1/scope-summary": [200, summary("filter")], "GET /investigations/i1/alert-names": [200, alerts] });
+    renderUI(<ScopeSummary inv="i1" />);
+    const region = await screen.findByRole("region", { name: "자료 현황" });
+    expect(await within(region).findByText("100,000")).toBeTruthy();
+    expect(within(region).getByText(/6,000건/)).toBeTruthy();
+    fireEvent.click(within(region).getByRole("button", { name: "전체 로그 보기" }));
+    expect(useInvStore.getState().byInv.i1).toMatchObject({ tab: "raw", filters: [], time: null, eventId: null });
+  });
+
+  it("keeps the full-log and statistics routes available if the summary aggregation fails", async () => {
+    mockApi({ "POST /investigations/i1/scope-summary": [503, { detail: "집계 일시 중단" }] });
+    renderUI(<ScopeSummary inv="i1" />);
+    expect(await screen.findByText(/집계 일시 중단/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "전체 로그 통계" }));
+    expect(useInvStore.getState().byInv.i1.tab).toBe("statistics");
+  });
   it("states its basis, keeps the whole denominator under a filter and shows gaps, parse notes and alert registry", async () => {
     mockApi({ "POST /investigations/i1/scope-summary": [200, summary("filter")], "GET /investigations/i1/alert-names": [200, alerts] });
     renderUI(<ScopeSummary inv="i1" />);
@@ -143,11 +161,13 @@ describe("three work areas", () => {
   it("adds a free search condition that is independent of the suggested candidates", async () => {
     renderUI(<App />, { route: "/inv/i1" });
     await screen.findByText("집계 기준: 조사 전체 100,000건", {}, { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: "로그 직접 검색" }));
     const search = screen.getByRole("search", { name: "로그 직접 검색" });
     fireEvent.change(within(search).getByLabelText("검색 필드"), { target: { value: "dst_port" } });
     fireEvent.change(within(search).getByLabelText("검색 값"), { target: { value: "4444" } });
     fireEvent.click(within(search).getByRole("button", { name: "조건 추가" }));
     await waitFor(() => expect(useInvStore.getState().get("i1").filters).toEqual([{ field: "dst_port", op: "is", value: 4444 }]));
+    expect(useInvStore.getState().get("i1").tab).toBe("raw");
     expect(screen.getByText(/목적지 포트 = 4444/)).toBeTruthy();
   });
 });

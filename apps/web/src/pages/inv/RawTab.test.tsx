@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderUI } from "../../test/helpers";
 import { MAX_LOADED, RawTab } from "./RawTab";
+import { useInvStore } from "../../context/invContext";
 
 // The virtual list asks for the next page whenever its last visible row is near the end: render "everything visible"
 // so the test drives paging the way endless scrolling would.
@@ -11,7 +12,7 @@ vi.mock("@tanstack/react-virtual", () => ({
     getTotalSize: () => count * 24,
   }),
 }));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); useInvStore.setState({ byInv: {} }); localStorage.clear(); });
 
 const INV = "inv-1";
 const page = (n: number, size: number) => Array.from({ length: size }, (_, i) => ({ event_id: `e${n}-${i}`, timestamp: "2026-10-01T00:00:00Z", src_ip: "198.51.100.1" }));
@@ -34,6 +35,9 @@ describe("Raw events table", () => {
     await waitFor(() => expect(api.find("POST", `/investigations/${INV}/query/events`)[4].body.cursor).toBe("c4"));
     expect(await screen.findByText(/화면 20,001~/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "← 이전 20,000건" })).toBeTruthy();
+    act(() => useInvStore.getState().set(INV, {filters:[{field:"src_ip",op:"is",value:"10.0.0.1"}]}));
+    await waitFor(() => expect(api.find("POST", `/investigations/${INV}/query/events`).some(r => r.body.filters?.length)).toBe(true));
+    expect(api.find("POST", `/investigations/${INV}/query/events`).filter(r => r.body.filters?.length)[0].body.cursor).toBeNull();
   });
 
   it("exports the whole search on the server, not just the loaded rows", async () => {
@@ -44,6 +48,7 @@ describe("Raw events table", () => {
     });
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
     renderUI(<RawTab inv={INV} />);
+    fireEvent.click(screen.getByText("CSV 내보내기"));
     fireEvent.click(await screen.findByRole("button", { name: "조건 전체 결과 CSV (서버, 가림)" }));
     expect(await screen.findByText("조건에 맞는 전체 30,000건을 내보냈습니다.")).toBeTruthy();
     const call = api.find("POST", `/investigations/${INV}/query/events/export`)[0];
@@ -70,12 +75,42 @@ describe("Raw events table", () => {
     });
     renderUI(<RawTab inv={INV} />);
     await screen.findByText(/화면 1~3번째/);
-    const headers = screen.getAllByText("timestamp");
-    fireEvent.click(headers[headers.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: "시각 날짜별 기록 보기" }));
     expect(await screen.findByText("2026-10-01")).toBeTruthy();
     expect(screen.getByText("7")).toBeTruthy();
     expect(api.find("POST", `/investigations/${INV}/query/aggregate`).map((c) => c.body.agg)).toContainEqual({ type: "date_histogram", field: "timestamp", interval_sec: 3600 });
     expect(screen.queryByRole("button", { name: "포함" })).toBeNull();
     expect(screen.getByRole("button", { name: "이 날로 좁히기" })).toBeTruthy();
+  });
+
+  it("shows FW evidence first within a source filter, with a separate whole-investigation denominator", async () => {
+    useInvStore.getState().set(INV, { filters: [{ field: "data_source", op: "is", value: "firewall" }] });
+    mockApi({
+      [`POST /investigations/${INV}/query/events`]: [200, { events: [{ event_id: "f1", data_source: "firewall", enforcement_action: "allowed" }], next_cursor: null }],
+      [`POST /investigations/${INV}/query/aggregate`]: c => [200, { value: c.body.filters.length ? 1 : 14 }],
+    });
+    renderUI(<RawTab inv={INV} />);
+    expect(await screen.findByText("조사 전체 14건")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "처리 결과 상위 값 보기" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "요청 경로 상위 값 보기" })).toBeNull();
+    expect(screen.getByText("허용")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "1번째 기록 상세 보기" }));
+    expect(useInvStore.getState().get(INV).eventId).toBe("f1");
+  });
+
+  it("does not infer an HTTP-only search from a single visible page of a mixed investigation; keeps explicit columns", async () => {
+    mockApi({
+      [`POST /investigations/${INV}/query/events`]: [200, { events: [{ event_id: "h1", data_source: "web" }], next_cursor: null }],
+      [`POST /investigations/${INV}/query/aggregate`]: c => [200, c.body.agg.type === "terms"
+        ? { buckets: [{key: "web", count: 8}, {key: "firewall", count: 4}], total: 12, other: 0 } : { value: 12 }],
+    });
+    localStorage.setItem("saw.rawcols", JSON.stringify(["timestamp", "user"]));
+    renderUI(<RawTab inv={INV} />);
+    expect(await screen.findByRole("button", {name: "계정 상위 값 보기"})).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("로그 표 구성"), {target:{value:"auto"}});
+    expect(screen.queryByRole("button", {name: "요청 경로 상위 값 보기"})).toBeNull();
+    expect(await screen.findByRole("button", {name: "목적지 IP 상위 값 보기"})).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("로그 표 구성"), {target:{value:"custom"}});
+    expect(await screen.findByRole("button", {name: "계정 상위 값 보기"})).toBeTruthy();
   });
 });
