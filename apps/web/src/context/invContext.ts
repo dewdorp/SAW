@@ -15,7 +15,28 @@ type InvState = {
   findingId: string | null;
   questionActivity?: string | null;
   followUpCheck?: { id: string; target_label: string } | null;
+  /** The activity list as the analyst left it: sensitivity, previews, type, page, open editor. Per investigation. */
+  questionView?: QuestionView;
+  /** Columns that let the raw view verify an activity's claim, for exactly the scope it opened. */
+  evidenceColumns?: { key: string; cols: string[]; label: string } | null;
+  /** A request being written: kept across views, never registered or sent until the analyst saves it. */
+  followUpDraft?: FollowUpDraftState | null;
+  /** A judgement asked for from an activity: the raw view opens the check dialog for this scope once. */
+  judgeScope?: string | null;
 };
+
+export type QuestionView = {
+  sensitivity: string; category: string; pages: Record<string, number>; previews: Record<string, any>;
+  editing: string | null; editorValues: Record<string, Record<string, any>>; openTypes: string[];
+};
+export type FollowUpDraftState = {
+  checkId: string; label: string; draft: Record<string, any>; touched: string[]; filled: boolean;
+  summary?: any; connections?: any[]; updatedAt: string;
+};
+export const blankQuestionView = (): QuestionView => ({ sensitivity: "normal", category: "", pages: {}, previews: {},
+  editing: null, editorValues: {}, openTypes: [] });
+/** The scope a raw view was opened for: its filters and period. */
+export const scopeKeyOf = (filters: Filter[], time: TimeRange) => JSON.stringify([filters, time]);
 
 type Store = {
   byInv: Record<string, InvState>;

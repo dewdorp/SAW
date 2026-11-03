@@ -3,7 +3,8 @@ import { Fragment, useEffect, useId, useRef, useState } from "react";
 import "./question-worklist.css";
 import { Link } from "react-router-dom";
 import { ErrorBox, Loading, Panel } from "../../components/common";
-import { useInv } from "../../context/invContext";
+import { blankQuestionView, scopeKeyOf, useInv, type QuestionView } from "../../context/invContext";
+import { CLAIM_COLUMNS } from "./evidenceView";
 import { ApiError, api } from "../../lib/api";
 import { fmtNum, fmtPeriod, getTz } from "../../lib/format";
 
@@ -41,10 +42,11 @@ function ParamInput({ p, value, onChange }: { p: Param; value: any; onChange: (v
 }
 
 /** Edit a question's condition, run it on the current logs, and save it with a clear reach and version. */
-function ConditionEditor({ inv, bundle, def, sensitivity, onResult, onClose }: { inv: string; bundle: string; def: any; sensitivity: string;
-  onResult: (r: any | null) => void; onClose: () => void }) {
+function ConditionEditor({ inv, bundle, def, sensitivity, initial, onValues, onResult, onClose }: { inv: string; bundle: string; def: any; sensitivity: string;
+  initial?: Record<string, any>; onValues?: (v: Record<string, any>) => void; onResult: (r: any | null) => void; onClose: () => void }) {
   const qc = useQueryClient();
-  const [values, setValues] = useState<Record<string, any>>(def.defaults);
+  const [values, setValuesState] = useState<Record<string, any>>(initial || def.defaults);
+  const setValues = (v: Record<string, any>) => { setValuesState(v); onValues?.(v); };
   const [ran, setRan] = useState<string>("");
   const [loaded, setLoaded] = useState<any>(null);
   const [name, setName] = useState("");
@@ -164,6 +166,11 @@ function ExampleSearch({ inv, editing, onOpen }: { inv: string; editing: string 
 }
 
 const NAMES: Record<string, string> = { web_attack: "웹 요청", transfer: "대량 전송", periodic: "반복 통신", spread: "다수 대상·포트 접촉" };
+// What an automatic candidate of each kind establishes from these logs, said once and plainly.
+const ESTABLISHED: Record<string, string> = {
+  spread: "여러 대상·포트에 대한 접촉 기록", periodic: "일정한 간격으로 반복된 기록",
+  transfer: "기준을 넘은 바이트 기록", web_attack: "여러 경로 요청 또는 공격 패턴이 든 요청",
+};
 const SOURCE: Record<string, string> = { web: "HTTP 요청(NDR·웹)", firewall: "방화벽", connection: "연결 기록",
   zeek_conn: "Zeek 연결", waf: "웹 방화벽", ips: "IPS", ddos: "DDoS" };
 const PAGE = 5;
@@ -185,23 +192,30 @@ function DetailsList({ label, items }: { label: string; items?: string[] }) {
 export function QuestionBundles({ inv }: { inv: string }) {
   const ctx = useInv(inv);
   const qc = useQueryClient();
-  const [sensitivity, setSensitivity] = useState("normal");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [previews, setPreviews] = useState<Record<string, any>>({});
-  const [category, setCategory] = useState("");
-  const [show, setShow] = useState(PAGE);
+  // Everything the analyst set here lives with this investigation: a trip to the raw view and back keeps it,
+  // and another investigation (another affiliate) starts from its own.
+  const view: QuestionView = ctx.questionView || blankQuestionView();
+  const setView = (patch: Partial<QuestionView>) => ctx.set({ questionView: { ...(ctx.questionView || blankQuestionView()), ...patch } });
+  const { sensitivity, previews, editing } = view;
   const settings = useRef<HTMLDetailsElement>(null);
   const focusEditor = () => {
     const el = settings.current?.querySelector<HTMLElement>('[aria-label="조건 수정"]');
     el?.focus({ preventScroll: true });
     el?.scrollIntoView?.({ block: "nearest" });
   };
-  useEffect(() => { if (editing) focusEditor(); }, [editing]);
+  useEffect(() => { if (editing) { if (settings.current) settings.current.open = true; focusEditor(); } }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   const prefix = useId();
   const q = useQuery<any>({ queryKey: ["question-bundles", inv, sensitivity],
     queryFn: () => api.get(`/investigations/${inv}/question-bundles?sensitivity=${sensitivity}`) });
   const me = useQuery<any>({ queryKey: ["me"], queryFn: () => api.get("/auth/me"), retry: false, staleTime: 60_000 });
   const scopeTime = (b: any, item: any) => item.evidence_time ?? (b.scope || q.data?.scope)?.time ?? null;
+  const openEvidence = (b: any, item: any, judge = false) => {
+    const time = scopeTime(b, item);
+    const claim = CLAIM_COLUMNS[b.id];
+    ctx.set({ tab: "raw", filters: item.filters, time, selection: null, eventId: null, findingId: null,
+      evidenceColumns: claim ? { key: scopeKeyOf(item.filters, time), ...claim } : null,
+      ...(judge ? { judgeScope: scopeKeyOf(item.filters, time) } : {}) });
+  };
   const record = useMutation({
     mutationFn: async ({ b, item }: { b: any; item: any }) => {
       const time = scopeTime(b, item);
@@ -218,72 +232,97 @@ export function QuestionBundles({ inv }: { inv: string }) {
     },
     onSuccess: (check) => { qc.invalidateQueries({ queryKey: ["checks", inv] }); ctx.set({ tab: "checks", followUpCheck: check }); },
   });
+  // Back from the raw view: the activity the analyst was reading is where they left it.
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ctx.questionActivity || !q.data) return;
+    const el = list.current?.querySelector<HTMLElement>(`[data-activity="${CSS.escape(ctx.questionActivity)}"]`);
+    el?.scrollIntoView?.({ block: "nearest" });
+  }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (q.isLoading) return <Loading label="로그에서 검토할 활동을 찾고 있습니다" />;
   if (!Array.isArray(q.data?.bundles)) return <Panel title="검토할 활동"><ErrorBox error={q.error || new Error("활동 결과를 불러오지 못했습니다.")} />
     <button className="btn sm" onClick={() => q.refetch()}>다시 불러오기</button></Panel>;
   const defs = q.data.definitions || {};
   const bundles: any[] = (q.data.bundles || []).map((base: any) => previews[base.id] || base);
-  const groups = bundles.map(b => ({ b, items: (b.items || []) as any[] }));
-  // Round-robin the question types so the first page is not filled by one detector alone.
-  const rows = Array.from({ length: Math.max(0, ...groups.map(g => g.items.length)) }, (_, i) =>
-    groups.filter(g => g.items.length > i).map(g => {
-      const item = g.items[i], b = g.b;
-      return { b, item, key: JSON.stringify([b.id, item.filters, item.title, scopeTime(b, item)]) };
-    })).flat();
-  const activeCategory = groups.some(g => g.b.id === category && g.items.length) ? category : "";
-  const filtered = rows.filter(r => !activeCategory || activeCategory === r.b.id);
-  const visible = filtered.slice(0, Math.max(show, filtered.findIndex(r => r.key === ctx.questionActivity) + 1));
+  const groups = bundles.filter(b => (b.items || []).length).map(b => ({ b, items: b.items as any[] }));
+  const keyOf = (b: any, item: any) => JSON.stringify([b.id, item.filters, item.title, scopeTime(b, item)]);
   const period = q.data.scope?.time;
   const partial = bundles.filter(b => b.completeness === "partial").length;
   const missing = bundles.filter(b => b.status === "insufficient_data").length;
   const failed = bundles.filter(b => b.status === "failed").length;
   const incomplete = !!(partial || missing || failed || !bundles.length);
   const found = groups.reduce((n, g) => n + (g.b.found ?? g.items.length), 0);
+  // The first type opens by itself; the rest show their one-line summary until the analyst opens them.
+  const openTypes = view.openTypes.length ? view.openTypes : groups.slice(0, 1).map(g => g.b.id);
+  const toggleType = (id: string) => setView({ openTypes: openTypes.includes(id) ? openTypes.filter(x => x !== id) : [...openTypes, id] });
   const adjust = (id: string) => {
     if (editing && editing !== id) return;
     if (settings.current) settings.current.open = true;
-    if (editing === id) focusEditor(); else setEditing(id);
+    if (editing === id) focusEditor(); else setView({ editing: id });
   };
+  const canWrite = me.data?.permissions?.includes("investigation.write");
   return <Panel title="검토할 활동" className="question-worklist">
+    <div id="review-activities" tabIndex={-1} />
     <ErrorBox error={q.error || record.error} />
-    <div className="queue-intro"><strong>{rows.length ? `조건별 후보 ${fmtNum(found)}개` : incomplete ? "확인하지 못한 범위가 있습니다" : "표시할 후보가 없습니다"}</strong>
-      <span>{rows.length ? "활동을 열어 선정 이유와 다음 확인 사항을 보세요." : incomplete ? "현재 표시된 활동은 없습니다. 계산 결과에서 자료와 범위를 확인하세요." : "조건에 맞는 후보가 없어도 정상으로 판정할 수는 없습니다."}</span></div>
-    <p className="queue-scope">민감도 {({ low: "낮음", normal: "보통", high: "높음" } as Record<string,string>)[sensitivity]} · {period?.start || period?.end ? `조사 기간 기준 · ${fmtPeriod(period.start, period.end)} ${getTz()}${period.end_exclusive ? " (끝 시각 제외)" : ""}` : "기간 미지정 · 저장된 자료 기준"}{rows.length ? ` · 결과 ${fmtNum(rows.length)}개 제공` : ""}</p>
+    <div className="queue-intro"><strong>{groups.length ? `자동 계산 후보 ${fmtNum(found)}개` : incomplete ? "확인하지 못한 범위가 있습니다" : "표시할 후보가 없습니다"}</strong>
+      <span>{groups.length ? "저장된 탐지 결과와 별개로, 로그에서 바로 계산한 후보입니다. 활동을 열어 근거와 다음 확인을 보세요." : incomplete ? "계산 결과에서 자료와 범위를 확인하세요." : "조건에 맞는 후보가 없어도 정상으로 판정할 수는 없습니다."}</span></div>
+    <p className="queue-scope">민감도 {({ low: "낮음", normal: "보통", high: "높음" } as Record<string,string>)[sensitivity]} · {period?.start || period?.end ? `조사 기간 ${fmtPeriod(period.start, period.end)} ${getTz()}${period.end_exclusive ? " (끝 시각 제외)" : ""}` : "기간 미지정 · 저장된 자료 기준"}{Object.keys(previews).length ? " · 조건 미리 보기 적용 중" : ""}</p>
     {(ctx.filters.length > 0 || !!ctx.time) && <p className="queue-scope">자료 통계는 현재 검색 조건을 따르며, 이 활동 목록은 위 계산 범위를 따릅니다.</p>}
     {(partial > 0 || missing > 0 || failed > 0) && <div className="queue-notice" role="status"><b>계산 한계</b>
-      {partial > 0 && <span>일부 계산 {partial}개</span>}{missing > 0 && <span>자료 부족 {missing}개</span>}{failed > 0 && <span>계산 실패 {failed}개</span>}
+      {partial > 0 && <span>일부만 계산 {partial}개 유형</span>}{missing > 0 && <span>자료 부족 {missing}개 유형</span>}{failed > 0 && <span>계산 실패 {failed}개 유형</span>}
       <button className="btn sm ghost" onClick={() => { if (settings.current) { settings.current.open = true; settings.current.scrollIntoView?.({ block: "nearest" }); } }}>한계 확인</button></div>}
-    {groups.filter(g => g.items.length).length > 1 && <label className="queue-filter">활동 유형 <select className="input" value={activeCategory} onChange={e => { setCategory(e.target.value); setShow(PAGE); ctx.set({ questionActivity: null }); }}>
-      <option value="">전체 유형</option>{groups.filter(g => g.items.length).map(({b, items}) => <option key={b.id} value={b.id}>{NAMES[b.id] || b.title} · {items.length}개</option>)}</select></label>}
-    <div className="activity-list">{visible.map(({ b, item, key }, i) => {
-      const expanded = ctx.questionActivity === key, source = sourceScope(item.filters);
-      return <article key={key} className={expanded ? "activity-entry is-open" : "activity-entry"}>
-        <button className="activity-row" type="button" aria-expanded={expanded} aria-controls={`${prefix}-activity-${i}`}
-          onClick={() => ctx.set({ questionActivity: expanded ? null : key })}>
-          <span className="activity-meta"><b>{NAMES[b.id] || b.title}</b>{previews[b.id] && (b.preset ? " · 저장된 검색 조건" : " · 조건 미리 보기")} · 관련 기록 {fmtNum(item.records)}건{source.observed && ` · 원천: ${source.observed}`}{b.completeness === "partial" && " · 일부만 계산"}</span>
-          <strong>{item.title}</strong><span aria-hidden="true" className="activity-chevron">{expanded ? "−" : "+"}</span>
+    <div className="activity-list" ref={list}>{groups.map(({ b, items }) => {
+      const open = openTypes.includes(b.id);
+      const shown = Math.min(items.length, view.pages[b.id] || PAGE);
+      const computed = b.found ?? items.length;
+      return <section key={b.id} className="activity-type" aria-label={`${NAMES[b.id] || b.title} 후보`}>
+        <button type="button" className="activity-type-head" aria-expanded={open} onClick={() => toggleType(b.id)}>
+          <b>{NAMES[b.id] || b.title}</b>
+          <span>계산된 {fmtNum(computed)}개{open ? ` · 현재 표시 ${fmtNum(shown)}개` : ""}{b.completeness === "partial" ? " · 일부만 계산(전체 결과 아님)" : ""}{previews[b.id] ? (b.preset ? " · 저장된 검색 조건" : " · 조건 미리 보기") : ""}</span>
+          <span aria-hidden="true" className="activity-chevron">{open ? "−" : "+"}</span>
         </button>
-        {expanded && <div className="activity-detail" id={`${prefix}-activity-${i}`}>
-          <dl><div><dt>선정 이유</dt><dd>{b.description || item.basis?.metric || b.title}</dd></div>
-            {!source.observed && source.included && <div><dt>조회에 포함한 원천</dt><dd>{source.included}</dd></div>}
-            <div><dt>관측 사실</dt><dd>{item.observed}
-              {item.time?.start && <div className="queue-scope">관측 구간 {fmtPeriod(item.time.start, item.time.end)} {getTz()}</div>}</dd></div>
-            <DetailsList label="다음에 확인할 것" items={item.next_questions} />
-            <DetailsList label="가능한 정상 업무" items={item.normal_possibilities} />
-            <DetailsList label="아직 모르는 점" items={item.unknown} />
-            <DetailsList label="장비 의미 확인 필요" items={b.unconfirmed} />
-          </dl>
-          <div className="row wrap"><button className="btn primary sm" onClick={() => ctx.set({ tab: "raw", filters: item.filters, time: scopeTime(b, item), selection: null, eventId: null, findingId: null })}>근거 원문 보기</button>
-            {me.data?.permissions?.includes("investigation.write") && <button className="btn sm" disabled={record.isPending} onClick={() => record.mutate({ b, item })}>확인 기록 저장·요청 초안 열기</button>}
-          </div>
-          {defs[b.id] && <button className="queue-adjust" disabled={!!editing && editing !== b.id} onClick={() => adjust(b.id)}>이 유형의 검색 조건 조정</button>}
-          {me.data?.permissions?.includes("investigation.write") && <p className="queue-scope">요청 초안은 직접 저장할 때까지 등록되지 않습니다. 자동으로 첨부한 원문은 읽은 기록으로 표시하지 않습니다.</p>}
-        </div>}
-      </article>;
+        {open && <>{items.slice(0, shown).map((item: any, i: number) => {
+          const key = keyOf(b, item), expanded = ctx.questionActivity === key, source = sourceScope(item.filters);
+          const id = `${prefix}-${b.id}-${i}`;
+          return <article key={key} data-activity={key} className={expanded ? "activity-entry is-open" : "activity-entry"}>
+            <button className="activity-row" type="button" aria-expanded={expanded} aria-controls={id}
+              onClick={() => ctx.set({ questionActivity: expanded ? null : key })}>
+              <strong>{item.title}</strong>
+              <span className="activity-meta">근거 {fmtNum(item.records)}건{source.observed && ` · ${source.observed}`}{item.time?.start && ` · ${fmtPeriod(item.time.start, item.time.end)}`}</span>
+              <span aria-hidden="true" className="activity-chevron">{expanded ? "−" : "+"}</span>
+            </button>
+            {expanded && <div className="activity-detail" id={id}>
+              <dl>
+                <div><dt>관측 사실</dt><dd>{item.observed} <button className="btn sm" onClick={() => openEvidence(b, item)}>근거 {fmtNum(item.records)}건 보기</button>
+                  {item.time?.start && <div className="queue-scope">근거 구간 {fmtPeriod(item.time.start, item.time.end)} {getTz()} · 조사 기간과 별개</div>}</dd></div>
+                <div><dt>판단 범위</dt><dd>{ESTABLISHED[b.id] || "관측 기록"}은 확인됐습니다.{item.unknown?.length ? ` ${item.unknown.join(" · ")}은(는) 이 로그로 미확인입니다.` : ""}</dd></div>
+                {item.next_questions?.[0] && <div><dt>다음 확인</dt><dd>{item.next_questions[0]}</dd></div>}
+              </dl>
+              {canWrite && <div className="row wrap">
+                <button className="btn sm" onClick={() => openEvidence(b, item, true)}>판단 남기기</button>
+                <button className="btn primary sm" disabled={record.isPending} onClick={() => record.mutate({ b, item })}>추가 확인 요청</button>
+              </div>}
+              <details className="activity-more"><summary>선정 이유·정상 가능성·조건 펼치기</summary>
+                <dl><div><dt>선정 이유</dt><dd>{b.description || item.basis?.metric || b.title}</dd></div>
+                  {!source.observed && source.included && <div><dt>조회에 포함한 원천</dt><dd>{source.included}</dd></div>}
+                  <DetailsList label="가능한 정상 업무" items={item.normal_possibilities} />
+                  <DetailsList label="그 밖의 확인 사항" items={(item.next_questions || []).slice(1)} />
+                  <DetailsList label="장비 의미 확인 필요" items={b.unconfirmed} />
+                </dl>
+                {defs[b.id] && <button className="queue-adjust" disabled={!!editing && editing !== b.id} onClick={() => adjust(b.id)}>이 유형의 검색 조건 조정</button>}
+                {canWrite && <p className="queue-scope">"추가 확인 요청"은 초안만 엽니다. 직접 저장할 때까지 등록·발송되지 않으며, 자동으로 붙인 원문은 분석가가 읽은 기록으로 세지 않습니다.</p>}
+              </details>
+            </div>}
+          </article>;
+        })}
+        {items.length > shown && <button className="btn sm" onClick={() => setView({ pages: { ...view.pages, [b.id]: shown + PAGE } })}>
+          {NAMES[b.id] || b.title} 더 보기 ({fmtNum(shown)}/{fmtNum(items.length)})</button>}
+        {computed > items.length && <p className="queue-scope">계산된 {fmtNum(computed)}개 중 {fmtNum(items.length)}개만 받아 왔습니다. 조건을 좁혀 나머지를 보세요.</p>}
+        </>}
+      </section>;
     })}</div>
-    {filtered.length > visible.length && <button className="btn sm" onClick={() => setShow(visible.length + PAGE)}>활동 더 보기 ({visible.length}/{filtered.length})</button>}
-    <details className="queue-tools" ref={settings}><summary><b>계산 결과와 조건</b> · {bundles.length}개 유형</summary>
-      <label className="queue-filter">질문 민감도 <select className="input" aria-label="질문 민감도" disabled={!!editing} value={sensitivity} onChange={e => { setSensitivity(e.target.value); setPreviews({}); setShow(PAGE); setCategory(""); ctx.set({ questionActivity: null }); }}>
+    <details className="queue-tools" ref={settings}><summary><b>계산 결과와 조건</b> · {bundles.length}개 유형 · 민감도</summary>
+      <label className="queue-filter">질문 민감도 <select className="input" aria-label="질문 민감도" disabled={!!editing} value={sensitivity} onChange={e => { setView({ sensitivity: e.target.value, previews: {}, pages: {}, openTypes: [] }); ctx.set({ questionActivity: null }); }}>
         <option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option></select></label>
       {bundles.map(b => { const [label, cls] = STATUS[b.status] || [b.status, ""];
         return <section className="queue-calculation" key={b.id} aria-label={b.title}><div className="row wrap">
@@ -295,8 +334,11 @@ export function QuestionBundles({ inv }: { inv: string }) {
           {b.missing && <div>필요한 자료: {b.missing.join(", ")}</div>}
           <Coverage b={b} limits={q.data.limits} />
           {editing === b.id && defs[b.id] && <ConditionEditor inv={inv} bundle={b.id} def={defs[b.id]} sensitivity={sensitivity}
-            onResult={r => setPreviews(cur => { const next = { ...cur }; if (r) next[b.id] = r; else delete next[b.id]; return next; })}
-            onClose={() => setEditing(null)} />}
+            initial={view.editorValues[b.id]} onValues={v => setView({ editorValues: { ...view.editorValues, [b.id]: v } })}
+            onResult={r => { const next = { ...previews }; if (r) next[b.id] = r; else delete next[b.id];
+              // A previewed condition opens its type, so the changed candidates are in view.
+              setView({ previews: next, openTypes: r && !openTypes.includes(b.id) ? [...openTypes, b.id] : openTypes }); }}
+            onClose={() => { const values = { ...view.editorValues }; delete values[b.id]; setView({ editing: null, editorValues: values }); }} />}
         </section>;
       })}
       {q.data.note && <p className="queue-scope">{q.data.note} · {q.data.version}</p>}

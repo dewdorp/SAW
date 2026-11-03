@@ -14,7 +14,20 @@ const LABEL: Record<string,string> = {
   uri: "요청 경로", uri_template: "경로 유형", status_code: "HTTP 응답", user_agent: "요청 프로그램", ua_class: "프로그램 분류",
   domain: "도메인", dst_ip: "목적지 IP", dst_port: "목적지 포트", src_port: "출발지 포트", protocol: "프로토콜",
   enforcement_action: "처리 결과", user: "계정", tags: "태그", source_file: "원본 파일", bytes_out: "바이트(out)", bytes_in: "바이트(in)",
+  "ext.security_csv._device_name": "장비",
 };
+// What each kind of activity claims, and the columns that let the analyst check exactly that claim.
+export const CLAIM_COLUMNS: Record<string, { cols: string[]; label: string }> = {
+  spread: { label: "다수 접촉 근거 열", cols: ["timestamp", "src_ip", "dst_ip", "dst_port", "enforcement_action", "ext.security_csv._device_name", "data_source"] },
+  web_attack: { label: "웹 요청 근거 열", cols: ["timestamp", "src_ip", "hostname", "method", "uri", "status_code", "user_agent"] },
+  transfer: { label: "전송량 근거 열", cols: ["timestamp", "src_ip", "dst_ip", "hostname", "uri", "bytes_in", "bytes_out", "data_source"] },
+  periodic: { label: "반복 통신 근거 열", cols: ["timestamp", "src_ip", "dst_ip", "dst_port", "protocol", "enforcement_action", "data_source"] },
+};
+/** A field of an event by its column name, including dotted names of fields kept from the original export. */
+export function valueOf(e: any, c: string): unknown {
+  if (c in (e || {})) return e[c];
+  return c.split(".").reduce((o: any, k) => (o && typeof o === "object" ? o[k] : undefined), e);
+}
 export const ALL_COLS = Object.keys(LABEL);
 export function columnLabel(c: string, p: LogProfile = "common"): string {
   if(c === "bytes_in" && p !== "common") return p === "http" ? "요청 바이트" : "수신 바이트";

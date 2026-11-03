@@ -261,6 +261,10 @@ def export_events(inv_id: str, body: ExportIn, ctx: AuthContext = Depends(auth),
                 row = []
                 for column in body.columns:
                     value = masked.get(column)
+                    if value is None and "." in column:  # a field kept from the original export, e.g. ext.security_csv._device_name
+                        value = masked
+                        for part in column.split("."):
+                            value = value.get(part) if isinstance(value, dict) else None
                     text = "|".join(map(str, value)) if isinstance(value, list) else "" if value is None else str(value)
                     row.append("'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text)  # CSV injection guard
                 out.writerow(row)
