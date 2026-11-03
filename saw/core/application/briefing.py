@@ -349,14 +349,15 @@ def _lines(text: str) -> str:
 
 def _check_line(chk: dict) -> str:
     """"분석가가 직접 확인한 기록 5건 (정상 2, 악성 1, 판단 없음 2 · 표본 1)" - what a person verified, apart from detections."""
+    obs = f" · 자동 관측 근거 {chk['observations']}건(직접 확인 제외)" if chk and chk.get("observations") else ""
     if not chk or not chk.get("direct"):
-        return "분석가가 직접 확인해 남긴 기록: 없음"
+        return "분석가가 직접 확인해 남긴 기록: 없음" + obs
     from saw.core.application.checks import JUDGEMENTS
 
     parts = [f"{JUDGEMENTS[k]} {n}" for k, n in chk["by_judgement"].items() if k in JUDGEMENTS] + \
             ([f"판단 없음 {chk['by_judgement']['none']}"] if chk["by_judgement"].get("none") else [])
     extra = (f" · 표본 확인 {chk['sample_only']}" if chk["sample_only"] else "") + (f" · 다른 조사 참고 {chk['cited']}" if chk["cited"] else "")
-    return f"분석가가 직접 확인해 남긴 기록 {chk['direct']}건 ({', '.join(parts)}{extra})"
+    return f"분석가가 직접 확인해 남긴 기록 {chk['direct']}건 ({', '.join(parts)}{extra})" + obs
 
 
 def render_html(b: dict[str, Any], author: str) -> str:

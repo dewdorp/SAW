@@ -19,10 +19,9 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from saw import container
-from saw.analyzers.ioc.observables import affiliate_local
 from saw.core.schemas.query import Filter, GroupMetric, TimeRange
 
-VERSION = "question-bundles/2"
+VERSION = "question-bundles/3"
 PATTERNS = ["pattern:sqli", "pattern:xss", "pattern:traversal", "pattern:cmdi", "pattern:ssti", "pattern:ssrf", "pattern:deser"]
 MAX_ITEMS = 10          # shown items per question; the found total is reported separately
 GROUP_LIMIT = 1000      # groups one computation examines; more is reported as a partial computation
@@ -65,7 +64,7 @@ PARAMS: dict[str, list[dict]] = {
     ],
     "transfer": [
         _p("data_sources", "살펴볼 로그 종류", "choice_list", ["connection", "firewall", "zeek_conn", "web"], choices=CONN_SOURCES),
-        _p("min_mb", "통신 쌍의 바이트 합계", "int", "@bytes_mb", "", min=1, max=10_000_000, unit="MB 이상"),
+        _p("min_mb", "통신 쌍의 방향별 바이트 합계", "int", "@bytes_mb", "1 MiB = 1,048,576바이트", min=1, max=10_000_000, unit="MiB 이상"),
         _p("direction", "어느 방향의 바이트", "choice", "any", choices=[["any", "어느 방향이든"], ["out", "bytes_out(웹: 응답, FW: 송신)"], ["in", "bytes_in(웹: 요청, FW: 수신)"]]),
         _p("exclude_src", "제외할 출발지 IP", "ip_list", []),
         _p("exclude_dst", "제외할 목적지 IP", "ip_list", []),
@@ -168,8 +167,8 @@ def describe(bundle: str, v: dict) -> str:
         pattern = " 또는 요청 값에 공격 패턴이 있음" if v["use_patterns"] else ""
         return f"{sources} 기록에서 같은 출발지가 서로 다른 URL 경로 {v['min_paths']}개 이상 요청{pattern}{tail}"
     if bundle == "transfer":
-        way = {"any": "어느 방향이든", "out": "bytes_out", "in": "bytes_in"}[v["direction"]]
-        return f"{sources} 기록에서 같은 출발지·목적지·로그 종류의 {way} 바이트 합계가 {v['min_mb']:,}MB 이상{tail}"
+        way = {"any": "두 방향 중 하나의", "out": "웹 응답 또는 장비 송신", "in": "웹 요청 또는 장비 수신"}[v["direction"]]
+        return f"{sources} 기록에서 같은 출발지·목적지·로그 종류의 {way} 바이트 합계가 {v['min_mb']:,} MiB 이상{tail}"
     return (f"{sources} 기록에서 같은 출발지·목적지·포트의 기록이 {v['min_records']}건 이상이고 "
             f"간격 변동계수가 {v['max_cv']:.2f} 이하{tail}")
 
@@ -203,8 +202,12 @@ def _kst(value) -> str:
     return datetime.fromtimestamp(t, ZoneInfo("Asia/Seoul")).strftime("%m-%d %H:%M:%S") if t is not None else "?"
 
 
-def _mb(n):
-    return f"{n / 1024 ** 2:,.1f}MB"
+def _bytes_label(n):
+    if n >= 1024 ** 2:
+        return f"{n / 1024 ** 2:,.1f} MiB"
+    if n >= 1024:
+        return f"{n / 1024:,.1f} KiB"
+    return f"{n:,.0f} B"
 
 
 def _dump(filters: list[Filter]) -> list[dict]:
@@ -240,13 +243,13 @@ def _spread(es, inv, time, v) -> dict:
     if not total:
         return _empty(es, inv, time, v, [Filter(field="dst_ip", op="exists")], "목적지 IP·포트")
     sources = es.aggregate(inv, base, _agg("src_ip"), time).get("value") or 0
-    rows = es.group_by(inv, base, ["src_ip"], [
+    metrics = [
         GroupMetric(type="cardinality", field="dst_ip", name="targets"),
         GroupMetric(type="cardinality", field="dst_port", name="ports"),
         GroupMetric(type="count", name="blocked", filters=[Filter(field="enforcement_action", value="blocked")]),
         GroupMetric(type="count", name="allowed", filters=[Filter(field="enforcement_action", value="allowed")]),
-        GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")],
-        size=GROUP_LIMIT, time=time, order_by="targets")
+        GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")]
+    rows = es.group_by(inv, base, ["src_ip"], metrics, size=GROUP_LIMIT, time=time, order_by="targets")
     partial = [f"출발지 {sources:,}개 중 목적지 수 상위 {len(rows):,}개만 계산" if sources > len(rows) else ""]
 
     def hit(targets, ports):
@@ -258,61 +261,84 @@ def _spread(es, inv, time, v) -> dict:
         src = r["key"]["src_ip"]
         if not src or not hit(r.get("targets") or 0, r.get("ports") or 0):
             continue  # the whole-period counts bound any window's counts, so this source cannot match
-        targets, ports, span = r.get("targets") or 0, r.get("ports") or 0, {"start": r.get("first"), "end": r.get("last")}
-        best_window = None
+        flt = base + [Filter(field="src_ip", value=src)]
+        whole_span = {"start": r.get("first"), "end": r.get("last")}
+        values, span, evidence_time = r, whole_span, None
         if v["window_minutes"]:
             timelines += 1
-            best = _best_window(es, inv, base + [Filter(field="src_ip", value=src)], time, v["window_minutes"] * 60)
+            best = _qualifying_window(es, inv, flt, time, v["window_minutes"] * 60, hit)
             if best["truncated"]:
                 partial.append(f"{src}: 기록 {TIMELINE_LIMIT:,}건까지만 관측창 계산")
-            targets, ports = best["targets"], best["ports"]
-            if not hit(targets, ports):
+            if best["undated"]:
+                partial.append(f"{src}: 시각을 확인할 수 없는 기록 {best['undated']:,}건은 관측창에서 제외")
+            if not best["span"]:
                 continue
-            best_window = best["span"]
-        flt = base + [Filter(field="src_ip", value=src)]
-        inside = affiliate_local(src)
+            values, span = best, best["span"]
+            evidence_time = {**span, "end_exclusive": False}
+            if best["truncated"]:
+                # The last examined timestamp may have additional rows beyond the cap.
+                # Reconcile this one inclusive interval with the full raw-log query.
+                exact = es.group_by(inv, flt, ["src_ip"], metrics, size=1, time=TimeRange(**evidence_time))
+                if not exact:
+                    continue
+                values = exact[0]
+        targets, ports = values.get("targets") or 0, values.get("ports") or 0
         window = f"{v['window_minutes']}분 안에 " if v["window_minutes"] else ""
-        items.append(_item(
+        scope_label = (f"조건을 충족한 대표 구간 {_kst(span['start'])} ~ {_kst(span['end'])} KST"
+                       if evidence_time else "조사 기간 전체")
+        item = _item(
             f"{src}가 {window}목적지 {targets}개·포트 {ports}개에 접근",
-            f"{'관계사 내부' if inside else '외부'} 출발지 {src}의 기록 {r['count']}건(조건 범위 전체): {window}목적지 {targets}개, "
-            f"포트 {ports}개, 허용 {r.get('allowed') or 0}건·차단 {r.get('blocked') or 0}건."
-            + (f" 가장 많이 접근한 {v['window_minutes']}분 구간: {_kst(best_window['start'])} ~ {_kst(best_window['end'])}." if best_window else ""),
+            f"{scope_label}: 이 출발지의 근거 {values['count']:,}건 중 허용 {values.get('allowed') or 0:,}건·차단 {values.get('blocked') or 0:,}건."
+            + (f" 조사 기간 전체에서 이 출발지의 조건 일치 기록은 {r['count']:,}건입니다." if evidence_time else ""),
             {"metric": "출발지별 서로 다른 목적지·포트 수", "window_minutes": v["window_minutes"],
-             "threshold_targets": v["min_targets"], "threshold_ports": v["min_ports"], "match": v["match"]},
-            r["count"], _dump(flt),
+             "threshold_targets": v["min_targets"], "threshold_ports": v["min_ports"], "match": v["match"],
+             "source_records": r["count"], "source_time": whole_span},
+            values["count"], _dump(flt),
             ["접속 후 인증·원격 실행 여부(이 로그에는 없음)", "IP를 쓴 실제 사용자·호스트(NAT·DHCP)"],
             ["승인된 취약점 진단·자산 점검", "관리 서버·모니터링 서버의 정상 접속"],
             ["이 출발지의 접근이 승인된 점검 일정에 있었는지", "허용된 접속 대상 서버의 인증·실행 기록"],
-            entities=[f"ip:{src}"], time=span))
+            entities=[f"ip:{src}"], time=span)
+        if evidence_time:
+            item["evidence_time"] = evidence_time
+        items.append(item)
     return _finish(items, total, {"groups": len(rows), "groups_total": sources, "group_limit": GROUP_LIMIT,
                                   "timelines": timelines, "timeline_limit": TIMELINE_LIMIT}, partial=partial)
 
 
-def _best_window(es, inv, filters, time, seconds) -> dict:
-    """The window with the most distinct targets (ports as the tie-break) over one source's time-sorted records."""
-    events, truncated = [], False
-    for i, e in enumerate(es.iterate(inv, filters, time, fields=["timestamp", "dst_ip", "dst_port"])):
+def _qualifying_window(es, inv, filters, time, seconds, matches) -> dict:
+    """Test the actual AND/OR condition in each sliding window, then rank only matching windows."""
+    events, truncated, undated = [], False, 0
+    for i, e in enumerate(es.iterate(inv, filters, time, fields=["timestamp", "dst_ip", "dst_port", "enforcement_action"])):
         if i >= TIMELINE_LIMIT:
             truncated = True
             break
         t = _ts(e.get("timestamp"))
         if t is not None:
-            events.append((t, e.get("dst_ip"), e.get("dst_port")))
+            events.append((t, e.get("dst_ip"), e.get("dst_port"), e.get("enforcement_action")))
+        else:
+            undated += 1
     events.sort(key=lambda x: x[0])
-    dsts, ports = Counter(), Counter()
-    best = {"targets": 0, "ports": 0, "span": {}, "truncated": truncated}
+    dsts, ports, actions = Counter(), Counter(), Counter()
+    best = {"span": {}, "truncated": truncated, "undated": undated}
+    best_rank = (0, 0, 0)
     lo = 0
-    for hi, (t, dst, port) in enumerate(events):
-        dsts[dst] += 1
-        ports[port] += 1
+    for hi, (t, dst, port, action) in enumerate(events):
+        for counter, key in ((dsts, dst), (ports, port), (actions, action)):
+            if key is not None:
+                counter[key] += 1
         while events[lo][0] < t - seconds:
-            _drop(dsts, events[lo][1])
-            _drop(ports, events[lo][2])
+            for counter, key in zip((dsts, ports, actions), events[lo][1:]):
+                if key is not None:
+                    _drop(counter, key)
             lo += 1
-        if (len(dsts), len(ports)) > (best["targets"], best["ports"]):
-            best.update(targets=len(dsts), ports=len(ports), span={
-                "start": datetime.fromtimestamp(events[lo][0], timezone.utc).isoformat(),
-                "end": datetime.fromtimestamp(t, timezone.utc).isoformat()})
+        rank = (len(dsts), len(ports), hi - lo + 1)
+        if matches(len(dsts), len(ports)) and rank > best_rank:
+            best_rank = rank
+            first, last = events[lo][0], t
+            best.update(targets=len(dsts), ports=len(ports), count=rank[2], allowed=actions["allowed"], blocked=actions["blocked"])
+    if best_rank[2]:
+        best["span"] = {"start": datetime.fromtimestamp(first, timezone.utc).isoformat(),
+                        "end": datetime.fromtimestamp(last, timezone.utc).isoformat()}
     return best
 
 
@@ -378,6 +404,7 @@ def _transfer(es, inv, time, v) -> dict:
             return _empty(es, inv, time, v, [], "")
         return {"status": "insufficient_data", "missing": ["방향별 바이트(cs/sc_bytes, sent/rcvd_bytes)"], "items": [], "records": 0}
     metrics = [GroupMetric(type="sum", field="bytes_in", name="bin"), GroupMetric(type="sum", field="bytes_out", name="bout"),
+               GroupMetric(type="value_count", field="bytes_in", name="nIn"), GroupMetric(type="value_count", field="bytes_out", name="nOut"),
                GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")]
     orders = {"any": ("bin", "bout"), "out": ("bout",), "in": ("bin",)}[v["direction"]]
     # The largest pairs by the chosen direction(s), so a large download is not hidden behind many large uploads.
@@ -395,23 +422,23 @@ def _transfer(es, inv, time, v) -> dict:
         bin_, bout = r.get("bin") or 0, r.get("bout") or 0
         if size(r) < threshold:
             continue
-        if ds in ("web", "waf"):
-            # In an HTTP record the source is the client. Web convention (as IIS sc-bytes): bytes_out is the
-            # response the server sent to the client, bytes_in the request the client sent.
-            server_inside, client_inside = affiliate_local(dst) if dst else None, affiliate_local(src) if src else None
-            if server_inside and client_inside is False:
-                kind = f"내부 서버 {dst}가 외부 클라이언트 {src}에게 보낸 응답 {_mb(bout)} — 외부 반출 후보"
-            elif server_inside is False and client_inside:
-                kind = f"내부 클라이언트 {src}가 외부 서버 {dst}에서 받은 응답 {_mb(bout)} — 다운로드 후보"
-            else:
-                kind = f"{src}↔{dst} 응답 {_mb(bout)}·요청 {_mb(bin_)}"
-        else:
-            kind = f"{src}→{dst} 송신 {_mb(bout)}·수신 {_mb(bin_)} (방향 기준은 장비 확인 필요)"
-        pair = [Filter(field="data_source", value=ds), Filter(field="src_ip", value=src), Filter(field="dst_ip", value=dst)]
+        web = ds in ("web", "waf")
+        # Roles in the normalized HTTP record are observable; address ownership, file
+        # contents and business purpose are not. For FW the direction is device-relative.
+        in_label, out_label = ("요청", "응답") if web else ("장비 수신", "장비 송신")
+        counts = {"in": (in_label, bin_, r.get("nIn")), "out": (out_label, bout, r.get("nOut"))}
+        matched = [d for d, (_, n, _) in counts.items() if v["direction"] in ("any", d) and n >= threshold]
+        sides = f"클라이언트 {src or '미기록'} ↔ 서버 {dst or '미기록'}" if web else f"{src or '미기록'} ↔ {dst or '미기록'}"
+        kind = sides + " · " + " · ".join(f"{counts[d][0]} {_bytes_label(counts[d][1])}" for d in matched)
+        observed = " · ".join(f"{label} {_bytes_label(n) if filled else '미기록'}" for label, n, filled in counts.values())
+        pair = [Filter(field="data_source", value=ds)] + [
+            Filter(field=field, value=value) if value is not None else Filter(field=field, op="not_exists")
+            for field, value in (("src_ip", src), ("dst_ip", dst))]
         items.append(_item(
-            kind, kind + f". 같은 조사의 통신 쌍 중앙값 {_mb(median)}.",
+            kind, f"{r['count']:,}건의 합계: {observed}. 선택한 기준 {_bytes_label(threshold)} 이상입니다."
+            + ("" if web else " 송수신 방향은 장비의 기록 기준입니다."),
             {"metric": "통신 쌍별 바이트 합계(행 단위·헤더 포함 여부 미확인)", "threshold_bytes": threshold,
-             "direction": v["direction"], "median_pair_bytes": median},
+             "direction": v["direction"], "matched_directions": matched, "median_pair_bytes": median},
             r["count"], _dump(base + pair),
             ["실제로 전달된 데이터 종류·민감도(바이트 수는 데이터 용량이 아님)", "누적·중복 기록 여부", "업무 승인 여부"],
             ["정상 백업·파일 배포·업무 다운로드", "대용량 업데이트·동기화"],
@@ -423,6 +450,21 @@ def _transfer(es, inv, time, v) -> dict:
                    unconfirmed=["바이트 방향·누적 여부는 장비 설정에서 확인 전이면 후보 값입니다"],
                    note="바이트는 장비가 기록한 값의 합이며, 행 단위·누적 여부가 확인되지 않았으면 전체 트래픽으로 보지 않습니다. "
                         "NDR와 FW 바이트는 다른 계층의 값이라 로그 종류별로 따로 셉니다.")
+
+
+def _approx_interval(seconds: float) -> str:
+    """Brief duration for the title; numeric mean remains in the evidence."""
+    if seconds < .001:
+        return "1밀리초 미만"
+    if seconds < .9995:
+        return f"약 {round(seconds * 1000)}밀리초"
+    remaining = round(seconds)
+    parts = []
+    for size, unit in ((86400, "일"), (3600, "시간"), (60, "분"), (1, "초")):
+        n, remaining = divmod(remaining, size)
+        if n:
+            parts.append(f"{n:,}{unit}")
+    return "약 " + " ".join(parts[:2])
 
 
 def _periodic(es, inv, time, v) -> dict:
@@ -458,10 +500,12 @@ def _periodic(es, inv, time, v) -> dict:
         cv = statistics.pstdev(gaps) / mean if mean else 1
         if cv > v["max_cv"]:
             continue
+        seconds = f"{mean:,.6f}".rstrip("0").rstrip(".") + "초" if mean >= 1e-6 else "0.000001초 미만"
         items.append(_item(
-            f"{src}→{dst}:{port} 기록이 약 {mean:,.0f}초 간격으로 반복",
-            f"기록 {r['count']}건이 평균 {mean:,.0f}초 간격(변동계수 {cv:.2f})으로 발생했습니다. 기록 시각의 주기이며 연결 시작의 주기라고 확정하지 않습니다.",
-            {"metric": "기록 간격 변동계수", "threshold_cv": v["max_cv"], "min_records": v["min_records"], "intervals_checked": len(gaps)},
+            f"{src}→{dst}:{port} 기록이 {_approx_interval(mean)} 간격으로 반복",
+            f"기록 {r['count']}건이 평균 {seconds} 간격(변동계수 {cv:.2f})으로 발생했습니다. 기록 시각의 주기이며 연결 시작의 주기라고 확정하지 않습니다.",
+            {"metric": "기록 간격 변동계수", "threshold_cv": v["max_cv"], "min_records": v["min_records"],
+             "mean_interval_seconds": mean, "intervals_checked": len(gaps)},
             r["count"], _dump(base + pair),
             ["통신을 만든 프로그램·계정", "통신 내용", "기록 시각이 연결 시작인지 여부"],
             ["상태 점검·모니터링 에이전트", "업데이트·동기화·예약 작업"],
@@ -474,7 +518,7 @@ def _periodic(es, inv, time, v) -> dict:
 
 BUNDLES = [
     ("web_attack", "A. 웹 공격 시도가 있었고 영향 확인이 필요한가?", _web),
-    ("transfer", "B. 대량 반출·다운로드인지 정상 업무인지 확인해야 하는가?", _transfer),
+    ("transfer", "B. 어느 방향의 전송량이 기준을 넘었는가?", _transfer),
     ("periodic", "C. 반복 통신이 자동 업무인지 추가 조사 대상인지?", _periodic),
     ("spread", "D. 여러 자산·관리 포트 접근이 점검인지 침해 확산 조사 대상인지?", _spread),
 ]

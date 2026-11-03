@@ -24,7 +24,7 @@ def test_each_question_bundle_answers_from_the_logs(analyst, kind, case):
 def test_an_item_says_what_was_seen_why_what_is_unknown_and_what_to_ask(analyst):
     inv, bundles = _bundles(analyst, "ndr", "large_response_out")
     item = bundles["transfer"]["items"][0]
-    assert "외부 반출 후보" in item["title"] and item["records"] == 12
+    assert "응답 96.0 MiB" in item["title"] and "반출" not in item["title"] and item["records"] == 12
     assert item["basis"]["threshold_bytes"] and item["unknown"] and item["normal_possibilities"] and item["next_questions"]
     assert item["entities"] == ["ip:198.51.100.50", "ip:10.20.1.10"]
     # The item's evidence filter finds exactly its records in the full log.
@@ -37,7 +37,7 @@ def test_an_item_says_what_was_seen_why_what_is_unknown_and_what_to_ask(analyst)
     assert guide.status_code == 200, guide.text
     assert next(f["value"] for f in guide.json()["facts"] if f["id"] == "large_response") == 12
     _, download = _bundles(analyst, "ndr", "download_in")
-    assert "다운로드 후보" in download["transfer"]["items"][0]["title"]
+    assert "응답 90.0 MiB" in download["transfer"]["items"][0]["title"]
 
 
 def test_nothing_found_and_no_data_are_not_normal(analyst):

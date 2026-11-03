@@ -6,12 +6,21 @@ import { EntityChip } from "../../components/EntityChip";
 import { useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtTime } from "../../lib/format";
+import { columnLabel, displayField, PRESETS, profileOf } from "./evidenceView";
+import "./evidenceView.css";
 
 const CHECK_TYPES = ["ip", "domain", "uri", "user", "session", "ja4"];
 const ENT_FIELDS: [string, string][] = [["src_ip", "ip"], ["dst_ip", "ip"], ["uri_template", "uri"], ["user_agent", "user_agent"], ["ja4", "ja4"], ["user", "user"], ["domain", "domain"], ["session_id", "session"]];
 
 /** Bottom drawer: Normalized / Raw / Entities / Findings / Context lines (docs/15 §1.5). */
 export function EventDrawer({ inv }: { inv: string }) {
+  const { eventId } = useInv(inv);
+  if (!eventId) return <div className="drawer closed"><div className="tabs"><button disabled>기록을 선택하면 상세와 원문을 볼 수 있습니다</button></div></div>;
+  // Remount the detail per event: an audited raw line, reason and stream must not follow a new selection.
+  return <EventRecord key={`${inv}:${eventId}`} inv={inv} eventId={eventId}/>;
+}
+
+function EventRecord({ inv, eventId }: { inv: string; eventId: string }) {
   const ctx = useInv(inv);
   const [tab, setTab] = useState("normalized");
   const [reason, setReason] = useState("");
@@ -22,17 +31,23 @@ export function EventDrawer({ inv }: { inv: string }) {
   const marks = useMarks(inv);
   const linked = useQuery({ queryKey: ["linked", inv, ctx.eventId], queryFn: () => api.get(`/investigations/${inv}/network/linked/${ctx.eventId}`), enabled: !!ctx.eventId });
   const pcap = useMutation({ mutationFn: () => api.download(`/investigations/${inv}/network/sessions/${ctx.eventId}/pcap`, "session.pcap").then((r) => r.headers.get("x-saw-packets")) });
-  if (!ctx.eventId) return <div className="drawer closed"><div className="tabs"><button disabled>▸ 이벤트 상세 — 이벤트를 선택하면 표시됩니다</button></div></div>;
   const e = ev.data?.event;
+  const profile = profileOf(e?.data_source);
+  const keyFields = [...new Set(["data_source", ...PRESETS[profile], "src_port", "source_file"])].filter(k => e?.[k] != null && e?.[k] !== "");
+  // Additional, device-reported context. Never derive units or the policy outcome from a TCP flag.
+  const device = e?.ext?.security_csv?.source_columns ?? e?.ext?.security_csv;
+  const deviceFields = [["_device_name","원천 장비"],["action","장비의 원래 조치값"],["tcp_flag","TCP 플래그"],["duration","지속 시간 (장비 원값·단위 확인)"]]
+    .filter(([key]) => typeof device?.[key] === "string" || typeof device?.[key] === "number")
+    .filter(([key]) => device[key] !== "" && device[key] !== "-");
   const nLinked = (linked.data?.groups || []).reduce((a: number, g: any) => a + g.count, 0);
-  const nChecks = (marks.data?.events[ctx.eventId] || []).length;
+  const nChecks = (marks.data?.events?.[eventId] || []).length;
   // packets are reachable for PCAP-derived events and for NDR/log events whose session was also captured
   const hasPackets = !!e && e.src_port != null && (String(e.data_source || "").startsWith("zeek_") || !!linked.data?.pcap_session);
   return (
     <div className="drawer">
       <div className="tabs">
-        <button disabled>▾ 이벤트 {ctx.eventId.slice(0, 8)}</button>
-        {([["normalized", "정규화"], ["raw", "원본"], ["entities", "엔티티"], ["findings", "관련 탐지"], ["context", "전후 로그"], ["linked", `연결된 기록${nLinked ? ` ${nLinked}` : ""}`], ["checks", `확인${nChecks ? ` ${nChecks}` : ""}`]] as [string, string][]).map(([t, l]) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{l}</button>)}
+        <button disabled title={eventId}>기록 상세</button>
+        {([["normalized", "핵심 필드"], ["raw", "원문"], ["entities", "주소·계정"], ["findings", "관련 탐지"], ["context", "전후 로그"], ["linked", `연결된 기록${nLinked ? ` ${nLinked}` : ""}`], ["checks", `확인${nChecks ? ` ${nChecks}` : ""}`]] as [string, string][]).map(([t, l]) => <button key={t} className={tab === t ? "active" : ""} aria-pressed={tab === t} onClick={() => setTab(t)}>{l}</button>)}
         <div className="grow" />
         {hasPackets && (
           <button className="btn ghost sm" onClick={() => setStreamOpen(true)} title="재조립한 세션 내용 보기 (Follow TCP Stream, 감사 기록)">⇄ 스트림 보기</button>
@@ -43,8 +58,8 @@ export function EventDrawer({ inv }: { inv: string }) {
           </button>
         )}
         {pcap.error && <span className="small bad" style={{ alignSelf: "center" }}>{(pcap.error as Error).message}</span>}
-        {e && <span className="small muted" style={{ alignSelf: "center" }}>{e.source_file}:{e.raw_ref?.line_no} · {e.parser} {e.parser_version}</span>}
-        <button className="btn ghost sm" onClick={() => ctx.set({ eventId: null })}>✕</button>
+        {e && <span className="small muted" style={{ alignSelf: "center" }} title={`${e.parser || ""} ${e.parser_version || ""}`}>{e.source_file || "원본 파일 미기록"}{e.raw_ref?.line_no != null && ` · ${e.raw_ref.line_no}행`}</span>}
+        <button className="btn ghost sm" aria-label="기록 상세 닫기" onClick={() => ctx.set({ eventId: null })}>✕</button>
       </div>
       {streamOpen && ctx.eventId && <StreamModal inv={inv} eventId={ctx.eventId} onClose={() => setStreamOpen(false)} />}
       <div className="scroll" style={{ padding: 8 }}>
@@ -54,18 +69,24 @@ export function EventDrawer({ inv }: { inv: string }) {
         {ev.isLoading && <Loading />}
         <ErrorBox error={ev.error} />
         {e && tab === "normalized" && (
-          <table className="t"><tbody>{Object.entries(e).filter(([k]) => !["raw_event", "raw_visual", "ext", "raw_ref"].includes(k)).map(([k, v]) => (
+          <div className="col">
+            <dl className="evidence-key">{keyFields.map(k => <div key={k}><dt title={k}>{columnLabel(k,profile)}</dt><dd className="mono">{displayField(k,e[k])}</dd></div>)}
+              {deviceFields.map(([key,name]) => <div key={key}><dt title={key}>{name}</dt><dd className="mono">{String(device[key])}</dd></div>)}</dl>
+            {profile === "http" && e.status_code != null && <p className="small muted">HTTP 코드는 해당 요청의 응답입니다. 인증 성공이나 반환된 내용은 이 값만으로 확인할 수 없습니다.</p>}
+            {profile === "network" && e.enforcement_action && <p className="small muted">처리 결과는 장비가 기록한 조치입니다. 허용만으로 실제 접속 성공을 확인할 수 없습니다.</p>}
+            <details><summary>전체 필드와 원천 속성 보기</summary>
+            <table className="t"><tbody>{Object.entries(e).filter(([k]) => !["raw_event", "raw_visual", "ext", "raw_ref"].includes(k)).map(([k, v]) => (
             <tr key={k}><td className="muted" style={{ width: 180 }}>{k}</td><td className="mono pre">{typeof v === "object" ? JSON.stringify(v) : String(v)}</td></tr>
-          ))}{e.ext && <tr><td className="muted">ext.*</td><td className="mono pre">{JSON.stringify(e.ext, null, 1)}</td></tr>}</tbody></table>
+          ))}{e.ext && <tr><td className="muted">원천 속성 (ext)</td><td className="mono pre">{JSON.stringify(e.ext, null, 1)}</td></tr>}</tbody></table></details></div>
         )}
         {e && tab === "raw" && (
           <div className="col">
-            <div className="row small">{ev.data.masked_kinds.length > 0 && <span className="tag warn">🔒 masked: {ev.data.masked_kinds.join(", ")}</span>}{e.raw_has_bidi && <span className="tag bad">⚠ Bidi/제어문자 포함</span>}<span className="muted">{fmtTime(e.timestamp)} · quality {e.timestamp_quality || "exact"}</span></div>
+            <div className="row small">{ev.data.masked_kinds.length > 0 && <span className="tag warn">민감값 가림: {ev.data.masked_kinds.join(", ")}</span>}{e.raw_has_bidi && <span className="tag bad">⚠ Bidi/제어문자 포함</span>}<span className="muted">{fmtTime(e.timestamp)} · 시각 품질 {e.timestamp_quality || "미기록"}</span></div>
             <div className="mono pre" style={{ background: "var(--bg)", padding: 8, borderRadius: 4 }}>{e.raw_visual}</div>
             {ev.data.can_unmask && !unmask.data && (
-              <div className="row small"><input className="input grow" placeholder="Unmask 사유 (감사 기록)" value={reason} onChange={(x) => setReason(x.target.value)} /><button className="btn sm" disabled={reason.length < 5} onClick={() => unmask.mutate()}>Unmask</button></div>
+              <div className="row small"><input className="input grow" aria-label="민감값 열람 사유" placeholder="열람 사유 (감사 기록)" value={reason} onChange={(x) => setReason(x.target.value)} /><button className="btn sm" disabled={reason.trim().length < 5 || unmask.isPending} onClick={() => unmask.mutate()}>민감값 열람</button></div>
             )}
-            {unmask.data && <div className="col"><span className="tag bad">원문 (감사 기록됨)</span><div className="mono pre">{unmask.data.event.raw_event}</div></div>}
+            {ev.data.can_unmask && unmask.data && <div className="col"><span className="tag warn">민감값 열람 중 · 감사 기록됨</span><div className="mono pre">{unmask.data.event.raw_event}</div><button className="btn sm" onClick={() => {unmask.reset();setReason("");}}>다시 가리기</button></div>}
             <ErrorBox error={unmask.error} />
           </div>
         )}
@@ -85,12 +106,12 @@ export function EventDrawer({ inv }: { inv: string }) {
         )}
         {tab === "linked" && (linked.isLoading ? <Loading /> : linked.data ? (
           <div className="col">
-            <div className="muted small">다른 증거(NDR 메타, 웹 로그, WAF, PCAP)에 남은 같은 세션·같은 요청입니다. 같은 IP·포트 쌍은 ±5분, 포트가 없는 웹 로그는 같은 출발지·경로 ±5초로 연결합니다.
-              {linked.data.pcap_session ? <b> 이 세션의 원본 패킷이 있어 스트림 보기·세션 PCAP을 쓸 수 있습니다.</b> : " 같은 시간대 PCAP을 올리면 원본 패킷까지 연결됩니다."}</div>
+            <div className="muted small">다른 원천에서 주소·포트 쌍이 ±5분 또는 출발지·요청 경로가 ±5초 안에 겹친 기록입니다. 동일한 세션·요청인지는 시각과 원문을 대조하세요.
+              {linked.data.pcap_session ? <b> 연결 가능한 PCAP이 있습니다. 스트림·패킷을 열어 대조하세요.</b> : " 이 범위에 연결된 PCAP이 없습니다."}</div>
             {!linked.data.groups.length && <span className="muted">연결된 기록 없음</span>}
             {linked.data.groups.map((g: any) => (
               <div key={g.relation + g.data_source} className="col" style={{ gap: 4 }}>
-                <div className="row small"><span className={`tag ${g.relation === "same_session" ? "ok" : ""}`}>{g.relation === "same_session" ? "같은 세션" : "같은 요청"}</span><b>{g.data_source}</b><span className="muted">{g.count}건</span></div>
+                <div className="row small"><span className="tag">{g.relation === "same_session" ? "주소·포트 일치" : "출발지·경로 일치"}</span><b>{displayField("data_source",g.data_source)}</b><span className="muted">{g.count}건</span></div>
                 <table className="t"><tbody>{g.events.map((x: any) => (
                   <tr key={x.event_id} style={{ cursor: "pointer" }} onClick={() => ctx.set({ eventId: x.event_id })}>
                     <td className="small" style={{ width: 170 }}>{fmtTime(x.timestamp)}</td>
