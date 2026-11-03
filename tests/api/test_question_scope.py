@@ -316,3 +316,25 @@ def test_every_computed_candidate_can_be_opened_not_only_the_first_page(senior):
     _process(senior, inv["id"], "many.csv", fw_csv("many_spreads"))
     out = _preview(senior, inv, "spread", min_targets=10, min_ports=99)
     assert out["found"] == out["shown"] == len(out["items"]) == 12 and out["returned_all"] is True
+
+
+def test_a_request_drafted_from_an_activity_covers_its_whole_group_not_the_kept_sample(senior):
+    inv = _inv(senior, _org(senior))
+    _process(senior, inv["id"], "spread.csv", fw_csv("spread"))
+    run = _preview(senior, inv, "spread", min_targets=10, min_ports=99)
+    item = run["items"][0]
+    page = senior.post(f"/investigations/{inv['id']}/query/events",
+                       json={"filters": item["filters"], "time": run["scope"]["time"], "limit": 20}).json()
+    origin = {"kind": "question", "bundle": "spread", "title": run["title"], "description": run["description"],
+              "parameters": run["parameters"], "scope": run["scope"], "completeness": run["completeness"], "item": item}
+    check = senior.post(f"/investigations/{inv['id']}/checks", json={
+        "target_type": "set", "target_label": item["title"], "questions": ["nature"], "note": item["observed"],
+        "scope": {"coverage": "observation", "checked": 0, "event_ids": [],
+                  "query": {"filters": item["filters"], "time": run["scope"]["time"]}, "origin": origin},
+        "evidence": [e["event_id"] for e in page["events"]]}).json()
+    draft = senior.get(f"/investigations/{inv['id']}/follow-ups/draft", params={"check_id": check["id"]}).json()
+    summary = draft["target_summary"]
+    # 20 references were kept; the request names all 15 destinations, 4 ports and 60 combinations.
+    assert summary["basis"] == "whole_group" and summary["complete"] is True and summary["records"] == 60
+    assert (summary["destinations"], summary["port_count"], summary["connections"]) == (15, 4, 60)
+    assert len(draft["target"]["dst_ips"]) == 15 and len(draft["target"]["connections"]) == 60

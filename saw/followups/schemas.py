@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 Text = Annotated[str, Field(min_length=1, max_length=8000)]
 Short = Annotated[str, Field(min_length=1, max_length=1000)]
@@ -32,6 +32,20 @@ def _aware(value):
     return value
 
 
+class Connection(StrictIn):
+    """One observed source -> destination:port combination; a reply must match the combination, not the lists."""
+    src_ip: Address | None = None
+    dst_ip: Address | None = None
+    dst_port: Annotated[int, Field(ge=0, le=65535)] | None = None
+
+
+def _without_empty_connections(data):
+    # Stored payloads and their digests from before connections existed stay byte-identical.
+    if isinstance(data, dict) and not data.get("connections"):
+        data.pop("connections", None)
+    return data
+
+
 class Target(StrictIn):
     """Who and what the question is about; a reply is compared with exactly this."""
     org_unit_id: Ident | None = None
@@ -39,6 +53,11 @@ class Target(StrictIn):
     dst_ips: list[Address] = Field(default_factory=list, max_length=50)
     dst_ports: list[Annotated[int, Field(ge=0, le=65535)]] = Field(default_factory=list, max_length=50)
     behavior: Annotated[str, Field(min_length=1, max_length=1000)] | None = None
+    connections: list[Connection] = Field(default_factory=list, max_length=200)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty(self, handler):
+        return _without_empty_connections(handler(self))
 
 
 class Period(StrictIn):
@@ -66,8 +85,13 @@ class ReplyScope(StrictIn):
     src_ips: list[Address] = Field(default_factory=list, max_length=50)
     dst_ips: list[Address] = Field(default_factory=list, max_length=50)
     dst_ports: list[Annotated[int, Field(ge=0, le=65535)]] = Field(default_factory=list, max_length=50)
+    connections: list[Connection] = Field(default_factory=list, max_length=200)
     start: datetime | None = None
     end: datetime | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty(self, handler):
+        return _without_empty_connections(handler(self))
 
     @field_validator("start", "end")
     @classmethod

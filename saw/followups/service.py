@@ -435,6 +435,15 @@ def suggest(s, p, inv_id, check_id) -> dict:
     if (item.get("time") or {}).get("start"):
         # A question item knows its whole group's first and last record; the kept records are only a sample.
         start, end = item["time"].get("start"), item["time"].get("end") or item["time"].get("start")
+    summary = {"basis": "sample", "records": len(events), "sources": len(src), "destinations": len(dst),
+               "ports": ports[:10], "port_count": len(ports), "complete": False}
+    connections = [{"src_ip": a, "dst_ip": b, "dst_port": c} for a, b, c in pairs]
+    if origin and item.get("filters"):
+        # The request covers the whole group the item counted, not the up-to-20 records kept as references.
+        whole = _whole_targets(inv_id, item, (check.scope or {}).get("query") or {})
+        if whole:
+            summary, connections = whole["summary"], whole["connections"]
+            src, dst, ports = whole["src"], whole["dst"], whole["ports"]
     span = _readable_span(start, end) if start and end else "기록된 기간"
     from saw.storage.models import Investigation
 
@@ -453,11 +462,42 @@ def suggest(s, p, inv_id, check_id) -> dict:
             "question": f"{(affiliate + ' ') if affiliate else ''}{label}에서 {span}에 관측된 행위가 승인된 업무였습니까? "
                         "수행 주체·목적과 범위(대상·포트·시간)를 알려 주세요.",
             "reason": reason[:8000], "affiliate": affiliate,
-            "target": {"src_ips": src, "dst_ips": dst, "dst_ports": ports, "behavior": label[:1000]},
+            "target": {"src_ips": src[:50], "dst_ips": dst[:50], "dst_ports": ports[:50], "behavior": label[:1000],
+                       "connections": connections[:200]},
+            "target_summary": summary,
             "period": {"start": start, "end": end} if start and end else None,
-            "observed_pairs": [{"src_ip": a, "dst_ip": b, "dst_port": c} for a, b, c in pairs],
+            "observed_pairs": connections[:20],
             "needed_data": needed[:20], "origin": origin or None,
             "note": "근거 기록에서 자동으로 채운 초안입니다. 저장 전에 내용을 확인하세요."}
+
+
+CONNECTION_LIMIT = 200
+
+
+def _whole_targets(inv_id: str, item: dict, query: dict) -> dict | None:
+    """Sources, destinations, ports and source→destination:port connections of a question item's whole scope."""
+    from saw.core.schemas.query import Filter, TimeRange
+
+    try:
+        filters = [Filter(**f) for f in item.get("filters") or []]
+        time_doc = item.get("evidence_time") or query.get("time")
+        time = TimeRange(**time_doc) if time_doc else None
+    except (TypeError, ValueError):
+        return None
+    es = container.get().events
+    rows = es.group_by(inv_id, filters, ["src_ip", "dst_ip", "dst_port"], [], size=CONNECTION_LIMIT + 1, time=time)
+    complete = len(rows) <= CONNECTION_LIMIT
+    rows = rows[:CONNECTION_LIMIT]
+    connections = [{"src_ip": r["key"]["src_ip"], "dst_ip": r["key"]["dst_ip"],
+                    "dst_port": r["key"]["dst_port"]} for r in rows]
+    src = list(dict.fromkeys(str(c["src_ip"]) for c in connections if c["src_ip"]))
+    dst = list(dict.fromkeys(str(c["dst_ip"]) for c in connections if c["dst_ip"]))
+    ports = sorted({int(c["dst_port"]) for c in connections if isinstance(c["dst_port"], int)})
+    return {"src": src, "dst": dst, "ports": ports, "connections": connections,
+            "summary": {"basis": "whole_group", "records": sum(r["count"] for r in rows), "sources": len(src),
+                        "destinations": len(dst), "ports": ports[:10], "port_count": len(ports),
+                        "connections": len(connections), "complete": complete,
+                        "start": (time.start if time else None), "end": (time.end if time else None)}}
 
 
 def _period_widened(checked: dict, current: tuple) -> bool:
