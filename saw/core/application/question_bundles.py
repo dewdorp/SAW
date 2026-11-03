@@ -23,7 +23,7 @@ from saw.core.schemas.query import Filter, GroupMetric, TimeRange
 
 VERSION = "question-bundles/3"
 PATTERNS = ["pattern:sqli", "pattern:xss", "pattern:traversal", "pattern:cmdi", "pattern:ssti", "pattern:ssrf", "pattern:deser"]
-MAX_ITEMS = 10          # shown items per question; the found total is reported separately
+MAX_ITEMS = 200         # items returned per question (the screen pages them); more is reported, never dropped silently
 GROUP_LIMIT = 1000      # groups one computation examines; more is reported as a partial computation
 TIMELINE_LIMIT = 20000  # records read per timeline (periodic gaps, windowed spread)
 CONN_SOURCES = [["connection", "FW·연결 기록"], ["firewall", "방화벽"], ["zeek_conn", "Zeek 연결"], ["web", "NDR HTTP·웹"]]
@@ -223,8 +223,9 @@ def _item(title, observed, basis, records, filters, unknown, normal, questions, 
 def _finish(items: list, records: int, examined: dict, *, partial: list[str] | None = None, **extra) -> dict:
     """Found / looked-none plus what was examined and shown; a limit hit makes the computation partial."""
     partial = [p for p in (partial or []) if p]
+    # Every computed item is returned up to MAX_ITEMS, so the 11th and 12th of twelve can be opened too.
     return {"status": "found" if items else "looked_none", "records": records, "items": items[:MAX_ITEMS],
-            "found": len(items), "shown": min(len(items), MAX_ITEMS),
+            "found": len(items), "shown": min(len(items), MAX_ITEMS), "returned_all": len(items) <= MAX_ITEMS,
             "completeness": "partial" if partial else "complete", "partial_reasons": partial,
             "examined": examined, **extra}
 
@@ -283,11 +284,12 @@ def _spread(es, inv, time, v) -> dict:
                     continue
                 values = exact[0]
         targets, ports = values.get("targets") or 0, values.get("ports") or 0
-        window = f"{v['window_minutes']}분 안에 " if v["window_minutes"] else ""
+        port_text = _port_phrase(es, inv, flt, TimeRange(**evidence_time) if evidence_time else time, ports)
+        window_note = f" ({v['window_minutes']}분 관측창)" if v["window_minutes"] else ""
         scope_label = (f"조건을 충족한 대표 구간 {_kst(span['start'])} ~ {_kst(span['end'])} KST"
                        if evidence_time else "조사 기간 전체")
         item = _item(
-            f"{src}가 {window}목적지 {targets}개·포트 {ports}개에 접근",
+            f"{src}에서 {_duration_phrase(span)} 목적지 {targets}개의 {port_text}에 접촉했습니다{window_note}.",
             f"{scope_label}: 이 출발지의 근거 {values['count']:,}건 중 허용 {values.get('allowed') or 0:,}건·차단 {values.get('blocked') or 0:,}건."
             + (f" 조사 기간 전체에서 이 출발지의 조건 일치 기록은 {r['count']:,}건입니다." if evidence_time else ""),
             {"metric": "출발지별 서로 다른 목적지·포트 수", "window_minutes": v["window_minutes"],
@@ -303,6 +305,35 @@ def _spread(es, inv, time, v) -> dict:
         items.append(item)
     return _finish(items, total, {"groups": len(rows), "groups_total": sources, "group_limit": GROUP_LIMIT,
                                   "timelines": timelines, "timeline_limit": TIMELINE_LIMIT}, partial=partial)
+
+
+def _duration_phrase(span: dict) -> str:
+    """'약 1분 동안' from an item's first and last record."""
+    a, b = _ts((span or {}).get("start")), _ts((span or {}).get("end"))
+    if a is None or b is None:
+        return "관측 구간 동안"
+    s = max(0.0, b - a)
+    if s < 1:
+        return "1초 이내에"
+    if s < 60:
+        return f"약 {round(s)}초 동안"
+    if s < 3600:
+        return f"약 {round(s / 60)}분 동안"
+    if s < 86400:
+        return f"약 {s / 3600:.1f}시간 동안".replace(".0시간", "시간")
+    return f"약 {s / 86400:.1f}일 동안".replace(".0일", "일")
+
+
+def _port_phrase(es, inv, filters, time, ports: int) -> str:
+    """'TCP 443 포트' when a few ports were touched, otherwise the count; a missing port is named as such."""
+    from saw.core.schemas.query import AggRequest
+
+    if not ports or ports > 3:
+        return f"포트 {ports:,}개" if ports else "포트(미기록)"
+    names = [b["key"] for b in es.aggregate(inv, filters, AggRequest(type="terms", field="dst_port", size=3), time).get("buckets", [])]
+    protos = [b["key"] for b in es.aggregate(inv, filters, AggRequest(type="terms", field="protocol", size=2), time).get("buckets", [])]
+    proto = f"{str(protos[0]).upper()} " if len(protos) == 1 and protos[0] else ""
+    return f"{proto}{'·'.join(str(x) for x in names)} 포트" if names else f"포트 {ports:,}개"
 
 
 def _qualifying_window(es, inv, filters, time, seconds, matches) -> dict:
@@ -480,14 +511,17 @@ def _periodic(es, inv, time, v) -> dict:
         if r["count"] < v["min_records"] or not r["key"]["src_ip"]:
             continue
         src, dst, port, ds = (r["key"][k] for k in ("src_ip", "dst_ip", "dst_port", "data_source"))
-        pair = [Filter(field="data_source", value=ds), Filter(field="src_ip", value=src)] + (
-            [Filter(field="dst_ip", value=dst)] if dst is not None else []) + (
-            [Filter(field="dst_port", value=port)] if port is not None else [])
+        # The group's own key, including "not recorded": a missing port is not every port.
+        pair = [Filter(field="data_source", value=ds), Filter(field="src_ip", value=src),
+                Filter(field="dst_ip", value=dst) if dst is not None else Filter(field="dst_ip", op="not_exists"),
+                Filter(field="dst_port", value=port) if port is not None else Filter(field="dst_port", op="not_exists")]
+        port_label = str(port) if port is not None else "포트 미기록"
+        dst_label = dst if dst is not None else "목적지 미기록"
         timelines += 1
         times = []
         for i, e in enumerate(es.iterate(inv, base + pair, time, fields=["timestamp"])):
             if i >= TIMELINE_LIMIT:
-                partial.append(f"{src}→{dst}:{port}: 처음 {TIMELINE_LIMIT:,}건의 간격만 계산")
+                partial.append(f"{src}→{dst_label}:{port_label}: 처음 {TIMELINE_LIMIT:,}건의 간격만 계산")
                 break
             t = _ts(e.get("timestamp"))
             if t is not None:
@@ -502,7 +536,7 @@ def _periodic(es, inv, time, v) -> dict:
             continue
         seconds = f"{mean:,.6f}".rstrip("0").rstrip(".") + "초" if mean >= 1e-6 else "0.000001초 미만"
         items.append(_item(
-            f"{src}→{dst}:{port} 기록이 {_approx_interval(mean)} 간격으로 반복",
+            f"{src}→{dst_label} ({port_label}) 기록 {r['count']:,}건이 {_approx_interval(mean)} 간격으로 반복",
             f"기록 {r['count']}건이 평균 {seconds} 간격(변동계수 {cv:.2f})으로 발생했습니다. 기록 시각의 주기이며 연결 시작의 주기라고 확정하지 않습니다.",
             {"metric": "기록 간격 변동계수", "threshold_cv": v["max_cv"], "min_records": v["min_records"],
              "mean_interval_seconds": mean, "intervals_checked": len(gaps)},

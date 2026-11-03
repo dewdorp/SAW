@@ -90,7 +90,7 @@ def test_editing_the_condition_changes_what_is_computed(senior):
     # A 10-minute window keeps the fast sweep (15 hosts in two minutes) and drops the six-hour one.
     windowed = _preview(senior, inv, "spread", min_targets=10, min_ports=99, window_minutes=10)
     assert [i["entities"][0] for i in windowed["items"]] == ["ip:10.20.5.99"]
-    assert "10분 동안" in windowed["description"] and "10분 안에 목적지 15개" in windowed["items"][0]["title"]
+    assert "10분 동안" in windowed["description"] and "목적지 15개의 포트 4개에 접촉했습니다 (10분 관측창)" in windowed["items"][0]["title"]
     # All 60 fast records happen to fall in the representative matching interval.
     fast = windowed["items"][0]
     assert fast["records"] == 60 and fast["time"]["start"].startswith("2026-10-13T00:00:00")
@@ -294,5 +294,25 @@ def test_a_window_that_meets_the_port_criterion_is_found_even_when_another_has_m
     _process(senior, inv["id"], "late.csv", fw_csv("spread_ports_late"))
     out = _preview(senior, inv, "spread", window_minutes=10, min_targets=10, min_ports=5, match="any")
     assert [i["entities"] for i in out["items"]] == [["ip:10.20.5.97"]]
-    assert "10분 안에 목적지 3개·포트 6개" in out["items"][0]["title"]
+    assert "목적지 3개의 포트 6개에 접촉했습니다" in out["items"][0]["title"]
     assert "10-13 11:00:00" in out["items"][0]["observed"]
+
+
+def test_a_repeat_group_without_a_port_is_its_own_group_in_count_interval_and_evidence(senior):
+    """Alternating 'no port' and 443 every 10 s: two groups of 8 records each, 20 s apart, opened as such."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "gap.csv", fw_csv("periodic_port_gap"))
+    out = _preview(senior, inv, "periodic", min_records=8)
+    by = {("포트 미기록" in i["title"]): i for i in out["items"] if "10.20.5.14" in i["title"]}
+    assert set(by) == {True, False}
+    for item in by.values():
+        assert item["records"] == 8 and "약 20초" in item["title"] and "기록 8건" in item["title"]
+        assert len(_events(senior, inv, item["filters"], out["scope"]["time"])) == 8
+    assert any(f == {"field": "dst_port", "op": "not_exists", "value": None} for f in by[True]["filters"])
+
+
+def test_every_computed_candidate_can_be_opened_not_only_the_first_page(senior):
+    inv = _inv(senior)
+    _process(senior, inv["id"], "many.csv", fw_csv("many_spreads"))
+    out = _preview(senior, inv, "spread", min_targets=10, min_ports=99)
+    assert out["found"] == out["shown"] == len(out["items"]) == 12 and out["returned_all"] is True
