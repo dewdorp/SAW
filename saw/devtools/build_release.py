@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from saw.devtools.release_manifest import BundleError, digest, safe_relative, seal
 from saw.devtools.long_window_sample import write_sample_archive
+from saw.devtools.investigation_examples import CASES, write_case_archives
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.compact.json',
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
@@ -240,7 +241,11 @@ def copy_web_dist(out: Path):
     if not ids or len(ids) != len(set(ids)) or any(not re.fullmatch(r'C\d{3}', i) for i in ids):
         raise BundleError('practice-data: invalid practice case list')
     samples = [f'practice-data/v1/{i}/{name}.csv' for i in ids for name in ('ndr', 'fw')]
-    authored = [*samples, 'reference-data/long-window.html']
+    case_dir = 'reference-data/platform-cases'
+    authored = [*samples, 'reference-data/long-window.html', f'{case_dir}/index.json']
+    for case in CASES:
+        authored.extend([f'{case_dir}/{case}.json', f'{case_dir}/shots/{case}-candidate.png',
+                         f'{case_dir}/shots/{case}-raw.png'])
     for rel in authored:
         original, built = web / 'public' / rel, dist / rel
         for p in (original, built):
@@ -258,6 +263,7 @@ def copy_web_dist(out: Path):
         copy_file(dist / rel, target / rel)
     # Rebuild the synthetic archive from source; never accept arbitrary ZIPs in dist.
     write_sample_archive(target / 'reference-data/long-window-sample.zip')
+    write_case_archives(target / case_dir)
 
 def assemble(inputs: Path, out: Path, native: Path | None = None):
     if out.exists(): raise BundleError('output must be a fresh directory')

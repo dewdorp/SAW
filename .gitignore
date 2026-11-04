@@ -37,3 +37,5 @@ models/
 
 # Generated on demand for the Vite dev server
 /apps/web/public/reference-data/long-window-sample.zip
+
+/apps/web/public/reference-data/platform-cases/*.zip

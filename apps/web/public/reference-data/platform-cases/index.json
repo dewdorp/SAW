@@ -1,0 +1,32 @@
+[
+  {
+    "id": "W01",
+    "title": "외부 IP의 웹 경로 탐색",
+    "classification": "의심 · 서버 영향 미확인"
+  },
+  {
+    "id": "W02",
+    "title": "5분마다 반복된 외부 접속",
+    "classification": "판단 불가 · 프로세스 미확인"
+  },
+  {
+    "id": "W03",
+    "title": "승인 포트와 다른 서버 점검",
+    "classification": "의심 · 승인 범위 밖의 연결"
+  },
+  {
+    "id": "W04",
+    "title": "96 MiB HTTP 응답과 승인된 배포",
+    "classification": "정상 · 확인된 배포 범위"
+  },
+  {
+    "id": "W05",
+    "title": "일주일에 걸친 새 파일 공유 대상 접촉",
+    "classification": "의심 · 신규 대상 확인 필요"
+  },
+  {
+    "id": "W06",
+    "title": "여러 밤에 나누어 보낸 외부 전송",
+    "classification": "의심 · 전송 파일 미확인"
+  }
+]

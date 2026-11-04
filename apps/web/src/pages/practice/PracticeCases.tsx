@@ -5,6 +5,7 @@ import { conclusion, loadBundledPack, type PracticeCase, type PracticePack, type
 import { notesFor } from "./caseNotes";
 import { Loading, Panel } from "../../components/common";
 import { PageHeader } from "../../components/ui";
+import { PlatformCases } from "./PlatformCases";
 import "./practice.css";
 
 const meanings: Record<string, string> = {
@@ -151,6 +152,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
       <PageHeader eyebrow="NDR · FW 모범 분석" title={item ? `${item.id} · ${item.title}` : "분석 사례집"}
         desc={item ? item.summary : "가상 로그의 어떤 행에서 질문이 나왔는지, 어떤 자료를 대조했고 어디까지 결론을 낼 수 있는지 읽어 보세요."} />
     </div>
+    {!selected && <PlatformCases />}
     {!selected && <Panel title="63일 로그에서 찾은 변화">
       <p>가상 관계사의 FW·NDR 132,750건을 살펴봅니다. 과거 8주와 마지막 1주를 비교해 매일 조금씩 늘어난 접속과 여러 날에 나눠 전송한 기록을 찾습니다.</p>
       <div className="row wrap">

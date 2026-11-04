@@ -20,6 +20,13 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
     expected = {f"practice-data/v1/C{i:03d}/{kind}.csv": f"{i},{kind}\r\n".encode()
                 for i in range(1, 21) for kind in ("ndr", "fw")}
     expected["reference-data/long-window.html"] = b"long window worked investigation"
+    case_prefix = "reference-data/platform-cases"
+    expected[f"{case_prefix}/index.json"] = b"[]"
+    for n in range(1, 7):
+        case = f"W{n:02}"
+        expected[f"{case_prefix}/{case}.json"] = b"{}"
+        for step in ("candidate", "raw"):
+            expected[f"{case_prefix}/shots/{case}-{step}.png"] = b"synthetic screen"
     put(web / "src/pages/practice/practice-cases.json",
         json.dumps({"cases": [{"id": f"C{i:03d}"} for i in range(1, 21)]}).encode())
     for rel, content in expected.items():
@@ -40,6 +47,13 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
         assert {"fw.csv", "ndr.csv", "operations.csv", "truth.json"} <= names
         assert "unlisted.csv" not in names
         assert sum(json.loads(archive.read("truth.json"))["row_counts"].values()) == 132750
+    for n in range(1, 7):
+        case = f"W{n:02}"
+        rel = f"{case_prefix}/{case}.zip"
+        assert rel in shipped
+        del shipped[rel]
+        with zipfile.ZipFile(target / rel) as archive:
+            assert {p.rsplit("/", 1)[-1] for p in archive.namelist()} == {"fw.csv", "ndr.csv", "followup.json"}
     assert shipped == {**expected, "index.html": b"web application", "assets/app.js": b"app()"}
 
     # An existing file at the correct path is not sufficient when dist is stale.
