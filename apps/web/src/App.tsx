@@ -78,6 +78,7 @@ export function App() {
         <Route path="/parsers/*" element={<Parsers />} />
         <Route path="/provenance" element={<Provenance />} />
         <Route path="/registry" element={<Registry />} />
+        <Route path="/casebook" element={<PracticeCases />} />
         <Route path="/practice" element={<PracticeCases />} />
         <Route path="/hunting/*" element={<Hunting />} />
         <Route path="/admin" element={<Admin me={me.data} />} />

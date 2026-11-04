@@ -247,6 +247,7 @@ def _spread(es, inv, time, v) -> dict:
     metrics = [
         GroupMetric(type="cardinality", field="dst_ip", name="targets"),
         GroupMetric(type="cardinality", field="dst_port", name="ports"),
+        GroupMetric(type="value_count", field="dst_port", name="known_ports"),
         GroupMetric(type="count", name="blocked", filters=[Filter(field="enforcement_action", value="blocked")]),
         GroupMetric(type="count", name="allowed", filters=[Filter(field="enforcement_action", value="allowed")]),
         GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")]
@@ -294,6 +295,8 @@ def _spread(es, inv, time, v) -> dict:
             + (f" 조사 기간 전체에서 이 출발지의 조건 일치 기록은 {r['count']:,}건입니다." if evidence_time else ""),
             {"metric": "출발지별 서로 다른 목적지·포트 수", "window_minutes": v["window_minutes"],
              "threshold_targets": v["min_targets"], "threshold_ports": v["min_ports"], "match": v["match"],
+             "observed_targets": targets, "observed_ports": ports, "port_records": values.get("known_ports"),
+             "allowed_records": values.get("allowed") or 0, "blocked_records": values.get("blocked") or 0,
              "source_records": r["count"], "source_time": whole_span},
             values["count"], _dump(flt),
             ["접속 후 인증·원격 실행 여부(이 로그에는 없음)", "IP를 쓴 실제 사용자·호스트(NAT·DHCP)"],
@@ -352,12 +355,14 @@ def _qualifying_window(es, inv, filters, time, seconds, matches) -> dict:
     dsts, ports, actions = Counter(), Counter(), Counter()
     best = {"span": {}, "truncated": truncated, "undated": undated}
     best_rank = (0, 0, 0)
-    lo = 0
+    lo = known_ports = 0
     for hi, (t, dst, port, action) in enumerate(events):
+        known_ports += port is not None
         for counter, key in ((dsts, dst), (ports, port), (actions, action)):
             if key is not None:
                 counter[key] += 1
         while events[lo][0] < t - seconds:
+            known_ports -= events[lo][2] is not None
             for counter, key in zip((dsts, ports, actions), events[lo][1:]):
                 if key is not None:
                     _drop(counter, key)
@@ -366,7 +371,7 @@ def _qualifying_window(es, inv, filters, time, seconds, matches) -> dict:
         if matches(len(dsts), len(ports)) and rank > best_rank:
             best_rank = rank
             first, last = events[lo][0], t
-            best.update(targets=len(dsts), ports=len(ports), count=rank[2], allowed=actions["allowed"], blocked=actions["blocked"])
+            best.update(targets=len(dsts), ports=len(ports), known_ports=known_ports, count=rank[2], allowed=actions["allowed"], blocked=actions["blocked"])
     if best_rank[2]:
         best["span"] = {"start": datetime.fromtimestamp(first, timezone.utc).isoformat(),
                         "end": datetime.fromtimestamp(last, timezone.utc).isoformat()}
@@ -435,6 +440,7 @@ def _transfer(es, inv, time, v) -> dict:
             return _empty(es, inv, time, v, [], "")
         return {"status": "insufficient_data", "missing": ["방향별 바이트(cs/sc_bytes, sent/rcvd_bytes)"], "items": [], "records": 0}
     metrics = [GroupMetric(type="sum", field="bytes_in", name="bin"), GroupMetric(type="sum", field="bytes_out", name="bout"),
+               GroupMetric(type="count", name="allowed", filters=[Filter(field="enforcement_action", value="allowed")]),
                GroupMetric(type="value_count", field="bytes_in", name="nIn"), GroupMetric(type="value_count", field="bytes_out", name="nOut"),
                GroupMetric(type="min_ts", name="first"), GroupMetric(type="max_ts", name="last")]
     orders = {"any": ("bin", "bout"), "out": ("bout",), "in": ("bin",)}[v["direction"]]
@@ -469,6 +475,9 @@ def _transfer(es, inv, time, v) -> dict:
             kind, f"{r['count']:,}건의 합계: {observed}. 선택한 기준 {_bytes_label(threshold)} 이상입니다."
             + ("" if web else " 송수신 방향은 장비의 기록 기준입니다."),
             {"metric": "통신 쌍별 바이트 합계(행 단위·헤더 포함 여부 미확인)", "threshold_bytes": threshold,
+             "allowed_records": r.get("allowed") or 0,
+             "observed_bytes_in": bin_ if r.get("nIn") else None,
+             "observed_bytes_out": bout if r.get("nOut") else None,
              "direction": v["direction"], "matched_directions": matched, "median_pair_bytes": median},
             r["count"], _dump(base + pair),
             ["실제로 전달된 데이터 종류·민감도(바이트 수는 데이터 용량이 아님)", "누적·중복 기록 여부", "업무 승인 여부"],
@@ -539,7 +548,7 @@ def _periodic(es, inv, time, v) -> dict:
             f"{src}→{dst_label} ({port_label}) 기록 {r['count']:,}건이 {_approx_interval(mean)} 간격으로 반복",
             f"기록 {r['count']}건이 평균 {seconds} 간격(변동계수 {cv:.2f})으로 발생했습니다. 기록 시각의 주기이며 연결 시작의 주기라고 확정하지 않습니다.",
             {"metric": "기록 간격 변동계수", "threshold_cv": v["max_cv"], "min_records": v["min_records"],
-             "mean_interval_seconds": mean, "intervals_checked": len(gaps)},
+             "observed_cv": cv, "mean_interval_seconds": mean, "intervals_checked": len(gaps)},
             r["count"], _dump(base + pair),
             ["통신을 만든 프로그램·계정", "통신 내용", "기록 시각이 연결 시작인지 여부"],
             ["상태 점검·모니터링 에이전트", "업데이트·동기화·예약 작업"],
