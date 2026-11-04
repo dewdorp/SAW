@@ -4,8 +4,8 @@
   "version": "0.2.4",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5180 --strictPort",
-    "build": "tsc -b && vite build",
+    "dev": "python ../../saw/devtools/long_window_sample.py --zip public/reference-data/long-window-sample.zip && python ../../saw/devtools/investigation_examples.py --archives-dir public/reference-data/platform-cases && vite --port 5180 --strictPort",
+    "build": "tsc -b && vite build && python ../../saw/devtools/long_window_sample.py --zip dist/reference-data/long-window-sample.zip && python ../../saw/devtools/investigation_examples.py --archives-dir dist/reference-data/platform-cases",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "preview": "vite preview --port 5180"

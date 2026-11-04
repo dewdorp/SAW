@@ -1,0 +1,184 @@
+{
+  "id": "W25",
+  "title": "견적서 열람 후 시작된 외부 통신",
+  "classification": "침해 확인",
+  "category": "단말·서버",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "메일 보안팀이 견적서 수신 단말의 자식 프로세스를 경보로 전달했다. 조사 대상은 sales-ws25(10.80.25.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W25 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,015건 (FW 65,876 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "첨부 열람 직후의 첫 연결과 두 번째 연결을 EDR 소켓 소유자와 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "메일 보안팀이 견적서 수신 단말의 자식 프로세스를 경보로 전달했다. 조사 대상은 sales-ws25(10.80.25.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.25.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "104건"
+        }
+      ],
+      "image": "shots/W25-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "198.51.100.25의 443번 세션을 조사한다. 첨부 열람 직후의 첫 연결과 두 번째 연결을 EDR 소켓 소유자와 맞춘다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.25.15 / 목적지 포트 같음 443"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-03 09:03:00 ~ 2025-03-03 09:07:28"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "104건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 58,781행",
+          "KST": "2025-03-03T09:05:03+09:00",
+          "출발지": "10.80.25.15:46251",
+          "목적지": "198.51.100.25:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "750",
+          "수신 B": "18500"
+        },
+        {
+          "원본 위치": "fw.csv 58,782행",
+          "KST": "2025-03-03T09:05:27+09:00",
+          "출발지": "10.80.25.15:46252",
+          "목적지": "198.51.100.25:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "420",
+          "수신 B": "2048"
+        }
+      ],
+      "image": "shots/W25-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 정상 문서 미리보기는 Office 서명 프로세스에서 끝났다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W25-E1",
+          "자료 출처": "EDR 프로세스",
+          "대조할 값": "시각=2025-03-03T09:04:59+09:00 · subject_host=sales-ws25 · 대상 IP=10.80.25.15 · 계정=sales25 · 상대 IP=198.51.100.25 · process_chain=OUTLOOK.EXE > WINWORD.EXE > invoice-view.exe · SHA-256=00d0e2ff54722bf21a0368179adfbdf981a10ef8b487aa0fcf6705665f73da46"
+        },
+        {
+          "근거 ID": "W25-E2",
+          "자료 출처": "EDR 네트워크",
+          "대조할 값": "시각=2025-03-03T09:05:03+09:00 · subject_host=sales-ws25 · 대상 IP=10.80.25.15 · 계정=sales25 · 상대 IP=198.51.100.25 · initiating_process=invoice-view.exe"
+        },
+        {
+          "근거 ID": "W25-E3",
+          "자료 출처": "메일 샌드박스",
+          "대조할 값": "시각=2025-03-03T09:35:00+09:00 · subject_host=sales-ws25 · 대상 IP=10.80.25.15 · 계정=sales25 · 상대 IP=198.51.100.25 · 판정=첨부 실행 시 동일 자식 파일 생성 및 동일 목적지 접속 재현 · SHA-256=00d0e2ff54722bf21a0368179adfbdf981a10ef8b487aa0fcf6705665f73da46"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "첨부 실행, 자식 프로세스의 연결, 격리 환경 재현이 일치해 악성 페이로드 실행을 확인했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "동일 첨부의 수신자와 SHA-256을 메일 및 EDR에서 교차 조회한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65876,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.25.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 104,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.25.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 443
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-03T09:03:00+09:00",
+      "end": "2025-03-03T09:07:28+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      58781,
+      58782
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

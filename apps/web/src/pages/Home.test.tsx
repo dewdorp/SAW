@@ -23,7 +23,7 @@ describe("Home", () => {
     mockApi({ "GET /investigations": [200, []], "GET /jobs": [200, []], "GET /findings/recent": [200, []] });
     renderUI(<Home />);
     expect(await screen.findByText("아직 조사가 없습니다")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "가상 로그 예제" }).getAttribute("href")).toBe("/practice");
+    expect(screen.getByRole("link", { name: "분석 사례집" }).getAttribute("href")).toBe("/casebook");
   });
 
   it("summarises open work in stat tiles", async () => {

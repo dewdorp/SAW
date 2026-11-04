@@ -4,6 +4,10 @@ import "./question-worklist.css";
 import { Link } from "react-router-dom";
 import { ErrorBox, Loading, Panel } from "../../components/common";
 import { blankQuestionView, scopeKeyOf, useInv, useInvStore, type QuestionView } from "../../context/invContext";
+import { ActivityCaseComparison } from "./ActivityCaseComparison";
+import { isCaseEvidenceInScope } from "../practice/caseApplicability";
+import { LongWindowComparison } from "./LongWindowComparison";
+import { WorkedCasePanel } from "./WorkedCasePanel";
 import { CLAIM_COLUMNS } from "./evidenceView";
 import { ApiError, api } from "../../lib/api";
 import { fmtNum, fmtPeriod, getTz } from "../../lib/format";
@@ -139,7 +143,7 @@ function ExampleSearch({ inv, editing, onOpen }: { inv: string; editing: string 
   return (
     <details className="small" style={{ marginTop: 8 }} onToggle={e => setOpened(e.currentTarget.open)}>
       <summary><b>더 많은 예제 찾기</b> — 명세 {list.data?.catalog_total ?? 120}개(탐지·헌팅·시나리오), 실행 룰이 아님</summary>
-      {opened && <><p><Link to="/practice">가상 로그 예제</Link>에서 실제 형식의 NDR·FW 로그를 보고 판단과 해설을 비교할 수 있습니다.</p>
+      {opened && <><p><Link to={`/casebook?investigation=${encodeURIComponent(inv)}`}>분석 사례집</Link>에서 가상 NDR·FW 로그와 분석가의 해석을 읽을 수 있습니다.</p>
       <p className="muted">{list.data?.note}</p>
       <div className="row wrap" style={{ gap: 6 }}>
         <input className="input" aria-label="예제 검색" placeholder="예: 포트, 반복, Q06, D027" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -243,9 +247,10 @@ export function QuestionBundles({ inv }: { inv: string }) {
     const el = list.current?.querySelector<HTMLElement>(`[data-activity="${CSS.escape(ctx.questionActivity)}"]`);
     el?.scrollIntoView?.({ block: "nearest" });
   }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (q.isLoading) return <Loading label="로그에서 검토할 활동을 찾고 있습니다" />;
+  if (q.isLoading) return <Panel title="검토할 활동" className="question-worklist"><Loading label="로그에서 검토할 활동을 찾고 있습니다" />
+    <WorkedCasePanel inv={inv} status="loading" /><LongWindowComparison key={inv} inv={inv} /></Panel>;
   if (!Array.isArray(q.data?.bundles)) return <Panel title="검토할 활동"><ErrorBox error={q.error || new Error("활동 결과를 불러오지 못했습니다.")} />
-    <button className="btn sm" onClick={() => q.refetch()}>다시 불러오기</button></Panel>;
+    <button className="btn sm" onClick={() => q.refetch()}>다시 불러오기</button><WorkedCasePanel inv={inv} status="error" /><LongWindowComparison key={inv} inv={inv} /></Panel>;
   const defs = q.data.definitions || {};
   const bundles: any[] = (q.data.bundles || []).map((base: any) => previews[base.id] || base);
   const groups = bundles.filter(b => (b.items || []).length).map(b => ({ b, items: b.items as any[] }));
@@ -275,6 +280,8 @@ export function QuestionBundles({ inv }: { inv: string }) {
     {(partial > 0 || missing > 0 || failed > 0) && <div className="queue-notice" role="status"><b>계산 한계</b>
       {partial > 0 && <span>일부만 계산 {partial}개 유형</span>}{missing > 0 && <span>자료 부족 {missing}개 유형</span>}{failed > 0 && <span>계산 실패 {failed}개 유형</span>}
       <button className="btn sm ghost" onClick={() => { if (settings.current) { settings.current.open = true; settings.current.scrollIntoView?.({ block: "nearest" }); } }}>한계 확인</button></div>}
+    <WorkedCasePanel inv={inv} scope={q.data.scope} bundles={bundles} onEvidence={openEvidence} />
+    <LongWindowComparison key={inv} inv={inv} />
     <div className="activity-list" ref={list}>{groups.map(({ b, items }) => {
       const open = openTypes.includes(b.id);
       const shown = Math.min(items.length, view.pages[b.id] || PAGE);
@@ -306,6 +313,8 @@ export function QuestionBundles({ inv }: { inv: string }) {
                 <button className="btn sm" onClick={() => openEvidence(b, item, true)}>판단 남기기</button>
                 <button className="btn primary sm" disabled={record.isPending} onClick={() => record.mutate({ b, item })}>추가 확인 요청</button>
               </div>}
+              {isCaseEvidenceInScope(q.data.scope, b, item, inv) && <ActivityCaseComparison
+                inv={inv} observed={item.observed} title={item.title} onEvidence={() => openEvidence(b, item)} />}
               <details className="activity-more"><summary>선정 이유·정상 가능성·조건 펼치기</summary>
                 <dl><div><dt>선정 이유</dt><dd>{b.description || item.basis?.metric || b.title}</dd></div>
                   {!source.observed && source.included && <div><dt>조회에 포함한 원천</dt><dd>{source.included}</dd></div>}

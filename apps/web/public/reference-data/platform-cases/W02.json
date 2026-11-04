@@ -1,0 +1,190 @@
+{
+  "id": "W02",
+  "title": "5분마다 반복된 외부 접속",
+  "classification": "판단 불가 · 프로세스 미확인",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 관계사와 기간 지정 → 증거 추가",
+      "finding": "이 사례의 원본 ZIP을 받아 fw.csv와 ndr.csv를 같은 시험 조사에 추가합니다. 전체 현황에서 처리 건수를 맞춰 보고, followup.json은 원문을 본 다음 담당자 회신을 대조할 때 엽니다.",
+      "facts": [
+        {
+          "label": "조사 범위",
+          "value": "site-w02 · 2025-03-10 ~ 2025-05-11 (KST, 63일)"
+        },
+        {
+          "label": "처리한 원본",
+          "value": "FW 66,120건 + NDR 41,328건 = 107,448건"
+        },
+        {
+          "label": "시작 화면",
+          "value": "전체 현황 → 검토할 활동"
+        },
+        {
+          "label": "따라 할 수 있는 버전",
+          "value": "0.2.4의 검토할 활동에서 재현 가능"
+        }
+      ]
+    },
+    {
+      "action": "전체 현황 → 검토할 활동 → 반복 통신 → 10.62.8.22의 후보 열기",
+      "finding": "같은 출발지·목적지·포트의 기록이 8건 이상이고 인접 기록 간격의 변동계수가 0.15 이하면 후보입니다. 변동계수는 간격 표준편차를 평균 간격으로 나눈 값입니다.",
+      "facts": [
+        {
+          "label": "화면에 표시된 후보",
+          "value": "10.62.8.22→203.0.113.82 (8443) 기록 96건이 약 5분 간격으로 반복"
+        },
+        {
+          "label": "SAW가 관측한 값",
+          "value": "기록 96건이 평균 300.042105초 간격(변동계수 0.01)으로 발생했습니다. 기록 시각의 주기이며 연결 시작의 주기라고 확정하지 않습니다."
+        },
+        {
+          "label": "민감도",
+          "value": "보통 · 기본 조건 사용"
+        }
+      ],
+      "image": "shots/W02-candidate.png"
+    },
+    {
+      "action": "후보 → 근거 96건 보기 → 전체 로그",
+      "finding": "대표 행의 시각과 출발지 포트를 비교합니다. 반복되는 것은 FW가 기록한 시각입니다. 이 자료에는 소켓을 연 프로세스 이름이 없습니다.",
+      "facts": [
+        {
+          "label": "동일 조건으로 원문을 다시 조회",
+          "value": "FW 96건"
+        },
+        {
+          "label": "SAW가 넘긴 필터",
+          "value": "로그 종류 connection, firewall, zeek_conn, web / timestamp 있음 / 로그 종류 connection / 출발지 10.62.8.22 / 목적지 203.0.113.82 / 목적지 포트 8443"
+        },
+        {
+          "label": "조회 기간",
+          "value": "2025-03-10 00:00:00 ~ 2025-05-12 00:00:00 KST (끝 시각 제외)"
+        }
+      ],
+      "rows": [
+        {
+          "원본 행": "fw.csv · 62904",
+          "KST": "05-09 02:59:58",
+          "출발지": "10.62.8.22:48000",
+          "목적지": "203.0.113.82:8443",
+          "FW 처리": "allow",
+          "장비 송신 B": "288"
+        },
+        {
+          "원본 행": "fw.csv · 62905",
+          "KST": "05-09 03:05:00",
+          "출발지": "10.62.8.22:48001",
+          "목적지": "203.0.113.82:8443",
+          "FW 처리": "allow",
+          "장비 송신 B": "289"
+        },
+        {
+          "원본 행": "fw.csv · 62906",
+          "KST": "05-09 03:10:02",
+          "출발지": "10.62.8.22:48002",
+          "목적지": "203.0.113.82:8443",
+          "FW 처리": "allow",
+          "장비 송신 B": "290"
+        },
+        {
+          "원본 행": "fw.csv · 63313",
+          "KST": "05-09 10:55:02",
+          "출발지": "10.62.8.22:48095",
+          "목적지": "203.0.113.82:8443",
+          "FW 처리": "allow",
+          "장비 송신 B": "288"
+        }
+      ],
+      "image": "shots/W02-raw.png"
+    },
+    {
+      "action": "실제 조사에서는 추가 확인 요청에 회신을 기록합니다. 이 예시에서는 원본 ZIP의 followup.json을 대조합니다.",
+      "finding": "운영팀에 등록된 에이전트의 목적지는 192.0.2.12입니다. 이번 목적지와 다르고 관측 시간의 프로세스·소켓 이력이 없어 해당 에이전트가 통신했다고 결론 내릴 수 없습니다.",
+      "facts": [
+        {
+          "label": "회신 출처",
+          "value": "OPS-258 작업 등록 현황 회신"
+        },
+        {
+          "label": "미확인 범위",
+          "value": "당시 소켓 소유 프로세스와 목적지 운영 주체가 확인되지 않았다."
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "일정 간격의 외부 접속은 확인했습니다. 정상 예약 작업과 비인가 통신 중 어느 쪽인지 귀속할 프로세스 근거가 부족합니다.",
+      "facts": [
+        {
+          "label": "기록할 확인 주제와 판단",
+          "value": "정상 업무 여부 → 판단 불가"
+        },
+        {
+          "label": "다음 조치",
+          "value": "해당 단말의 소켓 소유 프로세스, 작업 스케줄과 수신지 소유자를 확인합니다."
+        },
+        {
+          "label": "근거 범위",
+          "value": "예시에 표시된 대표 행만 읽었다면 ‘일부만 봤음(표본)’을 선택합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "engine": {
+      "commit": "072c3f13aafe3b5211f564de0678f03f83feec95",
+      "method": "Native English CSV parser → registry.to_ces → SQLiteEventStore → question_bundles.run_one(normal) → SQLiteEventStore.iterate with candidate filters and period → source CSV byte offset verification",
+      "analysis_projection": "All normalized events with raw_event, raw_ref and ext removed for question aggregation; original full store used for evidence reads",
+      "sensitivity": "normal"
+    },
+    "counts": {
+      "fw": 66120,
+      "ndr": 41328
+    },
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "in",
+        "value": [
+          "connection",
+          "firewall",
+          "zeek_conn",
+          "web"
+        ]
+      },
+      {
+        "field": "timestamp",
+        "op": "exists",
+        "value": null
+      },
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.62.8.22"
+      },
+      {
+        "field": "dst_ip",
+        "op": "is",
+        "value": "203.0.113.82"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 8443
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-10T00:00:00+09:00",
+      "end": "2025-05-12T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 96,
+    "source_reference_count": 96,
+    "normalized_extra_count": 0
+  }
+}

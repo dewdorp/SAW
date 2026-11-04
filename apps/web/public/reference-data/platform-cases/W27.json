@@ -1,0 +1,184 @@
+{
+  "id": "W27",
+  "title": "백업 계정의 새벽 SMB 읽기",
+  "classification": "정상 확인",
+  "category": "내부 이동",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "파일 서버 읽기량 임계치 경보가 백업 프록시를 보고했다. 조사 대상은 backup-proxy27(10.80.27.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W27 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,049건 (FW 65,910 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "백업 프록시가 서버에서 받은 바이트 방향을 작업 이력과 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "파일 서버 읽기량 임계치 경보가 백업 프록시를 보고했다. 조사 대상은 backup-proxy27(10.80.27.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.27.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "138건"
+        }
+      ],
+      "image": "shots/W27-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "10.81.27.8의 445번 세션을 조사한다. 백업 프록시가 서버에서 받은 바이트 방향을 작업 이력과 맞춘다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.27.15 / 목적지 포트 같음 445"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-05 02:05:00 ~ 2025-03-05 02:10:01"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "138건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 60,701행",
+          "KST": "2025-03-05T02:07:03+09:00",
+          "출발지": "10.80.27.15:46271",
+          "목적지": "10.81.27.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "4096",
+          "수신 B": "4194304"
+        },
+        {
+          "원본 위치": "fw.csv 60,702행",
+          "KST": "2025-03-05T02:08:00+09:00",
+          "출발지": "10.80.27.15:46272",
+          "목적지": "10.81.27.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "6144",
+          "수신 B": "8388608"
+        }
+      ],
+      "image": "shots/W27-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 직전 주 같은 작업도 동일 서비스 계정과 볼륨에서 읽기만 수행했다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W27-E1",
+          "자료 출처": "백업 작업 이력",
+          "대조할 값": "시각=2025-03-05T02:06:00+09:00 · subject_host=backup-proxy27 · 대상 IP=10.80.27.15 · 계정=svc_backup · 상대 IP=10.81.27.8 · job_id=BK-2701 정기 전체백업"
+        },
+        {
+          "근거 ID": "W27-E2",
+          "자료 출처": "서버 파일 감사",
+          "대조할 값": "시각=2025-03-05T02:07:03+09:00 · subject_host=backup-proxy27 · 대상 IP=10.80.27.15 · 계정=svc_backup · 상대 IP=10.81.27.8 · access_mask=ReadData, ListDirectory"
+        },
+        {
+          "근거 ID": "W27-E3",
+          "자료 출처": "작업 검증",
+          "대조할 값": "시각=2025-03-05T02:37:00+09:00 · subject_host=backup-proxy27 · 대상 IP=10.80.27.15 · 계정=svc_backup · 상대 IP=10.81.27.8 · 결과=BK-2701 대상 볼륨 일치 및 시험 복원 성공"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "백업 프록시의 예약 작업과 서버 측 읽기 감사 및 복원 결과가 일치한다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "정상 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "다음 백업 창에서도 동일 작업 ID 계열과 읽기 범위를 확인한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65910,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.27.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 138,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.27.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 445
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-05T02:05:00+09:00",
+      "end": "2025-03-05T02:10:01+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      60701,
+      60702
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

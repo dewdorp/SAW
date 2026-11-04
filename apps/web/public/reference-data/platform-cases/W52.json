@@ -1,0 +1,179 @@
+{
+  "id": "W52",
+  "title": "보안 점검 창의 외부 포트 탐색",
+  "classification": "승인된 활동",
+  "category": "경계·클라우드",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "경계 FW가 07:30에 198.51.100.82에서 여러 서비스로 향한 시도를 탐지했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W52 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,009건 (FW 65,870 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "출발지의 거부 행을 고른 후 허용된 443 비교 행까지 포함해 허가서 범위와 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "경계 FW가 07:30에 198.51.100.82에서 여러 서비스로 향한 시도를 탐지했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 198.51.100.82"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "98건"
+        }
+      ],
+      "image": "shots/W52-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "거부된 포트를 점검 허가서의 주소·시각·포트 목록과 대조한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 198.51.100.82 / 처리 결과 같음 blocked"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-06 07:28:00 ~ 2025-03-06 07:32:09"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "98건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 61,756행",
+          "KST": "2025-03-06T07:30:00+09:00",
+          "출발지": "198.51.100.82:49520",
+          "목적지": "10.80.1.12:22",
+          "프로토콜": "TCP",
+          "FW 처리": "deny",
+          "송신 B": "0",
+          "수신 B": "0"
+        },
+        {
+          "원본 위치": "fw.csv 61,757행",
+          "KST": "2025-03-06T07:30:04+09:00",
+          "출발지": "198.51.100.82:49521",
+          "목적지": "10.80.1.12:3389",
+          "프로토콜": "TCP",
+          "FW 처리": "deny",
+          "송신 B": "0",
+          "수신 B": "0"
+        }
+      ],
+      "image": "shots/W52-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "같은 대상에 대한 22·3389는 거부됐고 443은 허용됐다. 세 포트 모두 외부 점검 대상이었다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W52-E1",
+          "자료 출처": "사전 점검 허가서",
+          "대조할 값": "시각=2025-03-06T07:00:00+09:00 · ticket=PT52 · scanner=198.51.100.82 · target=10.80.1.12 · ports=[22, 3389, 443] · window=07:30–07:45 KST"
+        },
+        {
+          "근거 ID": "W52-E2",
+          "자료 출처": "점검 수행기관 작업 기록",
+          "대조할 값": "시각=2025-03-06T07:30:09+09:00 · job=PT52 · scanner=198.51.100.82 · target=10.80.1.12 · 결과=completed"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "점검 수행기관의 실행 영수증과 사전 허가서가 출발지와 대상 및 작업창에서 일치한다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "승인된 활동"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "경계 담당자는 허가서 PT52 종료 후 같은 출발지의 재접속이 있는지 종료 시각 이후 구간을 조회한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65870,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "198.51.100.82"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 98,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "198.51.100.82"
+      },
+      {
+        "field": "enforcement_action",
+        "op": "is",
+        "value": "blocked"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-06T07:28:00+09:00",
+      "end": "2025-03-06T07:32:09+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      61756,
+      61757
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

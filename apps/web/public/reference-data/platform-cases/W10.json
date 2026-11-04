@@ -1,0 +1,190 @@
+{
+  "id": "W10",
+  "title": "결제 완료 웹훅의 중복 전송",
+  "classification": "차단 확인",
+  "category": "웹·API",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "08:01 PG 연동 모니터가 동일 결제 알림의 재전송을 알렸다. 수신 URL을 확인한다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W10 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,039건 (FW 65,772 · NDR 41,267)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "재전송에 대한 HTTP 응답과 실제 원장 반영을 각각 확인했다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "08:01 PG 연동 모니터가 동일 결제 알림의 재전송을 알렸다. 수신 URL을 확인한다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / URL 경로(쿼리 제외) 같음 /hooks/payment"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "128건"
+        }
+      ],
+      "image": "shots/W10-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 1차 조건을 유지하고 경보 전후의 시간 범위로 좁힘",
+      "finding": "재전송도 정상 응답을 받으므로 모든 수신 요청을 검토한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / URL 경로(쿼리 제외) 같음 /hooks/payment"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-04 07:58:01 ~ 2025-03-04 08:02:41"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "128건 → 3건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 37,419행",
+          "KST": "2025-03-04T08:00:01+09:00",
+          "출발지": "198.51.100.160:42101",
+          "목적지": "10.80.10.20:443",
+          "메서드": "POST",
+          "경로": "/hooks/payment?trace=w10-1",
+          "상태": "200",
+          "응답 B": "55"
+        },
+        {
+          "원본 위치": "ndr.csv 37,420행",
+          "KST": "2025-03-04T08:00:11+09:00",
+          "출발지": "198.51.100.160:42102",
+          "목적지": "10.80.10.20:443",
+          "메서드": "POST",
+          "경로": "/hooks/payment?trace=w10-2",
+          "상태": "200",
+          "응답 B": "55"
+        },
+        {
+          "원본 위치": "ndr.csv 37,421행",
+          "KST": "2025-03-04T08:00:40+09:00",
+          "출발지": "198.51.100.160:42103",
+          "목적지": "10.80.10.20:443",
+          "메서드": "POST",
+          "경로": "/hooks/payment?trace=w10-3",
+          "상태": "200",
+          "응답 B": "55"
+        }
+      ],
+      "image": "shots/W10-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "w10-1과 w10-2는 PG 이벤트 P10이다. 중복방지 저장소가 두 번째 요청을 막았고 원장에는 P10 전표가 한 건이다. w10-3은 별도 이벤트다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W10-E1",
+          "자료 출처": "웹훅 중복방지 저장소",
+          "대조할 값": "시각=2025-03-04T08:00:11+09:00 · first=w10-1 · repeat=w10-2 · 이벤트 ID=P10 · decision=duplicate_suppressed"
+        },
+        {
+          "근거 ID": "W10-E2",
+          "자료 출처": "PG 발송 이력",
+          "대조할 값": "시각=2025-03-04T08:00:40+09:00 · 추적 ID=w10-3 · 이벤트 ID=P11"
+        },
+        {
+          "근거 ID": "W10-E3",
+          "자료 출처": "결제 원장 조회",
+          "대조할 값": "시각=2025-03-04T08:01:02+09:00 · 이벤트 ID=P10 · postings=[\"L10\"]"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "결제 이벤트 P10의 두 번째 처리를 차단했다. 해당 결제에 대해 중복 전표는 발생하지 않았다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "차단 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "PG에서 최초 전송의 응답을 수신했는지 확인해 재전송 원인을 좁힌다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41267
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "url_path",
+        "op": "is",
+        "value": "/hooks/payment"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 128,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "url_path",
+        "op": "is",
+        "value": "/hooks/payment"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-04T07:58:01+09:00",
+      "end": "2025-03-04T08:02:41+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 3,
+    "evidence_rows": [
+      37419,
+      37420,
+      37421
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

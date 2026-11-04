@@ -1,0 +1,482 @@
+[
+  {
+    "id": "W01",
+    "title": "외부 IP의 웹 경로 탐색",
+    "classification": "의심 · 서버 영향 미확인",
+    "category": "웹·API",
+    "route": "auto",
+    "keywords": "웹 정찰 경로 열거 directory scan 404"
+  },
+  {
+    "id": "W02",
+    "title": "5분마다 반복된 외부 접속",
+    "classification": "판단 불가 · 프로세스 미확인",
+    "category": "외부 통신·유출",
+    "route": "auto",
+    "keywords": "주기 통신 비콘 비커닝 C2 에이전트"
+  },
+  {
+    "id": "W03",
+    "title": "승인 포트와 다른 서버 점검",
+    "classification": "의심 · 승인 범위 밖의 연결",
+    "category": "내부 이동",
+    "route": "auto",
+    "keywords": "포트 스캔 RDP 3389 변경 승인"
+  },
+  {
+    "id": "W04",
+    "title": "96 MiB HTTP 응답과 승인된 배포",
+    "classification": "정상 · 확인된 배포 범위",
+    "category": "단말·서버",
+    "route": "auto",
+    "keywords": "HTTP 부분 응답 패키지 배포 206"
+  },
+  {
+    "id": "W05",
+    "title": "일주일에 걸친 새 파일 공유 대상 접촉",
+    "classification": "의심 · 신규 대상 확인 필요",
+    "category": "내부 이동",
+    "route": "auto",
+    "keywords": "SMB 내부 이동 파일 공유 장기 비교"
+  },
+  {
+    "id": "W06",
+    "title": "여러 밤에 나누어 보낸 외부 전송",
+    "classification": "의심 · 전송 파일 미확인",
+    "category": "외부 통신·유출",
+    "route": "auto",
+    "keywords": "분할 송신 업로드 정보유출 장기 비교"
+  },
+  {
+    "id": "W07",
+    "title": "거래명세서 번호를 바꾼 조회",
+    "category": "웹·API",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "IDOR BOLA 객체 권한 우회 수평 권한 상승"
+  },
+  {
+    "id": "W08",
+    "title": "새 기기에서 등록한 복구 수단",
+    "category": "인증·계정",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "계정 탈취 ATO 복구 수단 MFA"
+  },
+  {
+    "id": "W09",
+    "title": "첨부 변환기에서 시작한 비인가 프로세스",
+    "category": "웹·API",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "파일 변환기 원격 코드 실행 RCE 자식 프로세스"
+  },
+  {
+    "id": "W10",
+    "title": "결제 완료 웹훅의 중복 전송",
+    "category": "웹·API",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "웹훅 재전송 replay 중복 결제 멱등"
+  },
+  {
+    "id": "W11",
+    "title": "파트너 OAuth 동의 화면 이탈",
+    "category": "인증·계정",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "OAuth 동의 외부 앱 토큰 접근권한"
+  },
+  {
+    "id": "W12",
+    "title": "다운로드 중단과 부분 전송",
+    "category": "웹·API",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "부분 응답 range 파일 다운로드 유출"
+  },
+  {
+    "id": "W13",
+    "title": "상담 답변에 저장된 스크립트 실행",
+    "category": "웹·API",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "저장형 XSS 스크립트 관리자 브라우저"
+  },
+  {
+    "id": "W14",
+    "title": "관리 작업 URL의 가짜 성공 응답",
+    "category": "웹·API",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "WAF HTTP 200 가짜 성공 관리 URL"
+  },
+  {
+    "id": "W15",
+    "title": "퇴사 후에도 살아 있던 API 키",
+    "category": "인증·계정",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "API 키 토큰 퇴사 권한 회수"
+  },
+  {
+    "id": "W16",
+    "title": "사내 점검기의 숨은 경로 탐색",
+    "category": "웹·API",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "웹 스캐너 승인 취약점 점검"
+  },
+  {
+    "id": "W17",
+    "title": "GraphQL 일부 필드만 반환된 요청",
+    "category": "웹·API",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "GraphQL 필드 접근 통제 권한"
+  },
+  {
+    "id": "W18",
+    "title": "공유 캐시가 돌려준 다른 고객의 화면",
+    "category": "웹·API",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "CDN 캐시 개인정보 타 고객 노출"
+  },
+  {
+    "id": "W19",
+    "title": "MFA 푸시 거절 뒤의 세션 상태",
+    "category": "인증·계정",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "MFA 피로 공격 푸시 다중 인증 거절"
+  },
+  {
+    "id": "W20",
+    "title": "공유 출구 뒤의 동시 로그인 경보",
+    "category": "인증·계정",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "NAT 공유 IP 동시 접속 SSO 세션"
+  },
+  {
+    "id": "W21",
+    "title": "재설정 링크의 자동 미리 보기",
+    "category": "인증·계정",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "암호 재설정 피싱 메일 링크 검사기"
+  },
+  {
+    "id": "W22",
+    "title": "파일 내보내기 작업의 취소 경쟁",
+    "category": "웹·API",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "비동기 작업 취소 경쟁 내보내기"
+  },
+  {
+    "id": "W23",
+    "title": "배송지 변경 요청의 이중 인증 우회",
+    "category": "웹·API",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "추가 인증 우회 단계 인증 배송지"
+  },
+  {
+    "id": "W24",
+    "title": "열쇠 교체 직후의 서명 검증 실패",
+    "category": "인증·계정",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "JWT 서명 검증 키 교체"
+  },
+  {
+    "id": "W25",
+    "title": "견적서 열람 후 시작된 외부 통신",
+    "category": "단말·서버",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "악성 첨부 메일 문서 실행 EDR"
+  },
+  {
+    "id": "W26",
+    "title": "공유 폴더의 대량 확장자 변경",
+    "category": "내부 이동",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "랜섬웨어 ransomware 파일 암호화 공유 폴더 SMB"
+  },
+  {
+    "id": "W27",
+    "title": "백업 계정의 새벽 SMB 읽기",
+    "category": "내부 이동",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "백업 예약 SMB 파일 읽기"
+  },
+  {
+    "id": "W28",
+    "title": "운영 도구로 위장한 원격 서비스",
+    "category": "내부 이동",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "원격 서비스 실행 측면 이동 배포"
+  },
+  {
+    "id": "W29",
+    "title": "WinRM을 사용한 정기 패치",
+    "category": "내부 이동",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "WinRM 원격 관리 정상 패치"
+  },
+  {
+    "id": "W30",
+    "title": "도메인 복제 권한의 비인가 사용",
+    "category": "내부 이동",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "DCSync 디렉터리 복제 4662 AD"
+  },
+  {
+    "id": "W31",
+    "title": "대화형 로그인 뒤 RDP 재접속",
+    "category": "내부 이동",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "RDP 원격 데스크톱 터미널 로그인"
+  },
+  {
+    "id": "W32",
+    "title": "도메인 컨트롤러의 시간 동기화 질의",
+    "category": "단말·서버",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "NTP AD 도메인 시간 동기화"
+  },
+  {
+    "id": "W33",
+    "title": "리눅스 서버의 외부 채굴 풀 접속",
+    "category": "단말·서버",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "암호화폐 채굴 cryptominer 마이너"
+  },
+  {
+    "id": "W34",
+    "title": "웹 서버 작업 프로세스의 외부 연결",
+    "category": "단말·서버",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "웹셸 웹쉘 webshell ASPX IIS"
+  },
+  {
+    "id": "W35",
+    "title": "예약 작업의 외부 갱신 접속",
+    "category": "단말·서버",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "예약 작업 지속성 persistence task"
+  },
+  {
+    "id": "W36",
+    "title": "EDR 배포 뒤 SMB 복사 증가",
+    "category": "내부 이동",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "EDR 설치 배포 패키지 SMB"
+  },
+  {
+    "id": "W37",
+    "title": "사내 관리 호스트로 향한 SSH 시도",
+    "category": "내부 이동",
+    "classification": "접속 시도 확인",
+    "route": "pivot",
+    "keywords": "SMB 내부 이동 접속 시도 차단"
+  },
+  {
+    "id": "W38",
+    "title": "디렉터리 내 서비스 계정 티켓 요청",
+    "category": "내부 이동",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "Kerberos Kerberoasting 서비스 티켓 SPN 4769"
+  },
+  {
+    "id": "W39",
+    "title": "컨테이너 프로세스의 원격 페이로드 수신",
+    "category": "단말·서버",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "컨테이너 실행 이미지 악성 파일 공급망"
+  },
+  {
+    "id": "W40",
+    "title": "대용량 외부 전송과 메모리 덤프",
+    "category": "단말·서버",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "메모리 덤프 자격증명 유출 의심"
+  },
+  {
+    "id": "W41",
+    "title": "디렉터리 그룹 변경 뒤 파일 접근",
+    "category": "내부 이동",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "AD 보안 그룹 변경 권한 상승"
+  },
+  {
+    "id": "W42",
+    "title": "성능 점검 창의 데이터베이스 연결 급증",
+    "category": "내부 이동",
+    "classification": "정상 확인",
+    "route": "pivot",
+    "keywords": "SQL 부하 시험 DB 연결 급증"
+  },
+  {
+    "id": "W43",
+    "title": "휴면 협력사 계정의 SSL VPN 접속",
+    "category": "경계·클라우드",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "SSL VPN 휴면 계정 비인가 원격 접속"
+  },
+  {
+    "id": "W44",
+    "title": "외부 DNS로 전달된 카드대사 표본",
+    "category": "외부 통신·유출",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "DNS 터널링 데이터 유출 DLP"
+  },
+  {
+    "id": "W45",
+    "title": "재해복구 저장소의 야간 대량 업로드",
+    "category": "외부 통신·유출",
+    "classification": "승인된 활동",
+    "route": "pivot",
+    "keywords": "백업 DR 복구 클라우드 업로드"
+  },
+  {
+    "id": "W46",
+    "title": "공개 링크로 내려받은 대출 심사 파일",
+    "category": "경계·클라우드",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "클라우드 공유 링크 유출 고객 문서"
+  },
+  {
+    "id": "W47",
+    "title": "업무망 단말의 외부 SMTP 직송 시도",
+    "category": "외부 통신·유출",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "SMTP 발송 메일 릴레이 경계 차단"
+  },
+  {
+    "id": "W48",
+    "title": "정산 CSV의 개인 클라우드 업로드",
+    "category": "외부 통신·유출",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "개인 클라우드 업로드 DLP 유출"
+  },
+  {
+    "id": "W49",
+    "title": "외부 요청 급증과 송금 조회 장애",
+    "category": "경계·클라우드",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "DDoS 디도스 서비스 거부 HTTP 503 가용성"
+  },
+  {
+    "id": "W50",
+    "title": "메일 검사기의 피싱 링크 열람",
+    "category": "외부 통신·유출",
+    "classification": "승인된 활동",
+    "route": "pivot",
+    "keywords": "메일 보안 스캐너 피싱 URL 자동 분석"
+  },
+  {
+    "id": "W51",
+    "title": "접근 키로 생성된 미승인 스냅숏 공유",
+    "category": "경계·클라우드",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "클라우드 접근 키 스냅숏 snapshot 정보 공개"
+  },
+  {
+    "id": "W52",
+    "title": "보안 점검 창의 외부 포트 탐색",
+    "category": "경계·클라우드",
+    "classification": "승인된 활동",
+    "route": "pivot",
+    "keywords": "외부 스캔 승인 포트 점검"
+  },
+  {
+    "id": "W53",
+    "title": "인가되지 않은 외부 우편함 자동 전달",
+    "category": "외부 통신·유출",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "메일 자동 전달 inbox rule 외부 수신자"
+  },
+  {
+    "id": "W54",
+    "title": "TLS 인증서 교체 직후 결제 연계 실패",
+    "category": "경계·클라우드",
+    "classification": "운영 장애",
+    "route": "pivot",
+    "keywords": "TLS 인증서 신뢰 체인 결제 장애"
+  },
+  {
+    "id": "W55",
+    "title": "해외 접속지로 이어진 원격제어 채널",
+    "category": "외부 통신·유출",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "C2 원격제어 비인가 채널 RAT"
+  },
+  {
+    "id": "W56",
+    "title": "대외 정산 SFTP 전송의 범위 확인",
+    "category": "외부 통신·유출",
+    "classification": "판단 보류",
+    "route": "pivot",
+    "keywords": "SFTP 외부 반출 정산 파일"
+  },
+  {
+    "id": "W57",
+    "title": "공개 저장소에 남은 고객 상담 녹취",
+    "category": "경계·클라우드",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "객체 스토리지 오설정 공개 버킷 녹취"
+  },
+  {
+    "id": "W58",
+    "title": "인터넷에서 유입된 비인가 관리 포트 접근",
+    "category": "경계·클라우드",
+    "classification": "차단 확인",
+    "route": "pivot",
+    "keywords": "방화벽 관리자 포트 접근 인바운드"
+  },
+  {
+    "id": "W59",
+    "title": "동일 도메인에서 발생한 OCSP 응답 지연",
+    "category": "외부 통신·유출",
+    "classification": "운영 장애",
+    "route": "pivot",
+    "keywords": "OCSP 인증서 검증 504 타임아웃"
+  },
+  {
+    "id": "W60",
+    "title": "승인 만료 후 계속된 외부 감사 자료 동기화",
+    "category": "외부 통신·유출",
+    "classification": "침해 확인",
+    "route": "pivot",
+    "keywords": "대외 자료 동기화 승인 만료 반출"
+  }
+]

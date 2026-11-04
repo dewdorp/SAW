@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInv, useInvStore } from "../../context/invContext";
 import { ME, mockApi, renderUI } from "../../test/helpers";
@@ -31,6 +31,56 @@ const data = { version: "question-bundles/2", sensitivity: "normal", note: "판�
       description: "조사 기간 전체에서 서로 다른 목적지 10개 이상", parameters: spreadDef.defaults }] };
 
 describe("question bundles", () => {
+  it("lets an analyst compare a candidate with any chosen reference and keeps the two sources distinct", async () => {
+    const api = mockApi({ "GET /auth/me": [200, ME], "GET /investigations/i1/question-bundles": [200, data] });
+    renderUI(<QuestionBundles inv="i1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /내부 서버 10.20.1.10/ }));
+    fireEvent.click(screen.getByRole("button", { name: "이 활동과 사례 직접 대조" }));
+    await act(async () => { await vi.dynamicImportSettled(); });
+    const picker = await screen.findByRole("combobox", { name: "참고할 가상 사례" });
+    expect(within(picker).getAllByRole("option")).toHaveLength(101);
+    fireEvent.change(picker, { target: { value: "C100" } });
+    const comparison = within(screen.getByRole("region", { name: "직접 선택한 사례와 대조" }));
+    expect(comparison.getByText(item.observed)).toBeTruthy();
+    expect(comparison.getByRole("heading", { name: /C100.*외부 DNS/ })).toBeTruthy();
+    expect(comparison.getByRole("link", { name: "이 사례의 근거와 후속 자료" }).getAttribute("href")).toBe("/casebook?case=C100&investigation=i1");
+    expect(api.calls.every(c => c.method === "GET")).toBe(true);
+  });
+
+  it("reads a worked comparison without extra scans or writes and reopens the exact chosen evidence", async () => {
+    const span = { start: "2026-10-13T02:10:00Z", end: "2026-10-13T02:11:00Z", end_exclusive: false };
+    const candidate = (ip: string, targets: number) => ({ ...item, title: `포트 접촉: ${ip}`, records: targets,
+      basis: { observed_targets: targets, observed_ports: 1, port_records: targets, allowed_records: 2,
+        blocked_records: targets - 2, threshold_targets: 4, threshold_ports: 7 }, evidence_time: span,
+      filters: [{ field: "src_ip", op: "is", value: ip }, { field: "dst_port", op: "is", value: 443 }] });
+    const rows = [candidate("10.10.1.1", 6), candidate("10.10.1.2", 8)];
+    const api = mockApi({ "GET /auth/me": [200, { permissions: [] }], "GET /investigations/i1/question-bundles": [200,
+      { ...data, bundles: [{ ...data.bundles[2], status: "found", found: 2, items: rows }] }] });
+    renderUI(<QuestionBundles inv="i1" />);
+    await screen.findByRole("link", { name: "모범 분석 읽기" });
+    const panel = within(screen.getByRole("region", { name: "내 로그와 비교할 사례" }));
+    expect((await panel.findByRole("link", { name: "모범 분석 읽기" })).getAttribute("href")).toBe("/casebook?case=C010&investigation=i1");
+    fireEvent.change(panel.getByLabelText("이번 조사에서 연결된 관측"), { target: { value: "1" } });
+    expect(panel.getByText(/10.10.1.2 · 목적지 8개/)).toBeTruthy();
+    expect(panel.getByText(/끝 시각 포함/)).toBeTruthy();
+    expect(panel.getByText(/일부 후보만 비교/)).toBeTruthy();
+    fireEvent.click(panel.getByRole("button", { name: "내 로그의 근거 보기" }));
+    expect(useInvStore.getState().get("i1")).toMatchObject({ tab: "raw", filters: rows[1].filters, time: span });
+    expect(api.calls.every(c => c.method === "GET")).toBe(true);
+    expect(api.find("GET", "/investigations/i1/question-bundles")).toHaveLength(1);
+  });
+
+  it("keeps manual comparison available when a result belongs to another investigation", async () => {
+    mockApi({ "GET /auth/me": [200, ME], "GET /investigations/i1/question-bundles": [200,
+      { ...data, scope: { ...SCOPE, investigation_id: "another" } }] });
+    renderUI(<QuestionBundles inv="i1" />);
+    await screen.findByText(/정상 여부는 판단할 수 없습니다/);
+    const panel = within(screen.getByRole("region", { name: "내 로그와 비교할 사례" }));
+    expect(panel.getByRole("link", { name: "전체 분석 사례집 보기" }).getAttribute("href")).toBe("/casebook?investigation=i1");
+    expect(panel.queryByRole("button", { name: "내 로그의 근거 보기" })).toBeNull();
+    expect(panel.queryByRole("link", { name: "모범 분석 읽기" })).toBeNull();
+  });
+
   it("keeps the triggering window inclusive and creates only a linked draft when requested", async () => {
     const span = { start: "2026-10-13T02:10:00Z", end: "2026-10-13T02:11:00Z", end_exclusive: false };
     const candidate = { ...item, title: "10.20.0.2가 1분 동안 10개 포트에 접촉", evidence_time: span };

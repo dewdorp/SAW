@@ -21,6 +21,34 @@ def test_each_question_bundle_answers_from_the_logs(analyst, kind, case):
         assert bundles[bundle]["status"] == status, (bundle, bundles[bundle])
 
 
+@pytest.mark.parametrize("kind,case,bundle,records,measurements", [
+    ("fw", "spread", "spread", 60, {
+        "observed_targets": 15, "observed_ports": 4, "port_records": 60,
+        "allowed_records": 40, "blocked_records": 20,
+    }),
+    ("fw", "periodic", "periodic", 12, {
+        "mean_interval_seconds": 300, "intervals_checked": 11, "observed_cv": 0,
+    }),
+    ("ndr", "large_response_out", "transfer", 12, {
+        "observed_bytes_out": 96 * 1024 ** 2, "observed_bytes_in": 12 * 400,
+        "matched_directions": ["out"],
+    }),
+    ("fw", "pair_large", "transfer", 3, {
+        "observed_bytes_out": 3 * 600, "observed_bytes_in": 120 * 1024 ** 2,
+        "matched_directions": ["in"], "allowed_records": 3,
+    }),
+])
+def test_casebook_measurements_match_uploaded_evidence(analyst, kind, case, bundle, records, measurements):
+    inv, bundles = _bundles(analyst, kind, case)
+    item, = bundles[bundle]["items"]
+    assert item["records"] == records
+    assert {key: item["basis"][key] for key in measurements} == measurements
+    response = analyst.post(f"/investigations/{inv['id']}/query/events",
+                            json={"filters": item["filters"], "time": item.get("evidence_time"), "limit": 100})
+    assert response.status_code == 200, response.text
+    assert len(response.json()["events"]) == records
+
+
 def test_an_item_says_what_was_seen_why_what_is_unknown_and_what_to_ask(analyst):
     inv, bundles = _bundles(analyst, "ndr", "large_response_out")
     item = bundles["transfer"]["items"][0]

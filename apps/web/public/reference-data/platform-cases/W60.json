@@ -1,0 +1,179 @@
+{
+  "id": "W60",
+  "title": "승인 만료 후 계속된 외부 감사 자료 동기화",
+  "classification": "침해 확인",
+  "category": "외부 통신·유출",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "감사 담당자가 21:15에 승인 만료된 audit-share.example 자료함의 객체 변경을 신고했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W60 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,052건 (FW 65,772 · NDR 41,280)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "NDR에서 호스트의 PUT을 선택해 자료 경로와 요청량을 외부 감사 자료함 객체 버전에 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "감사 담당자가 21:15에 승인 만료된 audit-share.example 자료함의 객체 변경을 신고했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 audit-share.example"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "141건"
+        }
+      ],
+      "image": "shots/W60-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "목록 확인 GET과 서로 다른 크기의 두 PUT을 사업자 객체 이력과 대조한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 audit-share.example / HTTP 메서드 같음 PUT"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-09 21:13:00 ~ 2025-03-09 21:17:10"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "141건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 41,205행",
+          "KST": "2025-03-09T21:15:03+09:00",
+          "출발지": "10.80.1.13:49601",
+          "목적지": "203.0.113.83:443",
+          "메서드": "PUT",
+          "경로": "/eng60/marker",
+          "상태": "201",
+          "응답 B": "280"
+        },
+        {
+          "원본 위치": "ndr.csv 41,206행",
+          "KST": "2025-03-09T21:15:09+09:00",
+          "출발지": "10.80.1.13:49602",
+          "목적지": "203.0.113.83:443",
+          "메서드": "PUT",
+          "경로": "/eng60/report",
+          "상태": "201",
+          "응답 B": "290"
+        }
+      ],
+      "image": "shots/W60-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "목록 확인과 빈 표식 파일의 생성도 있었다. 실제 보고서 /eng60/report는 4 MiB 요청이었다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W60-E1",
+          "자료 출처": "감사 자료 반출 승인·내부 매니페스트",
+          "대조할 값": "시각=2025-03-09T20:00:00+09:00 · engagement=eng60 · expires=2025-03-09T20:00:00+09:00 · fingerprint=rpt60 · classification=제한"
+        },
+        {
+          "근거 ID": "W60-E2",
+          "자료 출처": "외부 사업자 객체 감사",
+          "대조할 값": "시각=2025-03-09T21:15:10+09:00 · version=v60 · object=/eng60/report · principal=svc-sync · fingerprint=rpt60 · 결과=stored"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "승인 만료 뒤 동기화 계정이 제한 등급 보고서를 외부 자료함에 저장했다. 외부 사업자의 객체 버전과 내부 매니페스트 지문이 일치한다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "감사 담당자는 외부 자료함 v60의 보존·열람 이력을 확보하고 승인 만료 후 동기화된 다른 버전까지 대조한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41280
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "audit-share.example"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 141,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "audit-share.example"
+      },
+      {
+        "field": "method",
+        "op": "is",
+        "value": "PUT"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-09T21:13:00+09:00",
+      "end": "2025-03-09T21:17:10+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      41205,
+      41206
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}
