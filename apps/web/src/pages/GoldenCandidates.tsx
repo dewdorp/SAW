@@ -6,6 +6,7 @@ import { PageHeader } from "../components/ui";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
 
+const NOWRAP = { whiteSpace: "nowrap" } as const;
 const SPLITS: Record<string, string> = { unassigned: "미지정", train: "학습", validation: "검증", test: "평가" };
 
 /** Cases set aside for the golden set: find them, go back to the source, save chosen ones, remove, export. */
@@ -66,10 +67,10 @@ export function GoldenCandidates() {
           <tbody>{items.map(i => <tr key={i.id}>
             <td><input type="checkbox" aria-label={`선택: ${i.title}`} checked={picked.includes(i.id)} onChange={e => toggle(i.id, e.target.checked)} /></td>
             <td><b>{i.title}</b><div className="small muted mono">{i.source_id} · 버전 {String(i.source_version).slice(0, 12)}</div></td>
-            <td>{i.origin_label}</td>
-            <td>{i.org_label || "미지정"}</td>
-            <td>{fmtTime(i.created_at)}</td>
-            <td><span className={`tag ${i.status === "saved" ? "ok" : ""}`}>{i.status_label}</span>{i.golden_version && <div className="small muted">골든 v{i.golden_version}</div>}</td>
+            <td style={NOWRAP}>{i.origin_label}</td>
+            <td style={NOWRAP}>{i.org_label || "미지정"}</td>
+            <td style={NOWRAP}>{fmtTime(i.created_at)}</td>
+            <td style={NOWRAP}><span className={`tag ${i.status === "saved" ? "ok" : ""}`}>{i.status_label}</span>{i.golden_version && <div className="small muted">골든 v{i.golden_version}</div>}</td>
             <td><select className="input" aria-label={`분할: ${i.title}`} value={i.split} onChange={e => split.mutate({ id: i.id, value: e.target.value })}>
               {Object.entries(SPLITS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
             <td className="small">{i.note || "—"}</td>
