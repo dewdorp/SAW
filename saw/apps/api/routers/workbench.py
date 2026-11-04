@@ -176,6 +176,20 @@ def field_meanings(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = D
     return build(inv_id)
 
 
+@router.get("/long-window-comparisons")
+def long_window_comparisons(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from saw.core.application.investigations import period_window
+    from saw.core.application.long_window import compare
+
+    inv = _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    store = _es()
+    with store.open_view(inv_id) as view:
+        result = compare(view, inv_id, period_window(inv))
+        store.check_read(view.ref)
+        return result
+
+
 @router.get("/question-bundles")
 def question_bundles(inv_id: str, sensitivity: str = "normal", ctx: AuthContext = Depends(auth),
                      s: Session = Depends(db, scope="function")):

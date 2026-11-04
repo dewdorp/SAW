@@ -80,6 +80,12 @@ describe("분석 사례집", () => {
     }
   });
 
+  it("대량 사례의 분석 기록과 원본을 목록에서 바로 연다", async () => {
+    visit();
+    expect((await screen.findByRole("link", { name: "63일 분석 과정 보기" })).getAttribute("href")).toBe("/reference-data/long-window.html");
+    expect(screen.getByRole("link", { name: "63일 원본 로그 받기" }).getAttribute("href")).toBe("/reference-data/long-window-sample.zip");
+  });
+
   it("자료 로드 실패에서 다시 시도한다", async () => {
     const loader = vi.fn().mockRejectedValueOnce(new Error("failed")).mockResolvedValue(pack);
     visit("/casebook", loader);

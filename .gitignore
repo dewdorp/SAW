@@ -34,3 +34,6 @@ models/
 
 # Per-task implementation ledgers and private review scratch
 .superpowers/
+
+# Generated on demand for the Vite dev server
+/apps/web/public/reference-data/long-window-sample.zip

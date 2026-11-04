@@ -6,6 +6,7 @@ import { ErrorBox, Loading, Panel } from "../../components/common";
 import { blankQuestionView, scopeKeyOf, useInv, useInvStore, type QuestionView } from "../../context/invContext";
 import { ActivityCaseComparison } from "./ActivityCaseComparison";
 import { isCaseEvidenceInScope } from "../practice/caseApplicability";
+import { LongWindowComparison } from "./LongWindowComparison";
 import { WorkedCasePanel } from "./WorkedCasePanel";
 import { CLAIM_COLUMNS } from "./evidenceView";
 import { ApiError, api } from "../../lib/api";
@@ -246,9 +247,10 @@ export function QuestionBundles({ inv }: { inv: string }) {
     const el = list.current?.querySelector<HTMLElement>(`[data-activity="${CSS.escape(ctx.questionActivity)}"]`);
     el?.scrollIntoView?.({ block: "nearest" });
   }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (q.isLoading) return <><Loading label="로그에서 검토할 활동을 찾고 있습니다" /><WorkedCasePanel inv={inv} status="loading" /></>;
+  if (q.isLoading) return <Panel title="검토할 활동" className="question-worklist"><Loading label="로그에서 검토할 활동을 찾고 있습니다" />
+    <WorkedCasePanel inv={inv} status="loading" /><LongWindowComparison key={inv} inv={inv} /></Panel>;
   if (!Array.isArray(q.data?.bundles)) return <Panel title="검토할 활동"><ErrorBox error={q.error || new Error("활동 결과를 불러오지 못했습니다.")} />
-    <button className="btn sm" onClick={() => q.refetch()}>다시 불러오기</button><WorkedCasePanel inv={inv} status="error" /></Panel>;
+    <button className="btn sm" onClick={() => q.refetch()}>다시 불러오기</button><WorkedCasePanel inv={inv} status="error" /><LongWindowComparison key={inv} inv={inv} /></Panel>;
   const defs = q.data.definitions || {};
   const bundles: any[] = (q.data.bundles || []).map((base: any) => previews[base.id] || base);
   const groups = bundles.filter(b => (b.items || []).length).map(b => ({ b, items: b.items as any[] }));
@@ -279,6 +281,7 @@ export function QuestionBundles({ inv }: { inv: string }) {
       {partial > 0 && <span>일부만 계산 {partial}개 유형</span>}{missing > 0 && <span>자료 부족 {missing}개 유형</span>}{failed > 0 && <span>계산 실패 {failed}개 유형</span>}
       <button className="btn sm ghost" onClick={() => { if (settings.current) { settings.current.open = true; settings.current.scrollIntoView?.({ block: "nearest" }); } }}>한계 확인</button></div>}
     <WorkedCasePanel inv={inv} scope={q.data.scope} bundles={bundles} onEvidence={openEvidence} />
+    <LongWindowComparison key={inv} inv={inv} />
     <div className="activity-list" ref={list}>{groups.map(({ b, items }) => {
       const open = openTypes.includes(b.id);
       const shown = Math.min(items.length, view.pages[b.id] || PAGE);

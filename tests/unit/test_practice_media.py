@@ -1,5 +1,6 @@
 """The distribution must ship the complete, authored offline practice corpus only."""
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
     monkeypatch.setattr(build_release, "ROOT", tmp_path)
     expected = {f"practice-data/v1/C{i:03d}/{kind}.csv": f"{i},{kind}\r\n".encode()
                 for i in range(1, 21) for kind in ("ndr", "fw")}
+    expected["reference-data/long-window.html"] = b"long window worked investigation"
     put(web / "src/pages/practice/practice-cases.json",
         json.dumps({"cases": [{"id": f"C{i:03d}"} for i in range(1, 21)]}).encode())
     for rel, content in expected.items():
@@ -31,6 +33,13 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
     build_release.copy_web_dist(out)
     target = out / "app/apps/web/dist"
     shipped = {p.relative_to(target).as_posix(): p.read_bytes() for p in target.rglob("*") if p.is_file()}
+    sample = target / "reference-data/long-window-sample.zip"
+    del shipped["reference-data/long-window-sample.zip"]
+    with zipfile.ZipFile(sample) as archive:
+        names = set(archive.namelist())
+        assert {"fw.csv", "ndr.csv", "operations.csv", "truth.json"} <= names
+        assert "unlisted.csv" not in names
+        assert sum(json.loads(archive.read("truth.json"))["row_counts"].values()) == 132750
     assert shipped == {**expected, "index.html": b"web application", "assets/app.js": b"app()"}
 
     # An existing file at the correct path is not sufficient when dist is stale.
