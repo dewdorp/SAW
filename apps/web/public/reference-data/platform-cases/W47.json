@@ -1,0 +1,185 @@
+{
+  "id": "W47",
+  "title": "업무망 단말의 외부 SMTP 직송 시도",
+  "classification": "차단 확인",
+  "category": "외부 통신·유출",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "메일 관제에서 10.80.1.13의 15:20 외부 SMTP 우회 시도를 통보했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W47 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,017건 (FW 65,878 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "FW 출발지에서 25번 연결을 조회해 목적지별 허용 여부와 송신 바이트를 확인한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "메일 관제에서 10.80.1.13의 15:20 외부 SMTP 우회 시도를 통보했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.1.13"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "106건"
+        }
+      ],
+      "image": "shots/W47-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "외부 직송과 사내 릴레이의 정책 결과를 목적지별로 비교한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.1.13 / 목적지 포트 같음 25"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-04 15:18:00 ~ 2025-03-04 15:22:26"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "106건 → 3건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 60,276행",
+          "KST": "2025-03-04T15:20:00+09:00",
+          "출발지": "10.80.1.13:49470",
+          "목적지": "192.0.2.81:25",
+          "프로토콜": "TCP",
+          "FW 처리": "deny",
+          "송신 B": "0",
+          "수신 B": "0"
+        },
+        {
+          "원본 위치": "fw.csv 60,277행",
+          "KST": "2025-03-04T15:20:09+09:00",
+          "출발지": "10.80.1.13:49471",
+          "목적지": "198.51.100.82:25",
+          "프로토콜": "TCP",
+          "FW 처리": "deny",
+          "송신 B": "0",
+          "수신 B": "0"
+        },
+        {
+          "원본 위치": "fw.csv 60,278행",
+          "KST": "2025-03-04T15:20:25+09:00",
+          "출발지": "10.80.1.13:49472",
+          "목적지": "10.80.1.12:25",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "9400",
+          "수신 B": "2200"
+        }
+      ],
+      "image": "shots/W47-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "외부 두 주소에는 정책 거부와 전송 0바이트가 기록됐다. 내부 릴레이 연결은 허용됐다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W47-E1",
+          "자료 출처": "SMTP 릴레이 큐",
+          "대조할 값": "시각=2025-03-04T15:20:26+09:00 · queue=m47 · client=10.80.1.13 · relay=10.80.1.12 · 결과=queued"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "외부 직송 두 건은 경계에서 차단됐다. 메일 큐의 재시도 ID m47은 내부 릴레이에서만 접수됐다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "차단 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "메일 운영자는 큐 m47의 목적지 설정을 확인하고 단말 앱의 발송 경로를 내부 릴레이로 고정한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65878,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.13"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 106,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.13"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 25
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-04T15:18:00+09:00",
+      "end": "2025-03-04T15:22:26+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 3,
+    "evidence_rows": [
+      60276,
+      60277,
+      60278
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

@@ -24,3 +24,37 @@ it("재생 기록에서 선정 근거, 원문 행, 대조 자료와 판단을 �
   await screen.findByRole("heading", { name: "W02 · 주기 접속" }, { timeout: 10000 });
   expect(screen.getByRole("heading", { name: "조사 범위" })).toBeTruthy();
 });
+
+it("목록을 검색하고 범주와 페이지를 바꾸면 보이는 사례에서 조사를 다시 시작한다", async () => {
+  const index = Array.from({ length: 60 }, (_, i) => ({
+    id: `W${String(i + 1).padStart(2, "0")}`, title: i === 59 ? "원격 실행" : `연결 ${i + 1}`,
+    category: i === 59 ? "내부 이동" : "웹", classification: i === 59 ? "침해 확인" : "보류",
+    route: i < 6 ? "candidate" : "pivot"
+  }));
+  const steps = Array.from({ length: 5 }, (_, i) => ({ action: `화면 ${i}`, finding: `관측 ${i}` }));
+  const load = vi.fn(async (name: string) => name === "index.json" ? index : { ...index.find(c => name === c.id + ".json"), steps });
+  const download = vi.fn();
+  render(<PlatformCases loadJson={load} assetUrl={f => "/offline/" + f} onDownload={download} />);
+  await screen.findByRole("heading", { name: "W07 · 연결 7" });
+  expect(screen.getByText("전체 60건 중 60건 · 1–9번째")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /다음 · 경보 단서/ }));
+  expect(screen.getByRole("heading", { name: "경보 단서로 1차 조회" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  await screen.findByRole("heading", { name: "W10 · 연결 10" });
+  expect(screen.getByRole("heading", { name: "조사 범위" })).toBeTruthy();
+  const input = screen.getByRole("searchbox", { name: "사례 검색" });
+  fireEvent.change(input, { target: { value: " w60  침해 확인 " } });
+  expect(screen.queryByRole("heading", { name: "W10 · 연결 10" })).toBeNull();
+  await screen.findByRole("heading", { name: "W60 · 원격 실행" });
+  fireEvent.click(screen.getByRole("button", { name: /원본 ZIP/ }));
+  expect(download).toHaveBeenCalledWith("W60");
+  fireEvent.change(input, { target: { value: "내부 실행" } });
+  expect(screen.getByText("전체 60건 중 1건 · 1–1번째")).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "사례 범주" }), { target: { value: "웹" } });
+  expect(screen.getByText("조건에 맞는 사례가 없습니다.")).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "W60 · 원격 실행" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+  await screen.findByRole("heading", { name: "W01 · 연결 1" });
+  fireEvent.change(screen.getByRole("combobox", { name: "사례 범주" }), { target: { value: "내부 이동" } });
+  await screen.findByRole("heading", { name: "W60 · 원격 실행" });
+});

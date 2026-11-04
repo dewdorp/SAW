@@ -1,0 +1,184 @@
+{
+  "id": "W41",
+  "title": "디렉터리 그룹 변경 뒤 파일 접근",
+  "classification": "침해 확인",
+  "category": "내부 이동",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "권한 감시가 중요 공유의 쓰기 그룹에 추가된 계정을 보고했다. 조사 대상은 acct-ws41(10.80.41.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W41 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,008건 (FW 65,869 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "그룹 변경 이후 SMB 쓰기를 대상 파일과 변경 계정으로 연결한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "권한 감시가 중요 공유의 쓰기 그룹에 추가된 계정을 보고했다. 조사 대상은 acct-ws41(10.80.41.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.41.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "97건"
+        }
+      ],
+      "image": "shots/W41-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "10.81.41.8의 445번 세션을 조사한다. 그룹 변경 이후 SMB 쓰기를 대상 파일과 변경 계정으로 연결한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.41.15 / 목적지 포트 같음 445"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-05 15:59:00 ~ 2025-03-05 16:03:26"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "97건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 61,398행",
+          "KST": "2025-03-05T16:01:03+09:00",
+          "출발지": "10.80.41.15:46411",
+          "목적지": "10.81.41.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "3140",
+          "수신 B": "1920"
+        },
+        {
+          "원본 위치": "fw.csv 61,400행",
+          "KST": "2025-03-05T16:01:25+09:00",
+          "출발지": "10.80.41.15:46412",
+          "목적지": "10.81.41.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "78400",
+          "수신 B": "1620"
+        }
+      ],
+      "image": "shots/W41-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 권한 변경 전에는 동일 계정의 같은 공유 쓰기가 거부됐다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W41-E1",
+          "자료 출처": "DC 보안 4728",
+          "대조할 값": "시각=2025-03-05T16:00:00+09:00 · subject_host=acct-ws41 · 대상 IP=10.80.41.15 · 계정=analyst41 · 상대 IP=10.81.41.8 · group_change=Finance-Writers에 조사 계정 추가"
+        },
+        {
+          "근거 ID": "W41-E2",
+          "자료 출처": "파일 서버 4663",
+          "대조할 값": "시각=2025-03-05T16:01:26+09:00 · subject_host=acct-ws41 · 대상 IP=10.80.41.15 · 계정=analyst41 · 상대 IP=10.81.41.8 · object_access=같은 계정이 재무 공유 budgets.xlsx에 WriteData 성공"
+        },
+        {
+          "근거 ID": "W41-E3",
+          "자료 출처": "권한 관리",
+          "대조할 값": "시각=2025-03-05T16:21:00+09:00 · subject_host=acct-ws41 · 대상 IP=10.80.41.15 · 계정=analyst41 · 상대 IP=10.81.41.8 · 승인=그룹 소유자 확인 결과 추가·수정 승인 없음"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "승인되지 않은 그룹 추가 뒤 해당 계정이 실제 재무 파일을 수정했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "그룹 추가의 실행 주체와 같은 권한으로 수정한 다른 파일을 확인한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65869,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.41.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 97,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.41.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 445
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-05T15:59:00+09:00",
+      "end": "2025-03-05T16:03:26+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      61398,
+      61400
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

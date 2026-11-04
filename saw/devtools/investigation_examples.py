@@ -380,10 +380,19 @@ def archive(output, target, case_id=None):
 def write_case_archives(destination: Path):
     """Generate independent archives; keep only one uncompressed case on disk at a time."""
     destination = Path(destination)
+    if __package__:
+        from .worked_archive import Background, archive_files, scenarios
+    else:
+        from worked_archive import Background, archive_files, scenarios
     for case in CASES:
         with tempfile.TemporaryDirectory() as scratch:
             generate(scratch, case)
             archive(scratch, destination / f'{case}.zip', case)
+            if case == 'W01':
+                background = Background(Path(scratch) / case)
+    for case in scenarios():
+        files, _ = background.render(case)
+        archive_files(destination / (case['id'] + '.zip'), case['id'], files)
 
 
 if __name__ == '__main__':
@@ -395,7 +404,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.archives_dir:
         if args.output or args.zip or args.case:
-            parser.error('--archives-dir generates all six ZIPs and is used by itself')
+            parser.error('--archives-dir generates all case ZIPs and is used by itself')
         write_case_archives(args.archives_dir)
     else:
         if args.output is None:

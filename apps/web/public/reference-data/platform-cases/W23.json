@@ -1,0 +1,178 @@
+{
+  "id": "W23",
+  "title": "배송지 변경 요청의 이중 인증 우회",
+  "classification": "침해 확인",
+  "category": "웹·API",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "13:02 주문자 U23이 주문 O23의 배송지 변경을 부인했다. 신고된 변경 URL을 조회한다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W23 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,981건 (FW 65,772 · NDR 41,209)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "변경 요청과 실제 주소 이력, 해당 변경에 필요한 추가 인증 거래를 주문 번호로 맞췄다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "13:02 주문자 U23이 주문 O23의 배송지 변경을 부인했다. 신고된 변경 URL을 조회한다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / URL 경로(쿼리 제외) 같음 /order/address"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "70건"
+        }
+      ],
+      "image": "shots/W23-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "같은 주소 경로의 조회를 제외하고 실제 변경 요청을 추린다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / URL 경로(쿼리 제외) 같음 /order/address / HTTP 메서드 같음 PATCH"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-07 12:58:02 ~ 2025-03-07 13:02:31"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "70건 → 1건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 39,565행",
+          "KST": "2025-03-07T13:00:17+09:00",
+          "출발지": "198.51.100.173:42232",
+          "목적지": "10.80.23.20:443",
+          "메서드": "PATCH",
+          "경로": "/order/address?trace=w23-2",
+          "상태": "204",
+          "응답 B": "0"
+        }
+      ],
+      "image": "shots/W23-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "w23-2는 O23 변경 이력 버전 4로 커밋됐다. 정책 엔진은 해당 수정에 추가 인증이 필요하다고 기록했고 승인 원장의 거래 C23은 만료 상태였다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W23-E1",
+          "자료 출처": "주문 변경 감사",
+          "대조할 값": "시각=2025-03-07T13:00:17+09:00 · 추적 ID=w23-2 · order=O23 · revision=4 · old_hash=A23 · new_hash=B23 · 결과=committed"
+        },
+        {
+          "근거 ID": "W23-E2",
+          "자료 출처": "추가 인증 정책",
+          "대조할 값": "시각=2025-03-07T13:00:17+09:00 · 추적 ID=w23-2 · order=O23 · challenge=C23 · step_up=required"
+        },
+        {
+          "근거 ID": "W23-E3",
+          "자료 출처": "추가 인증 원장",
+          "대조할 값": "시각=2025-03-07T13:00:17+09:00 · challenge=C23 · terminal=expired · 승인=False"
+        },
+        {
+          "근거 ID": "W23-E4",
+          "자료 출처": "고객센터 본인확인",
+          "대조할 값": "시각=2025-03-07T13:02:05+09:00 · order=O23 · 계정=U23 · revision=4 · 행위=denied_change"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "13:00:17 주문 O23의 배송지가 추가 인증 승인 없이 변경됐다. 본인확인된 주문자는 변경을 부인했다. 실제 배송 여부는 미확인이다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "배송 보류를 요청하고 O23 변경 전후 주소 및 동일 처리 경로의 다른 주문을 대조한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41209
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "url_path",
+        "op": "is",
+        "value": "/order/address"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 70,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "url_path",
+        "op": "is",
+        "value": "/order/address"
+      },
+      {
+        "field": "method",
+        "op": "is",
+        "value": "PATCH"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-07T12:58:02+09:00",
+      "end": "2025-03-07T13:02:31+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 1,
+    "evidence_rows": [
+      39565
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

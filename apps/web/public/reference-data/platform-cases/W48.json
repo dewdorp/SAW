@@ -1,0 +1,179 @@
+{
+  "id": "W48",
+  "title": "정산 CSV의 개인 클라우드 업로드",
+  "classification": "침해 확인",
+  "category": "외부 통신·유출",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "DLP가 10:20에 정산 단말 10.80.1.12의 외부 업로드를 탐지했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W48 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,034건 (FW 65,772 · NDR 41,262)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "NDR에서 POST를 열고 경로 /personal/48과 /team/48을 계정 감사의 객체 키에 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "DLP가 10:20에 정산 단말 10.80.1.12의 외부 업로드를 탐지했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 출발지 IP 같음 10.80.1.12"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "123건"
+        }
+      ],
+      "image": "shots/W48-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "외부 서비스 목록 조회와 전송 요청을 분리해 두 업로드의 계정을 대조한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 출발지 IP 같음 10.80.1.12 / HTTP 메서드 같음 POST"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-05 10:18:00 ~ 2025-03-05 10:22:10"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "123건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 38,195행",
+          "KST": "2025-03-05T10:20:04+09:00",
+          "출발지": "10.80.1.12:49481",
+          "목적지": "192.0.2.81:443",
+          "메서드": "POST",
+          "경로": "/team/48",
+          "상태": "201",
+          "응답 B": "310"
+        },
+        {
+          "원본 위치": "ndr.csv 38,196행",
+          "KST": "2025-03-05T10:20:09+09:00",
+          "출발지": "10.80.1.12:49482",
+          "목적지": "192.0.2.81:443",
+          "메서드": "POST",
+          "경로": "/personal/48",
+          "상태": "201",
+          "응답 B": "310"
+        }
+      ],
+      "image": "shots/W48-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "팀 경로에는 2 KiB 시험 파일이 올라갔다. 개인 경로의 요청 크기는 3 MiB다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W48-E1",
+          "자료 출처": "단말 DLP 파일 식별",
+          "대조할 값": "시각=2025-03-05T10:20:09+09:00 · endpoint=10.80.1.12 · file=settlement.csv · fingerprint=csv48 · classification=고객 정산 제한"
+        },
+        {
+          "근거 ID": "W48-E2",
+          "자료 출처": "클라우드 저장 영수증",
+          "대조할 값": "시각=2025-03-05T10:20:10+09:00 · path=/personal/48 · object=o48 · fingerprint=csv48 · owner_scope=personal · 결과=stored"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "개인 공간의 저장 영수증에 찍힌 해시가 DLP의 제한 정산 파일 해시와 일치한다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "정산 담당자는 csv48의 고객 범위를 산정하고 저장소 사업자에게 객체 o48의 공유·다운로드 이력 보존을 요청한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41262
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.12"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 123,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.12"
+      },
+      {
+        "field": "method",
+        "op": "is",
+        "value": "POST"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-05T10:18:00+09:00",
+      "end": "2025-03-05T10:22:10+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      38195,
+      38196
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

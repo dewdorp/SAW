@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from saw.devtools.release_manifest import BundleError, digest, safe_relative, seal
 from saw.devtools.long_window_sample import write_sample_archive
-from saw.devtools.investigation_examples import CASES, write_case_archives
+from saw.devtools.investigation_examples import write_case_archives
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.compact.json',
  'data/enrichment/FIXTURE','data/enrichment/README.md','data/enrichment/asn_ranges.csv',
@@ -230,7 +230,7 @@ def copy_app_sources(out: Path):
         copy_file(p,out/'app'/p.relative_to(ROOT))
 
 def copy_web_dist(out: Path):
-    """Ship the built web UI and only the authored, versioned practice CSVs."""
+    """Ship the built web UI and an explicit allowlist of practice and reference media."""
     web = ROOT / 'apps/web'
     dist, target = web / 'dist', out / 'app/apps/web/dist'
     # The practice subtree is reserved. Vite copies public/ into dist/; catch
@@ -243,9 +243,11 @@ def copy_web_dist(out: Path):
     samples = [f'practice-data/v1/{i}/{name}.csv' for i in ids for name in ('ndr', 'fw')]
     case_dir = 'reference-data/platform-cases'
     authored = [*samples, 'reference-data/long-window.html', f'{case_dir}/index.json']
-    for case in CASES:
-        authored.extend([f'{case_dir}/{case}.json', f'{case_dir}/shots/{case}-candidate.png',
-                         f'{case_dir}/shots/{case}-raw.png'])
+    worked_ids = [f'W{n:02d}' for n in range(1, 61)]
+    for number, case in enumerate(worked_ids, 1):
+        images = ('candidate.png', 'raw.png') if number <= 6 else ('lead.webp', 'raw.webp')
+        authored.append(f'{case_dir}/{case}.json')
+        authored.extend(f'{case_dir}/shots/{case}-{name}' for name in images)
     for rel in authored:
         original, built = web / 'public' / rel, dist / rel
         for p in (original, built):
@@ -253,6 +255,10 @@ def copy_web_dist(out: Path):
                 raise BundleError('missing or linked practice sample: ' + rel)
         if original.stat().st_size == 0 or digest(original) != digest(built):
             raise BundleError('empty or stale practice sample: ' + rel)
+    worked_index = json.loads((dist / case_dir / 'index.json').read_text(encoding='utf-8'))
+    if (not isinstance(worked_index, list) or not all(isinstance(row, dict) for row in worked_index)
+            or [row.get('id') for row in worked_index] != worked_ids):
+        raise BundleError('practice-data: incomplete or invalid platform case index')
     for p in dist.rglob('*'):
         rel = p.relative_to(dist)
         if rel.parts[0].casefold() in {'practice-data', 'reference-data'}:
@@ -264,6 +270,8 @@ def copy_web_dist(out: Path):
     # Rebuild the synthetic archive from source; never accept arbitrary ZIPs in dist.
     write_sample_archive(target / 'reference-data/long-window-sample.zip')
     write_case_archives(target / case_dir)
+    if {p.stem for p in (target / case_dir).glob('*.zip')} != set(worked_ids):
+        raise BundleError('practice-data: source archive set does not match the platform case index')
 
 def assemble(inputs: Path, out: Path, native: Path | None = None):
     if out.exists(): raise BundleError('output must be a fresh directory')

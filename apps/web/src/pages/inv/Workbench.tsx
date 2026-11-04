@@ -47,7 +47,7 @@ const AREAS: Area[] = [
 ];
 const TABS: [string, string][] = AREAS.flatMap((a) => [...a.tabs, ...(a.advanced || [])]);
 const areaOf = (tab: string) => AREAS.find((a) => [...a.tabs, ...(a.advanced || [])].some(([k]) => k === tab)) || AREAS[1];
-const SEARCH_FIELDS: [string, string][] = [["src_ip", "출발지 IP"], ["dst_ip", "목적지 IP"], ["dst_port", "목적지 포트"], ["uri", "URL 경로"],
+const SEARCH_FIELDS: [string, string][] = [["src_ip", "출발지 IP"], ["dst_ip", "목적지 IP"], ["dst_port", "목적지 포트"], ["uri", "URL 경로"], ["url_path", "URL 경로(쿼리 제외)"],
   ["hostname", "호스트명"], ["alert_name", "장비 공격명"], ["enforcement_action", "처리 결과"], ["session_id", "세션 ID"], ["user_agent", "User-Agent"],
   ["method", "HTTP 메서드"], ["status_code", "응답 코드"], ["protocol", "프로토콜"], ["data_source", "로그 종류"]];
 const NUMERIC_FIELDS = new Set(["dst_port", "status_code"]);
