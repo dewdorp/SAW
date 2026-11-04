@@ -68,3 +68,30 @@ class DeviceSignatureVersion(Base):
     content: Mapped[dict] = mapped_column(JSON)
     changed_by: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GoldenCandidate(Base):
+    """A case an analyst set aside for the golden set: a pointer to a reproducible source, never a copy of its logs.
+
+    The source is a synthetic casebook case (its case file's SHA-256) or an investigation (its evidence files'
+    SHA-256). The same source at the same version is one candidate however often it is added. Removing a
+    candidate deletes only this pointer; the source and any golden versions saved from it stay.
+    """
+    __tablename__ = "kn_golden_candidate"
+    __table_args__ = (UniqueConstraint("source_key"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_key: Mapped[str] = mapped_column(String(160))
+    source_kind: Mapped[str] = mapped_column(String(16), index=True)  # casebook | investigation
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    source_version: Mapped[str] = mapped_column(String(64))
+    source_refs: Mapped[dict] = mapped_column(JSON, default=dict)
+    title: Mapped[str] = mapped_column(String(256))
+    org_unit_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    org_label: Mapped[str] = mapped_column(String(256), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    split: Mapped[str] = mapped_column(String(16), default="unassigned")
+    golden_record_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    golden_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
