@@ -3,7 +3,7 @@ import json
 import uuid
 
 from saw.devtools.en_security_samples import fw_csv
-from saw.internal_kb import candidates
+from saw.internal_kb import candidates, golden
 from tests.api.test_text_uploads import _process
 from tests.conftest import Api, make_user
 
@@ -89,6 +89,7 @@ def test_only_the_selected_saved_case_is_exported_with_first_known_input_and_ans
     assert "10.80.26.15" in text and "fw.csv 60,192행" in text
     assert "공유 폴더의 대량 확장자 변경" not in text and "W26-E1" not in text and "침해 확인" not in text
     assert "followup.json" not in text and "locksvc.exe" not in text and inv["title"] not in text
+    assert "W26" not in text and "case_id" not in text
     answers = answer[0]["answers"]
     assert answers["final_judgement"]["status"] == "compromise_confirmed"
     assert any("W26-E2" in item["evidence_refs"] for item in answers["followups"])
@@ -104,10 +105,10 @@ def test_only_the_selected_saved_case_is_exported_with_first_known_input_and_ans
 def test_cases_from_one_source_cannot_be_exported_in_different_splits(senior):
     case = senior.post("/knowledge/golden-candidates", json={"source_kind": "casebook", "source_id": "W03"}).json()["item"]
     senior.post("/knowledge/golden-candidates/save", json={"ids": [case["id"]]}).raise_for_status()
+    # The split shown in the inbox is the split exported, without saving again.
     senior.patch(f"/knowledge/golden-candidates/{case['id']}", json={"split": "test"}).raise_for_status()
-    senior.post("/knowledge/golden-candidates/save", json={"ids": [case["id"]]}).raise_for_status()
     saved = senior.get("/knowledge/golden-candidates", params={"source_id": "W03"}).json()["items"][0]
-    assert saved["golden_version"] >= 2 and saved["split"] == "test"
+    assert saved["golden_version"] == 1 and saved["split"] == "test"
     lines = _lines(senior.post("/knowledge/golden-candidates/export", params={"audience": "evaluator"},
                                json={"ids": [case["id"]]}))
     assert lines[0]["lineage"]["split"] == "test" and lines[0]["lineage"]["variant_group_id"] == "casebook:W03"
@@ -131,3 +132,29 @@ def test_every_casebook_case_maps_to_a_valid_golden_record():
         assert content["final_judgement"]["status"] not in ("", "unknown"), item["id"]
         first = json.dumps({k: content[k] for k in ("scope", "initial_logs", "observed_facts")}, ensure_ascii=False)
         assert case["classification"] not in first and "followup" not in first and "회신" not in first, item["id"]
+
+
+def test_saving_an_investigation_candidate_keeps_a_hand_edited_golden_version(senior):
+    inv = _inv(senior)
+    item = senior.post("/knowledge/golden-candidates", json={"source_kind": "investigation", "source_id": inv["id"]}).json()["item"]
+    first = senior.post("/knowledge/golden-candidates/save", json={"ids": [item["id"]]}).json()["items"][0]
+    record = senior.get(f"/investigations/{inv['id']}/internal-golden").json()["record"]
+    content = record["content"]
+    content["unresolved"] = ["curated by hand"]
+    edited = senior.post(f"/investigations/{inv['id']}/internal-golden",
+                         json={"content": content, "change_note": "hand edit", "expected_version": record["version"]})
+    assert edited.status_code == 201, edited.text
+    again = senior.post("/knowledge/golden-candidates/save", json={"ids": [item["id"]]}).json()["items"][0]
+    assert again["golden_version"] == first["golden_version"] + 1
+    line = _lines(senior.post("/knowledge/golden-candidates/export", params={"audience": "evaluator"},
+                              json={"ids": [item["id"]]}))[0]
+    assert line["answers"]["unresolved"] == ["curated by hand"]
+
+
+def test_no_casebook_agent_input_names_its_case():
+    index = json.loads((candidates.casebook_dir() / "index.json").read_text("utf-8"))
+    for item in index:
+        case, _version, _raw = candidates._casebook_case(item["id"])
+        content = candidates.casebook_content(case)
+        first = json.dumps({k: content[k] for k in golden.INITIAL_FIELDS}, ensure_ascii=False)
+        assert "case_id" not in first and "casebook:" not in first and item["id"] not in first, item["id"]

@@ -22,6 +22,8 @@ PUBLIC_DOCS = (
  'docs/OPERATIONS-INSTALL-v0.2.3.md',
  'docs/verification/practice-integration-20261103.md',
  'docs/verification/readable-workbench-20261104.md',
+ 'docs/verification/golden-candidates-20261105.md',
+ 'docs/OPERATIONS-UPDATE-v0.2.5.md',
  'docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md',
  'docs/samples/security-csv/fw-mixed-devices.csv',
  'docs/samples/security-csv/ndr-potential-chain.csv',

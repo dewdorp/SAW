@@ -31,7 +31,7 @@ from saw.core.security.authz import has_permission
 from saw.internal_kb import golden
 from saw.internal_kb.models import GoldenCandidate, InternalGolden, InternalGoldenVersion
 from saw.storage.db import utcnow
-from saw.storage.models import Evidence, EvidenceFile, Investigation
+from saw.storage.models import Evidence, EvidenceFile
 
 CASE_ID = re.compile(r"W\d{2}")
 CASEBOOK_PREFIX = "casebook:"
@@ -218,6 +218,12 @@ def _first_known(text: str) -> str:
     return " ".join(kept).strip()
 
 
+def _without_case_id(value, case_id: str):
+    """The case id names the public file that holds the verdict; first-known material must not carry it."""
+    text = json.dumps(value, ensure_ascii=False)
+    return json.loads(text.replace(f"{case_id} · ", "").replace(case_id, "이 사례"))
+
+
 def _rows(step: dict) -> list[dict]:
     return [{k: v for k, v in r.items()} for r in step.get("rows") or []]
 
@@ -227,13 +233,17 @@ def _facts(step: dict) -> list[str]:
 
 
 def casebook_content(case: dict, split: str = "unassigned") -> dict:
-    """The first three steps (lead, queries, original rows) are what was known first; the rest is the answer."""
+    """The first three steps (lead, queries, original rows) are what was known first; the rest is the answer.
+
+    The agent-side fields carry no case id (it names the public file that holds the verdict) and no step-two
+    narrative (it can describe the later verification); the id stays in the evaluator-side lineage.
+    """
     steps = case["steps"]
     run = case.get("run") or {}
     initial = steps[:3]
     # File names that announce later material (followup.json) are not part of the first-known state.
     first_facts = [_first_known(line) for st in initial for line in _facts(st)]
-    observed = [_first_known(steps[0]["finding"]), _first_known(steps[1]["finding"]), *first_facts]
+    observed = [_first_known(steps[0]["finding"]), *first_facts]
     status = CLASS_STATUS.get(case["classification"])
     if status is None:
         status = "insufficient_evidence" if case["classification"].startswith(("의심", "판단")) else "unknown"
@@ -247,7 +257,7 @@ def casebook_content(case: dict, split: str = "unassigned") -> dict:
     lead = run.get("lead_time") or run.get("evidence_time") or {}
     content = {
         "title": case["title"],
-        "scope": {"org_unit": "합성 예제(사례집)", "synthetic": True, "case_id": case["id"],
+        "scope": {"org_unit": "합성 예제(사례집)", "synthetic": True,
                   "period_start": lead.get("start"), "period_end": lead.get("end"),
                   "source_counts": run.get("counts") or {}},
         "initial_logs": [row for st in initial for row in _rows(st)][: golden.MAX_ITEMS],
@@ -269,6 +279,8 @@ def casebook_content(case: dict, split: str = "unassigned") -> dict:
         "provenance": {"cutoff": None, "source_investigation_ids": [], "followup_ids": [], "hidden_followups": 0,
                        "hidden_checks": 0},
     }
+    for field in ("scope", "initial_logs", "observed_facts"):
+        content[field] = _without_case_id(content[field], case["id"])
     return golden.Content.model_validate(content).model_dump()
 
 
@@ -283,7 +295,11 @@ def _save_casebook(s, p, row: GoldenCandidate) -> tuple[str, int]:
         record = InternalGolden(investigation_id=key, org_unit_id=None, title=content["title"][:256],
                                 created_by=p.user_id, updated_by=p.user_id, current_version=0)
         s.add(record)
-        s.flush()
+        try:
+            with s.begin_nested():
+                s.flush()
+        except IntegrityError:
+            raise ValueError("다른 사용자가 같은 사례를 방금 저장했습니다. 다시 저장하세요.") from None
     record.current_version += 1
     record.title = content["title"][:256]
     record.final_status = content["final_judgement"]["status"]
@@ -300,14 +316,18 @@ def _save_investigation(s, p, row: GoldenCandidate) -> tuple[str, int]:
     current, _refs = _investigation_version(s, row.source_id)
     if current != row.source_version:
         raise ValueError("조사의 증거 파일이 후보로 담은 뒤 바뀌었습니다. 후보를 다시 담으세요.")
+    existing = s.scalar(select(InternalGolden).where(InternalGolden.investigation_id == row.source_id))
+    if existing is not None:
+        # An analyst may have curated this record by hand; a fresh draft must never silently replace it.
+        # The candidate is linked to the current version as it stands; the split is applied at export.
+        return existing.id, existing.current_version
     content = golden.draft(s, p, row.source_id)
     lineage = content["lineage"]
     lineage["variant_group_id"] = lineage["variant_group_id"] or f"investigation:{row.source_id}"
     lineage["split_group_id"] = lineage["split_group_id"] or lineage["variant_group_id"]
     lineage["split"] = row.split
-    existing = s.scalar(select(InternalGolden).where(InternalGolden.investigation_id == row.source_id))
     saved = golden.save(s, p, row.source_id, {"content": content, "change_note": "골든셋 후보함에서 저장",
-                                              "expected_version": existing.current_version if existing else None})
+                                              "expected_version": None})
     return saved["id"], saved["version"]
 
 
@@ -349,6 +369,8 @@ def export(s, p, body: IdsIn | dict, audience: str) -> bytes:
         if row.golden_record_id is None:
             raise ValueError(f"골든셋으로 저장한 후보만 내보낼 수 있습니다: {row.title}")
         record = s.get(InternalGolden, row.golden_record_id)
+        if record is None:
+            raise NotFound("golden version not found")
         version = s.scalar(select(InternalGoldenVersion).where(InternalGoldenVersion.record_id == record.id,
                                                                InternalGoldenVersion.version == row.golden_version))
         if version is None:
@@ -357,10 +379,11 @@ def export(s, p, body: IdsIn | dict, audience: str) -> bytes:
             raise NotFound("golden candidate not found")
         picked.append((row, record, version))
     groups: dict[str, set] = {}
-    for _row, _record, version in picked:
+    for row, _record, version in picked:
         lineage = (version.content or {}).get("lineage") or {}
         if lineage.get("variant_group_id"):
-            groups.setdefault(lineage["variant_group_id"], set()).add(lineage.get("split", "unassigned"))
+            # The split shown in the inbox is the split exported; no re-save is needed after changing it.
+            groups.setdefault(lineage["variant_group_id"], set()).add(row.split)
     crossing = sorted(g for g, splits in groups.items() if len(splits) > 1)
     if crossing:
         raise ValueError("같은 원본에서 나온 사례가 서로 다른 분할에 있습니다: " + ", ".join(crossing[:10]))
@@ -371,6 +394,10 @@ def export(s, p, body: IdsIn | dict, audience: str) -> bytes:
         if audience == "agent":
             observations = {k: content.get(k) for k in golden.INITIAL_FIELDS}
             observations["title"] = NEUTRAL_TITLE.format(n=n)
+            # Versions saved before 0.2.5 final kept the case id in the scope; it must not reach the agent.
+            observations["scope"] = {k: v for k, v in (observations.get("scope") or {}).items() if k != "case_id"}
+            if row.source_kind == "casebook":
+                observations = _without_case_id(observations, row.source_id)
             body_out = {"schema": "saw.golden.agent-input.v1", "example_id": example_id, "source": "golden_candidate",
                         "synthetic": bool((content.get("lineage") or {}).get("synthetic")),
                         "as_of": (content.get("provenance") or {}).get("cutoff"), "retrieval": "snapshot_only",
@@ -380,7 +407,7 @@ def export(s, p, body: IdsIn | dict, audience: str) -> bytes:
             answers["title"] = content.get("title")
             sha = hashlib.sha256(json.dumps(answers, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             body_out = {"schema": "saw.golden.evaluator-answer.v2", "example_id": example_id, "content_sha256": sha,
-                        "lineage": content.get("lineage") or {}, "source": {"kind": row.source_kind, "id": row.source_id,
+                        "lineage": {**(content.get("lineage") or {}), "split": row.split}, "source": {"kind": row.source_kind, "id": row.source_id,
                                                                            "version": row.source_version},
                         "answers": answers}
         lines.append(json.dumps(body_out, ensure_ascii=False, sort_keys=True, default=str))

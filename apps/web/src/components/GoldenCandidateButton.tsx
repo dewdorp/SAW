@@ -15,7 +15,7 @@ export function GoldenCandidateButton({ sourceKind, sourceId }: Props) {
     let live = true;
     setItem(null); setMessage(""); setError(""); setNote(null);
     api.get(`/knowledge/golden-candidates?source_kind=${sourceKind}&source_id=${encodeURIComponent(sourceId)}`)
-      .then(r => { if (live) setItem(r.items?.[0] ?? null); }).catch(() => undefined);
+      .then(r => { if (live) setItem((previous: any) => previous ?? r.items?.[0] ?? null); }).catch(() => undefined);
     return () => { live = false; };
   }, [sourceKind, sourceId]);
   const add = async () => {

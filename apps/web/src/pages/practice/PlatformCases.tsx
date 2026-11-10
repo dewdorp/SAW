@@ -58,7 +58,8 @@ export function PlatformCases({ assetBase = `${import.meta.env.BASE_URL}referenc
       setItems(index);
       const wanted = index.findIndex(c => c.id === initialCase);
       if (wanted >= 0) setListPage(Math.floor(wanted / casePageSize));
-      select(previous => previous || (wanted >= 0 ? index[wanted] : index.find(c => c.route === "pivot") ?? index[0]).id);
+      // A deep link (?worked=W26) wins over an earlier selection; without one the selection is kept.
+      select(previous => wanted >= 0 ? index[wanted].id : previous || (index.find(c => c.route === "pivot") ?? index[0]).id);
     }).catch(() => { if (active) setFailure("index"); });
     return () => { active = false; };
   }, [assetBase, loadJson, attempt, initialCase]);
