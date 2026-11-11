@@ -35,6 +35,7 @@ export const api = {
   post: <T = any>(url: string, body?: unknown) => req<T>("POST", url, body ?? {}),
   put: <T = any>(url: string, body: unknown) => req<T>("PUT", url, body),
   patch: <T = any>(url: string, body: unknown) => req<T>("PATCH", url, body),
+  del: <T = any>(url: string) => req<T>("DELETE", url),
   putRaw: <T = any>(url: string, data: BodyInit) => req<T>("PUT", url, undefined, data),
   text: (url: string) => req<string>("GET", url, undefined, undefined, "text"),
   /** POST a request whose response is a file (e.g. a server-side export) and hand it to the browser. */

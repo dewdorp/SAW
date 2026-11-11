@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { PlatformCases } from "./PlatformCases";
 
@@ -57,4 +58,16 @@ it("목록을 검색하고 범주와 페이지를 바꾸면 보이는 사례에�
   await screen.findByRole("heading", { name: "W01 · 연결 1" });
   fireEvent.change(screen.getByRole("combobox", { name: "사례 범주" }), { target: { value: "내부 이동" } });
   await screen.findByRole("heading", { name: "W60 · 원격 실행" });
+});
+
+it("후보함에서 연 사례는 그 사례의 페이지로 바로 열리고 골든 후보 담기 단추가 있다", async () => {
+  const index = Array.from({ length: 60 }, (_, i) => ({ id: `W${String(i + 1).padStart(2, "0")}`, title: `사례 ${i + 1}`, classification: "침해 확인", route: "pivot" }));
+  const steps = Array.from({ length: 5 }, (_, i) => ({ action: `화면 ${i}`, finding: `관측 ${i}` }));
+  const load = vi.fn(async (name: string) => name === "index.json" ? index : { ...index.find(c => name === c.id + ".json"), steps });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } })));
+  render(<MemoryRouter><PlatformCases loadJson={load} assetUrl={f => "/offline/" + f} initialCase="W26" candidates /></MemoryRouter>);
+  await screen.findByRole("heading", { name: "W26 · 사례 26" });
+  expect(screen.getByText("전체 60건 중 60건 · 19–27번째")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "골든 후보로 담기" })).toBeTruthy();
+  vi.unstubAllGlobals();
 });

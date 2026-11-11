@@ -87,7 +87,7 @@ def build(out: Path, npm_json_path: str | None = None) -> dict:
         c["bom-ref"] = f"{c['group']}:{c['name']}@{c['version']}"
     bom = {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{uuid.uuid4()}", "version": 1,
            "metadata": {"timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "component": {"type": "application", "name": "SAW - SOC Analysis Workbench", "version": "0.2.4"}},
+                        "component": {"type": "application", "name": "SAW - SOC Analysis Workbench", "version": "0.2.5"}},
            "components": comps}
     out.mkdir(parents=True, exist_ok=True)
     (out / "sbom.cdx.json").write_text(json.dumps(bom, ensure_ascii=False, indent=1), encoding="utf-8")
