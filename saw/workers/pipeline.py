@@ -419,14 +419,19 @@ def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
             j.stages = {**(j.stages or {}), "analyze": {"pct": round(frac * 100)}}
             s.commit()
 
+        # The knowledge-based flow analysis runs first and is committed on its own: a detector stage that fails
+        # afterwards must not take the flow result with it.
+        flows = _flow_analysis(s, job_id, inv_id)
+        j = s.get(Job, job_id)
+        j.stages = {**(j.stages or {}), "flows": flows}
+        s.commit()
         run = analysis.run_all(s, inv_id, prog, job_id=job_id)
         run_status, run_id, run_summary = run.status, run.id, run.summary
-        flows = _flow_analysis(s, job_id, inv_id)
         # Publish the run and terminal job under the same investigation lock/transaction.
         j = s.get(Job, job_id)
         j.state, j.finished_at, j.current_item = "COMPLETED", utcnow(), ""
         j.stages = {**(j.stages or {}), "analyze": {"pct": 100, "done": True,
-            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}, "flows": flows}
+            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}}
 
 
 def _flow_analysis(s, job_id: str, inv_id: str) -> dict:

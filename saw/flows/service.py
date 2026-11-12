@@ -27,6 +27,37 @@ WEB_FIELDS = ["event_id", "timestamp", "data_source", "src_ip", "src_port", "dst
 SIDE_FIELDS = ["event_id", "timestamp", "data_source", "src_ip", "dst_ip", "dst_port", "hostname", "method", "uri",
                "status_code", "user", "alert_name", "enforcement_action", "ext"]
 NETWORK_FLOWS = 30
+PAGE = 5000  # the event store's largest page
+
+
+def ordered(es, inv_id: str, filters: list[Filter], time: TimeRange | None):
+    """Every matching record in time order, read as time windows of at most one page each.
+
+    Following a cursor makes the store sort what is left again for every page (measured: 100k records took 63 s);
+    a window that fits in one page needs one bounded query. Records without a time come first, as the store orders them.
+    """
+    yield from es.iterate(inv_id, [*filters, Filter(field="timestamp", op="not_exists")], None, batch=PAGE)
+    first, last = (time.start, time.end) if time and time.start and time.end else es.time_bounds(inv_id, filters)
+    a, b = engine.epoch(first), engine.epoch(last)
+    if a is None or b is None:
+        return
+    exclusive = bool(time and time.end_exclusive)
+    stack = [(a, b, not exclusive)]
+    while stack:
+        lo, hi, closed = stack.pop()
+        window = TimeRange(start=engine._iso(lo), end=engine._iso(hi), end_exclusive=not closed)
+        n = es.count(inv_id, filters, window)
+        if not n:
+            continue
+        if n <= PAGE or hi - lo < 0.002:
+            # One page, or one instant holding more than a page: the store's own paging handles the latter.
+            yield from (es.search(inv_id, filters, window, "asc", PAGE)["events"] if n <= PAGE
+                        else es.iterate(inv_id, filters, window, batch=PAGE))
+            continue
+        # Split where the records are, not where the clock is: aim each half at about half the records.
+        mid = lo + (hi - lo) / 2
+        stack.append((mid, hi, closed))
+        stack.append((lo, mid, False))
 
 
 class RunIn(BaseModel):
@@ -166,40 +197,72 @@ def run(s, p, inv_id: str, body: RunIn | dict | None = None, *, system: bool = F
             and previous.status in ("complete", "partial", "no_data")):
         return {**run_out(s, previous), "reused": True}
     started = _time.monotonic()
-    number = (s.scalar(select(func.max(FlowRun.version)).where(FlowRun.investigation_id == inv_id)) or 0) + 1
-    row = FlowRun(investigation_id=inv_id, version=number, reason=body.reason, input_sha256=sha,
-                  knowledge={i["id"]: i["version"] for i in items}, scope=scope,
-                  created_by=getattr(p, "user_id", "") or "")
-    s.add(row)
-    s.flush()
+    org_unit_id, actor = inv.org_unit_id, getattr(p, "user_id", "") or ""
+    first = es.time_bounds(inv_id)[0] if body.time is None else body.time.start
+    history, signature = _history(s, inv, first), _signature_lookup(s)
+    if not system:
+        # The analysis can take a while. Nothing is held in the database meanwhile, so other analysts' screens
+        # (and this investigation's own) keep answering; the result is written in a second, short transaction.
+        s.commit()
     try:
         compiled = engine.Compiled(items)
+        clock = {"read": 0.0}
+        t0 = _time.monotonic()
         side = _side(es, inv_id, body.time)
-        web = es.iterate(inv_id, [Filter(field="data_source", value="web"), Filter(field="uri", op="exists")],
-                         body.time, fields=WEB_FIELDS, batch=5000)
-        first = es.time_bounds(inv_id)[0] if body.time is None else body.time.start
+        t_side = _time.monotonic() - t0
+
+        def timed(rows):
+            """Where the time goes: reading records from the store, or analysing them."""
+            it = iter(rows)
+            while True:
+                t = _time.monotonic()
+                try:
+                    row = next(it)
+                except StopIteration:
+                    clock["read"] += _time.monotonic() - t
+                    return
+                clock["read"] += _time.monotonic() - t
+                yield row
+
+        web = timed(ordered(es, inv_id, [Filter(field="data_source", value="web"), Filter(field="uri", op="exists")],
+                            body.time))
+        t0 = _time.monotonic()
         result = engine.analyze(web, app_events=side["app"], alerts=side["alerts"], ddos=side["ddos"],
                                 compiled=compiled, options={"baseline_end": body.baseline_end},
-                                history=_history(s, inv, first), signature=_signature_lookup(s))
+                                history=history, signature=signature)
+        t_all = _time.monotonic() - t0
+        t0 = _time.monotonic()
         for flow in result["flows"][:NETWORK_FLOWS]:
             flow["network"] = _network(es, inv_id, flow, engine.DEFAULTS["skew_seconds"])
+        result["timing_ms"] = {"read_side_records": int(t_side * 1000), "read_http_records": int(clock["read"] * 1000),
+                               "analyze": int((t_all - clock["read"]) * 1000),
+                               "connection_lookups": int((_time.monotonic() - t0) * 1000)}
         result["side"]["truncated"] = side["truncated"]
         if side["truncated"]:
             result["status"] = "partial" if result["status"] == "complete" else result["status"]
             result["completeness"]["note"] = (result["completeness"]["note"] + " 보조 기록(애플리케이션·보안장비) 일부만 읽었습니다.").strip()
         if not items:
             result["knowledge_note"] = "적용할 지식이 없습니다. 로그에서 '메모하고 기억하기'로 업무 의미를 등록하면 다음 분석부터 적용됩니다."
-        row.status = result["status"]
+        status, failure = result["status"], None
+    except Exception as exc:  # noqa: BLE001 - a failed run is recorded as failed, never shown as "nothing found"
+        status, failure = "failed", {"error": type(exc).__name__, "detail": str(exc)[:500]}
+    if not system:
+        require(s, p, "investigation.write", inv_id)  # the investigation may have been closed or deleted meanwhile
+    previous = s.scalar(select(FlowRun).where(FlowRun.investigation_id == inv_id).order_by(FlowRun.version.desc()))
+    row = FlowRun(investigation_id=inv_id, version=(previous.version if previous else 0) + 1, reason=body.reason,
+                  input_sha256=sha, knowledge={i["id"]: i["version"] for i in items},
+                  scope={**scope, "org_unit_id": org_unit_id}, created_by=actor, status=status)
+    if failure:
+        row.result = failure
+    else:
         row.result = result
         row.changes = _changes(previous, result, items, manifest)
         row.summary = {"manifest_events": manifest["events"], "records_read": result["counts"]["records_read"],
                        "labeled": result["counts"]["labeled"], "flows": result["completeness"]["flows_total"],
                        "attention": result["completeness"]["flows_needing_a_look"],
                        "knowledge_items": len(items), "conflicts": len(result["conflicts"])}
-    except Exception as exc:  # noqa: BLE001 - a failed run is recorded as failed, never shown as "nothing found"
-        row.status = "failed"
-        row.result = {"error": type(exc).__name__, "detail": str(exc)[:500]}
     row.finished_at, row.elapsed_ms = utcnow(), int((_time.monotonic() - started) * 1000)
+    s.add(row)
     s.flush()
     if not system:
         audit.record(s, "flow_run.create", actor_id=p.user_id, actor_name=p.username, target_type="flow_run",
@@ -210,8 +273,7 @@ def run(s, p, inv_id: str, body: RunIn | dict | None = None, *, system: bool = F
 def _side(es, inv_id: str, time: TimeRange | None) -> dict:
     limit, out, truncated = engine.DEFAULTS["max_side_records"], {"app": [], "alerts": [], "ddos": []}, False
     for name, sources in (("app", ["app"]), ("alerts", ["waf", "ips"]), ("ddos", ["ddos"])):
-        for e in es.iterate(inv_id, [Filter(field="data_source", op="in", value=sources)], time,
-                            fields=SIDE_FIELDS, batch=5000):
+        for e in ordered(es, inv_id, [Filter(field="data_source", op="in", value=sources)], time):
             if len(out[name]) >= limit:
                 truncated = True
                 break
