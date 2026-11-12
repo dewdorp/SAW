@@ -108,7 +108,7 @@ def store_mode(sessions: int, days: int, readers: int) -> dict:
     inv = c.post("/api/v1/investigations", json={"title": "bench", "org_unit_id": org["id"]}, headers=h).json()
     sample = flow_samples.build(seed=91, background_sessions=sessions, days=days)
     timings = {}
-    from tests.api.test_ingest import upload  # the same chunked upload the product tests use
+    from tests.api.test_phase5_bulk import upload  # the same chunked upload the product tests use
 
     class Api:
         def post(self, url, **kw):

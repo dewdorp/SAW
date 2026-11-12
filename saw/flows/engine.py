@@ -25,7 +25,10 @@ STATIC_EXT = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".
 ROLES = {"auth_page": "인증 화면 접근", "auth_attempt": "인증 시도", "lookup": "조회 요청", "change": "변경 요청",
          "logout": "로그아웃", "other": "기타"}
 DEFAULTS = {"idle_seconds": 1800, "join_seconds": 5, "skew_seconds": 2, "max_records": 3_000_000,
-            "max_flows": 300, "max_steps": 300, "max_side_records": 300_000}
+            "max_flows": 300, "max_steps": 300, "max_side_records": 300_000,
+            # A grouping silent this long is written out and its steps released, so memory follows the sessions that
+            # are active, not the whole period. Its authentication state is carried into a later part.
+            "release_seconds": 4 * 3600, "sweep_every": 20_000}
 
 
 def get(e: dict, path: str):
@@ -270,7 +273,34 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
     baseline_end = epoch(opt.get("baseline_end")) if opt.get("baseline_end") else None
     apps, alert_index = SideIndex(app_events), SideIndex(alerts)
     sessions: dict[tuple, _Session] = {}
-    done: list[_Session] = []
+    kept: list[dict] = []
+    tally = {"flows": 0, "empty": 0, "attention": 0}
+
+    def close(s: _Session) -> None:
+        """Turn a finished grouping into its flow; only the flows most worth a look are kept in full."""
+        if not s.total:
+            return
+        if not s.steps:
+            tally["empty"] += 1
+            return
+        flow = _flow(s, compiled, intervals, opt)
+        tally["flows"] += 1
+        tally["attention"] += 1 if flow["attention"] > 0 else 0
+        kept.append(flow)
+        if len(kept) > 4 * opt["max_flows"]:
+            kept.sort(key=lambda f: (-f["attention"], f["start"] or ""))
+            del kept[opt["max_flows"]:]
+
+    def sweep(now: float) -> None:
+        for key, s in list(sessions.items()):
+            if s.last is None or now - s.last <= opt["release_seconds"]:
+                continue
+            close(s)
+            if s.link == "candidate":
+                del sessions[key]  # a candidate grouping never continues after a long silence
+            else:
+                s.steps, s.omitted, s.total, s.unlabeled, s.first = [], 0, 0, 0, None
+                s.seen_pairs, s.prev_label, s.prev_t, s.part = set(), None, None, s.part + 1
     transitions: dict[tuple, dict] = {}
     counts = {"records_read": 0, "labeled": 0, "unlabeled": 0, "static_skipped": 0, "no_time": 0, "duplicates": 0,
               "no_host": 0, "conflicting_definition": 0, "sessions_confirmed": 0, "sessions_candidate": 0}
@@ -287,6 +317,8 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
             truncated = True
             break
         counts["records_read"] += 1
+        if counts["records_read"] % opt["sweep_every"] == 0 and last_t is not None:
+            sweep(last_t)
         t = epoch(e.get("timestamp"))
         if t is None:
             counts["no_time"] += 1  # a record without a time has no place in an order; it is counted, not placed
@@ -325,7 +357,7 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
             key = ("c", host, e.get("src_ip") or "", e.get("user_agent") or "")
         s = sessions.get(key)
         if s is not None and not ref and s.last is not None and t - s.last > opt["idle_seconds"]:
-            done.append(s)  # a candidate grouping ends after a long silence: later requests may be someone else
+            close(s)  # a candidate grouping ends after a long silence: later requests may be someone else
             part = s.part + 1
             s = None
         else:
@@ -338,6 +370,8 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
             s.part = part
             s.first, s.ua = t, e.get("user_agent")
             counts["sessions_confirmed" if ref else "sessions_candidate"] += 1
+        if s.first is None:
+            s.first = t
         s.last = t
         s.total += 1
         if e.get("src_ip"):
@@ -387,10 +421,10 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
                     tr["example_event_ids"].append(e["event_id"])
         s.prev_label, s.prev_t = label, t
 
-    done.extend(sessions.values())
-    flows = [f for f in (_flow(s, compiled, intervals, opt) for s in done if s.steps) if f]
-    flows.sort(key=lambda f: (-f["attention"], f["start"] or ""))
-    shown = flows[:opt["max_flows"]]
+    for s in sessions.values():
+        close(s)
+    kept.sort(key=lambda f: (-f["attention"], f["start"] or ""))
+    shown = kept[:opt["max_flows"]]
     discovery = _discovery(transitions, compiled, baseline_end, history or set())
     by_host_unlabeled = sorted(unlabeled_paths.values(), key=lambda r: -r["count"])
     for row in by_host_unlabeled[:200]:
@@ -404,8 +438,9 @@ def analyze(web_events, *, app_events: list[dict], alerts: list[dict], ddos: lis
                  "skew_seconds": opt["skew_seconds"],
                  "note": "발생 시각 순으로 정렬했습니다. 같은 시각의 기록은 순서를 정하지 않았고, 시각이 없는 기록은 흐름에 넣지 않았습니다."},
         "completeness": {"truncated": truncated, "max_records": opt["max_records"],
-                         "flows_total": len(flows), "flows_shown": len(shown),
-                         "sessions_without_known_activity": sum(1 for s in done if not s.steps),
+                         "flows_total": tally["flows"], "flows_shown": len(shown),
+                         "flows_needing_a_look": tally["attention"],
+                         "sessions_without_known_activity": tally["empty"],
                          "note": "처리 한도를 넘은 기록은 검사하지 않았습니다." if truncated else ""},
         "services": [{**svc, "activities": sorted(svc["activities"].values(), key=lambda a: -a["count"]),
                       "link": _link_status(compiled, svc["host"])} for svc in
@@ -596,6 +631,8 @@ def _flow(s: _Session, compiled: Compiled, intervals: list[dict], opt) -> dict |
 
     if session_confirmed:
         confirmed.append(f"세션 참조 {ref8}의 요청 {s.total}건을 한 세션으로 연결했습니다({s.link_text}).")
+        if s.part:
+            inferred.append("같은 세션의 앞부분은 오래 전(4시간 이상)이라 별도 흐름으로 표시했습니다. 인증 상태는 앞부분에서 이어받았습니다.")
     else:
         inferred.append(f"요청 {s.total}건을 한 흐름 후보로 묶었습니다({s.link_text}).")
         unknown.append("같은 세션인지 확인되지 않았습니다. 세션 식별 쿠키를 지식으로 등록하면 세션 단위로 다시 연결합니다.")

@@ -128,7 +128,7 @@ export function FlowsTab({ inv }: { inv: string }) {
   return <div className="col fk-tab">
     <Panel title="업무 흐름" right={<span className="small muted">분석 v{r.version} · {fmtTime(r.finished_at)} · {({ ingest: "자료 추가 뒤 자동", knowledge_changed: "지식 변경 뒤", manual: "직접 실행" } as any)[r.reason]}</span>}>
       <p className="fk-summary" role="status"><b>{STATUS_KO[r.status]}</b> · HTTP 요청 {c.records_read.toLocaleString()}건 중 <b>{c.labeled.toLocaleString()}건</b>에 업무 의미 적용 · 흐름 {res.completeness.flows_total.toLocaleString()}개
-        (세션으로 연결 {c.sessions_confirmed.toLocaleString()} · IP·시간 후보 {c.sessions_candidate.toLocaleString()}) · <b>살펴볼 흐름 {attention.length}개</b>
+        (세션으로 연결 {c.sessions_confirmed.toLocaleString()} · IP·시간 후보 {c.sessions_candidate.toLocaleString()}) · <b>살펴볼 흐름 {(res.completeness.flows_needing_a_look ?? attention.length).toLocaleString()}개</b>
         {c.duplicates > 0 && ` · 중복 기록 ${c.duplicates}건 제외`}{c.no_time > 0 && ` · 시각 없는 기록 ${c.no_time}건 제외`}</p>
       {r.status === "partial" && <p role="alert" className="small">처리 한도 때문에 일부만 검사했습니다. {res.completeness.note} 검사하지 않은 범위에 흐름이 더 있을 수 있습니다.</p>}
       {res.knowledge_note && <p className="small" role="note">{res.knowledge_note}</p>}

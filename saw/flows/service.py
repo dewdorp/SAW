@@ -194,7 +194,7 @@ def run(s, p, inv_id: str, body: RunIn | dict | None = None, *, system: bool = F
         row.changes = _changes(previous, result, items, manifest)
         row.summary = {"manifest_events": manifest["events"], "records_read": result["counts"]["records_read"],
                        "labeled": result["counts"]["labeled"], "flows": result["completeness"]["flows_total"],
-                       "attention": sum(1 for f in result["flows"] if f["attention"] > 0),
+                       "attention": result["completeness"]["flows_needing_a_look"],
                        "knowledge_items": len(items), "conflicts": len(result["conflicts"])}
     except Exception as exc:  # noqa: BLE001 - a failed run is recorded as failed, never shown as "nothing found"
         row.status = "failed"
