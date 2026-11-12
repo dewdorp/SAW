@@ -1,6 +1,6 @@
 // API client: same-origin, session cookie + CSRF header on unsafe methods (docs/11 §1).
 export class ApiError extends Error {
-  constructor(public status: number, public detail: string) {
+  constructor(public status: number, public detail: string, public body?: any) {
     super(detail);
   }
 }
@@ -26,7 +26,7 @@ async function req<T>(method: string, url: string, body?: unknown, raw?: BodyIni
   }
   const ct = r.headers.get("content-type") || "";
   const data = r.ok && responseType === "text" ? await r.text() : ct.includes("json") ? await r.json() : await r.text();
-  if (!r.ok) throw new ApiError(r.status, typeof data === "string" ? data : data.detail || data.title || r.statusText);
+  if (!r.ok) throw new ApiError(r.status, typeof data === "string" ? data : data.detail || data.title || r.statusText, data);
   return data as T;
 }
 

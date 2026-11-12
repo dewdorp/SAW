@@ -11,8 +11,9 @@ import { ErrorBox, Loading, Panel } from "../components/common";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import { GoldenCases, GoldenReview, type GoldenChoice } from "./Golden";
+import { FlowKnowledge } from "./knowledge/FlowKnowledge";
 
-const TABS: [string, string][] = [["/knowledge/golden", "정답 사례"], ["/knowledge/releases", "반출 패키지"], ["/knowledge/profiles", "반출 프로필"], ["/knowledge/holdout-attempts", "평가 사용 이력"], ["/knowledge", "SOC 경험"], ["/knowledge/review", "승인 대기"], ["/knowledge/assets", "자산 정보"],
+const TABS: [string, string][] = [["/knowledge/flows", "업무 의미·흐름"], ["/knowledge/golden", "정답 사례"], ["/knowledge/releases", "반출 패키지"], ["/knowledge/profiles", "반출 프로필"], ["/knowledge/holdout-attempts", "평가 사용 이력"], ["/knowledge", "SOC 경험"], ["/knowledge/review", "승인 대기"], ["/knowledge/assets", "자산 정보"],
   ["/knowledge/fp", "오탐 규칙"], ["/knowledge/playbooks", "점검 절차"], ["/knowledge/similar", "유사 사례 검색"]];
 
 export function Knowledge() {
@@ -25,6 +26,7 @@ export function Knowledge() {
       <PageHeader eyebrow="지식" title="SOC 지식" desc="승인된 대응 경험(SOC Experience)과 자산 정보입니다. 작성자와 다른 사람이 승인해야 반영됩니다." />
       <div className="tabs">{TABS.map(([to, l]) => <Link key={to} to={to}><button className={loc.pathname === to ? "active" : ""}>{l}</button></Link>)}</div>
       <Routes key={JSON.stringify([principal.data?.id, principal.data?.permissions])}>
+        <Route path="flows" element={<FlowKnowledge />} />
         <Route path="golden" element={<GoldenCases />} />
         <Route path="releases" element={<ReleaseList />} />
         <Route path="releases/new" element={<ReleaseForm key="new" />} />
