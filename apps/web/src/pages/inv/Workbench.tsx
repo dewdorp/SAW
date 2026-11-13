@@ -19,6 +19,7 @@ import { EntityTab } from "./EntityTab";
 import { EventDrawer } from "./EventDrawer";
 import { FindingsTab } from "./FindingsTab";
 import { FlowsTab } from "./flows/FlowsTab";
+import { HuntActivities } from "../hunt/HuntActivities";
 import { ForensicsTab } from "./ForensicsTab";
 import { HttpTab } from "./HttpTab";
 import { NetworkTab } from "./NetworkTab";
@@ -37,6 +38,8 @@ import { TimelineTab } from "./TimelineTab";
  * is still here; specialist views fold under "전문 분석". */
 type Area = { key: string; label: string; hint: string; tabs: [string, string][]; advanced?: [string, string][] };
 const AREAS: Area[] = [
+  { key: "hunt", label: "확인할 활동", hint: "자료에서 먼저 찾은 활동, 근거, 판단",
+    tabs: [["activities", "확인할 활동"]] },
   { key: "picture", label: "① 전체 현황", hint: "조사 범위·전체 건수·수집과 파싱 상태·기간별 변화·주요 통신과 공격명·확인할 질문",
     tabs: [["summary", "전체 현황"], ["overview", "트래픽 개요"], ["source-context", "장비·자료 의미"], ["analysis-history", "분석 실행 이력"]] },
   { key: "investigate", label: "② 조사", hint: "조사 제안과 생성 이유, 등록한 업무 의미로 본 흐름, 반복 행위 묶음, 시계열",
@@ -69,7 +72,7 @@ export function Workbench() {
   const tabs = useInvTabs();
   const qc = useQueryClient();
   // One refresh contract: anything that changes the period, data or analysis refreshes every view built on it.
-  const refreshScope = () => ["inv", "scope-summary", "question-bundles", "field-meanings", "alert-names", "findings", "internal-golden", "checks", "agg", "facets", "raw", "rawcount", "flows"]
+  const refreshScope = () => ["inv", "scope-summary", "question-bundles", "field-meanings", "alert-names", "findings", "internal-golden", "checks", "agg", "facets", "raw", "rawcount", "flows", "hunt"]
     .forEach((key) => qc.invalidateQueries({ queryKey: [key, id] }));
   const [upload, setUpload] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -117,7 +120,7 @@ export function Workbench() {
       <div className="wb-head col" style={{ gap: 8 }}>
         <div className="row wrap" style={{ gap: 12 }}>
           <div className="col" style={{ gap: 2, minWidth: 0 }}>
-            <div className="eyebrow" style={{ marginBottom: 0 }}>{i.display_id} · 조사 작업대</div>
+            <div className="eyebrow" style={{ marginBottom: 0 }}>{i.display_id} · 헌팅 작업대</div>
             <div className="row wrap" style={{ gap: 10, maxWidth: "100%" }}>
               <h2 className="wb-title" style={{ fontSize: 20, lineHeight: 1.4 }} title={i.title}>{i.title}</h2>
               {i.risk_level && <span className="badge" title={i.risk_score == null ? undefined : `산출 점수: ${i.risk_score}`}>위험도 {({ critical: "심각", high: "높음", medium: "보통", low: "낮음", info: "정보" } as Record<string,string>)[i.risk_level] || i.risk_level}</span>}
@@ -241,6 +244,7 @@ export function Workbench() {
             {ctx.tab === "analysis-history" && <AnalysisHistoryTab key={id} inv={id} />}
             {ctx.tab === "statistics" && <StatisticsTab inv={id} />}
             {ctx.tab === "behavior" && <BehaviorTab inv={id} />}
+            {ctx.tab === "activities" && <HuntActivities inv={id} />}
             {ctx.tab === "findings" && <FindingsTab inv={id} />}
             {ctx.tab === "flows" && <FlowsTab inv={id} />}
             {ctx.tab === "story" && <StoryTab inv={id} />}

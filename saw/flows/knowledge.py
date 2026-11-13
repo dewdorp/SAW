@@ -100,8 +100,51 @@ class FlowContent(Strict):
         return self
 
 
-CONTENT = {"activity": ActivityContent, "link": LinkContent, "flow": FlowContent}
-KIND_KO = {"activity": "업무 의미", "link": "연결 기준", "flow": "흐름"}
+class ScenarioStep(Strict):
+    """One request pattern of a scenario, in words an analyst reads: a label and what request it is."""
+    label: Annotated[str, Field(min_length=1, max_length=100)]
+    method: Annotated[str, Field(max_length=16, pattern=r"^[A-Za-z]*$")] = ""
+    path: Annotated[str, Field(min_length=1, max_length=900, pattern=r"^/")]
+    match: Literal["exact", "prefix", "pattern"] = "exact"
+
+
+class ScenarioContent(Strict):
+    """An executable procedure: what flow to look for, tied by what, within what time, counted in what unit.
+
+    One definition makes the description, the validation, the preview, the run and the version. A description
+    without an executor is reference material, not a scenario.
+    """
+    name: Annotated[str, Field(min_length=1, max_length=200)]
+    purpose: Text = ""
+    kind: Literal["then_variation", "sequence", "periodic_external", "spread_internal", "alert_then_traffic",
+                  "ddos_window_access"]
+    host: Annotated[str, Field(max_length=255, pattern=r"^[A-Za-z0-9._\-\[\]:]*$")] = ""
+    # What "the same actor" means. A confirmed session needs the service's link criteria; a source address is only
+    # a candidate grouping and the result says so.
+    entity: Literal["session", "src_ip"] = "src_ip"
+    window_seconds: Annotated[int, Field(ge=1, le=86400 * 31)] = 600
+    steps: list[ScenarioStep] = Field(default_factory=list, max_length=6)
+    # What is counted: each distinct value of a parameter, or each distinct request (a re-delivered record is one).
+    count_unit: Literal["distinct_param", "requests"] = "distinct_param"
+    count_param: Annotated[str, Field(max_length=128)] = ""
+    min_count: Annotated[int, Field(ge=1, le=1_000_000)] = 5
+    state: Literal["draft", "active"] = "draft"
+    normal_note: Text = ""
+    template: Annotated[str, Field(max_length=64)] = ""
+
+    @model_validator(mode="after")
+    def tidy(self):
+        self.host = norm_host(self.host)
+        need = {"then_variation": 2, "sequence": 2}.get(self.kind, 0)
+        if len(self.steps) < need:
+            raise ValueError(f"이 흐름에는 단계가 {need}개 이상 필요합니다.")
+        if self.kind == "then_variation" and self.count_unit == "distinct_param" and not self.count_param:
+            raise ValueError("무엇이 바뀌는지를 셀 파라미터 이름을 적어 주세요(예: 회원번호 파라미터).")
+        return self
+
+
+CONTENT = {"activity": ActivityContent, "link": LinkContent, "flow": FlowContent, "scenario": ScenarioContent}
+KIND_KO = {"activity": "업무 의미", "link": "연결 기준", "flow": "흐름", "scenario": "시나리오"}
 
 
 class Evidence(Strict):
@@ -111,7 +154,7 @@ class Evidence(Strict):
 
 
 class KnowledgeIn(Strict):
-    kind: Literal["activity", "link", "flow"]
+    kind: Literal["activity", "link", "flow", "scenario"]
     org_unit_id: Annotated[str, Field(max_length=36)] | None = None
     content: dict
     change_note: Text = ""
@@ -147,6 +190,8 @@ def scope_key(kind: str, org: str | None, content: dict) -> str:
         return f"activity|{org}|{content['host']}|{content.get('method', '')}|{content.get('match', 'exact')}|{content['path']}|{params}"[:700]
     if kind == "link":
         return f"link|{org}|{content['host']}"
+    if kind == "scenario":
+        return f"scenario|{org}|{content['name']}"[:700]
     return f"flow|{org}|{content['host']}|{content['name']}"[:700]
 
 
@@ -209,6 +254,8 @@ def _core(kind: str, c: dict):
         return (c.get("meaning"), c.get("role"))
     if kind == "link":
         return (c.get("session_cookie"), bool(c.get("request_id_confirmed")))
+    if kind == "scenario":
+        return json.dumps({k: v for k, v in c.items() if k not in ("name", "state", "purpose", "normal_note")}, sort_keys=True)
     return json.dumps(c.get("steps"), sort_keys=True)
 
 

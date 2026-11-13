@@ -58,7 +58,10 @@ export function App() {
     <Shell me={me.data}>
       <Suspense fallback={<Loading />}>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Hunts />} />
+        <Route path="/hunts" element={<Hunts />} />
+        <Route path="/home" element={<Home />} />
+        <Route path="/settings" element={<Settings permissions={me.data.permissions || []} />} />
         <Route path="/analyze" element={<UniversalPage />} />
         <Route path="/analyze/ioc" element={<IocPage />} />
         <Route path="/analyze/http" element={<HttpPage />} />
