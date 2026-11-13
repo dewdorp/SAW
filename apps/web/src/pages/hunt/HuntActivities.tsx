@@ -4,6 +4,7 @@ import { ErrorBox, Loading } from "../../components/common";
 import { useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtTime } from "../../lib/format";
+import { AiPanel } from "./AiPanel";
 import "./hunt.css";
 
 export const REVIEW_KO: Record<string, string> = { unreviewed: "미검토", needs_check: "추가 확인", normal_work: "정상 업무", threat_confirmed: "위협 확인" };
@@ -110,6 +111,7 @@ export function HuntActivities({ inv }: { inv: string }) {
           <td className="small">{m.records != null ? `기록 ${Number(m.records).toLocaleString()}건` : "—"}{m.examined && Object.keys(m.examined).length > 0 && <div className="muted">{Object.entries(m.examined).map(([k, v]) => `${k} ${v}`).join(" · ")}</div>}</td>
           <td className="small">{[...(m.needs || []), ...(m.partial_reasons || []), m.error ? `오류 ${m.error}` : ""].filter(Boolean).join(" / ") || "—"}</td></tr>)}</tbody></table>
       <p className="small muted">{s.note} "조건 일치 없음"은 이 기준에서 보이지 않았다는 뜻이며 정상이라는 뜻이 아닙니다. "자료 부족"·"미지원"은 계산하지 못한 것입니다.</p></details>
+    <AiPanel inv={inv} />
     <div className="ha-body">
       <aside className="ha-list" aria-label="확인할 활동 목록">
         <div className="row wrap ha-filters" role="group" aria-label="검토 상태로 걸러 보기">

@@ -29,3 +29,5 @@
 .sc-card { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .sc-said { border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; }
 .sc-said p { margin: 2px 0; }
+.ha-airun { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+.ha-airun ol { padding-left: 20px; overflow-wrap: anywhere; }
