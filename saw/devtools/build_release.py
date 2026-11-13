@@ -276,6 +276,8 @@ def copy_web_dist(out: Path):
             copy_file(p, target / rel)
     for rel in authored:
         copy_file(dist / rel, target / rel)
+    if (dist / 'version.json').is_file():
+        copy_file(dist / 'version.json', target / 'version.json')  # which web bundle this is (shown on the version screen)
     # Rebuild the synthetic archive from source; never accept arbitrary ZIPs in dist.
     write_sample_archive(target / 'reference-data/long-window-sample.zip')
     write_case_archives(target / case_dir)

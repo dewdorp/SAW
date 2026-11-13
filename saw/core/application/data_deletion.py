@@ -397,6 +397,9 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     from saw.flows.models import FlowJudgement, FlowRun
     s.execute(delete(FlowJudgement).where(FlowJudgement.investigation_id == iid))
     s.execute(delete(FlowRun).where(FlowRun.investigation_id == iid))
+    from saw.hunts.models import HuntReview, HuntRun
+    s.execute(delete(HuntReview).where(HuntReview.investigation_id == iid))
+    s.execute(delete(HuntRun).where(HuntRun.investigation_id == iid))
     fids = select(Finding.id).where(Finding.investigation_id == iid)
     s.execute(delete(FindingFeedback).where(FindingFeedback.finding_id.in_(fids)))
     for model in (Finding, Pattern, ParameterProfile, Entity, Relation, AttackStory, Correlation, LlmInteraction):

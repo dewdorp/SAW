@@ -425,13 +425,20 @@ def analyze_job(job_id: str, inv_id: str, ev_id: str | None) -> None:
         j = s.get(Job, job_id)
         j.stages = {**(j.stages or {}), "flows": flows}
         s.commit()
-        run = analysis.run_all(s, inv_id, prog, job_id=job_id)
+        try:
+            run = analysis.run_all(s, inv_id, prog, job_id=job_id)
+        except Exception:
+            s.rollback()
+            _hunt_analysis(s, job_id, inv_id)  # the activities already computable are kept even if a detector stage fails
+            s.commit()
+            raise
         run_status, run_id, run_summary = run.status, run.id, run.summary
+        hunt = _hunt_analysis(s, job_id, inv_id)
         # Publish the run and terminal job under the same investigation lock/transaction.
         j = s.get(Job, job_id)
         j.state, j.finished_at, j.current_item = "COMPLETED", utcnow(), ""
         j.stages = {**(j.stages or {}), "analyze": {"pct": 100, "done": True,
-            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}}
+            "analysis_run_id": run_id, "status": run_status, "summary": run_summary}, "hunt": hunt}
 
 
 def _flow_analysis(s, job_id: str, inv_id: str) -> dict:
@@ -444,6 +451,19 @@ def _flow_analysis(s, job_id: str, inv_id: str) -> dict:
             return flows.auto_run(s, inv_id, job.requested_by if job else "") or {"status": "skipped"}
     except Exception as exc:  # noqa: BLE001
         log.error("flow analysis failed: %s", traceback.format_exc())
+        return {"status": "failed", "error": type(exc).__name__}
+
+
+def _hunt_analysis(s, job_id: str, inv_id: str) -> dict:
+    """One list of activities from every built-in analysis. A failure is reported; it never fails the ingest."""
+    from saw.hunts import service as hunts
+
+    try:
+        with s.begin_nested():
+            job = s.get(Job, job_id)
+            return hunts.auto_run(s, inv_id, job.requested_by if job else "")
+    except Exception as exc:  # noqa: BLE001
+        log.error("hunt analysis failed: %s", traceback.format_exc())
         return {"status": "failed", "error": type(exc).__name__}
 
 
