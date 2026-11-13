@@ -8,7 +8,7 @@ import { api } from "../../lib/api";
 import { fmtTime } from "../../lib/format";
 import "./hunt.css";
 
-const BUCKETS: [string, string, string][] = [["running", "진행 중", "자료 처리·분석이 진행 중이거나 아직 자료가 없는 헌팅"], ["review", "확인 필요", "미검토 활동이나 추가 확인이 남은 헌팅"],
+const BUCKETS: [string, string, string][] = [["running", "진행 중", "자료 처리·분석이 실행 중인 헌팅"], ["review", "확인 필요", "미검토 활동이나 추가 확인이 남았거나 아직 분석하지 않은 헌팅"],
   ["review_done", "검토 끝", "모든 활동을 검토했지만 아직 종결하지 않은 헌팅"], ["done", "완료", "종결한 헌팅"]];
 const SOURCE_KO: Record<string, string> = { web: "NDR HTTP", connection: "FW·연결", firewall: "방화벽", waf: "WAF", ips: "IPS", ddos: "DDoS", app: "애플리케이션" };
 

@@ -104,7 +104,7 @@ def _findings(s, inv_id: str) -> tuple[list[dict], list[dict]]:
         counter = [c.get("text") or c.get("label") or str(c) for c in (f.counter_evidence or [])[:5]] if f.counter_evidence else []
         open_checks = [c.get("label") for c in (f.checks or []) if isinstance(c, dict) and c.get("passed") is None][:5]
         activities.append(_activity(
-            f"detector.{f.detector_id}", f.title, observed=metrics or [f.explanation_md.splitlines()[0] if f.explanation_md else f.title],
+            f"detectors.{f.detector_id}", f.title, observed=metrics or [f.explanation_md.splitlines()[0] if f.explanation_md else f.title],
             why=[str(r.get("label") or r) if isinstance(r, dict) else str(r) for r in (f.risk_factors or [])[:5]],
             normal=counter or ["정상 업무로 설명될 수 있는지 이 탐지에는 기록되어 있지 않습니다."],
             unknown=open_checks or ["이 탐지의 확인 항목을 '조사 제안'에서 확인하세요."],
@@ -141,8 +141,8 @@ def _flows(s, inv: Investigation) -> tuple[list[dict], list[dict]]:
             continue
         activities.append(_activity(
             "flows", f["summary"], observed=f.get("confirmed"), why=[FLAG_WHY[x] for x in f.get("flags") or [] if x in FLAG_WHY]
-            or f.get("inferred"), normal=["등록된 흐름과 같은 순서라도 이 사건의 정상 판단은 분석가가 남깁니다.",
-                                           *[line for line in f.get("inferred") or [] if "DDoS" not in line]][:4],
+            or f.get("inferred"), normal=["사용자가 화면을 다시 불러 왔거나, 다른 유효 세션·SSO·기존 세션이 있었을 수 있습니다.",
+                                           "등록된 흐름과 순서가 같더라도 이 사건의 정상 판단은 분석가가 남깁니다."],
             unknown=f.get("unknown"), next_checks=f.get("next_checks"), time={"start": f.get("start"), "end": f.get("end")},
             entities=[*f.get("src_ips", []), *f.get("accounts", [])],
             evidence={"flow_key": f["key"], "flow_run_id": row.id, "tab": "flows"}, counts={"requests": f.get("requests")},
@@ -441,7 +441,7 @@ def listing(s, p, *, limit: int = 300) -> dict:
         needs_check = sum(1 for r in reviews.values() if r["state"] == "needs_check")
         progress = _jobs(s, inv.id)
         bucket = ("done" if inv.status == "closed" else "running" if progress["state"] == "running"
-                  else "review" if unreviewed or needs_check else "running" if run_row is None else "review_done")
+                  else "review" if unreviewed or needs_check or run_row is None else "review_done")
         out.append({"id": inv.id, "display_id": inv.display_id, "title": inv.title, "org_unit": inv.org_unit,
                     "status": inv.status, "verdict": inv.verdict, "created_at": inv.created_at,
                     "period": {"start": inv.time_start, "end": inv.time_end}, "progress": progress, "bucket": bucket,
