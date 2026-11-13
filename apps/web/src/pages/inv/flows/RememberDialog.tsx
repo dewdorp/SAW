@@ -83,13 +83,17 @@ export function RememberDialog({ inv, seed, flow, onClose, onSaved }: { inv: str
   const [verdict, setVerdict] = useState("");
   const [note, setNote] = useState("");
   const [conflict, setConflict] = useState<any[] | null>(null);
+  // Scope: this investigation's affiliate by default, so one affiliate's meaning is not applied to another's service.
+  const invq = useQuery({ queryKey: ["inv", inv], queryFn: () => api.get(`/investigations/${inv}`), retry: false });
+  const orgId: string | null = invq.data?.org_unit_id || null;
+  const [common, setCommon] = useState(false);
   const extract = useMutation({ mutationFn: () => api.post("/knowledge/flow-items/extract", { text: memo, host: seed.host || drafts[0]?.content.host || "" }),
     onSuccess: (d: any) => {
       if (d.drafts.length) setDrafts(d.drafts.map((x: any) => ({ kind: x.kind, content: { ...x.content, host: x.content.host || seed.host || "" }, include: true, from: x.from_text })));
       if (d.judgement) { setVerdict(d.judgement.verdict); setNote(memo); }
     } });
   const save = useMutation({ mutationFn: (allow: boolean) => api.post(`/investigations/${inv}/flows/remember`, {
-      items: drafts.filter(d => d.include).map(d => ({ kind: d.kind, content: d.content, allow_conflict: allow,
+      items: drafts.filter(d => d.include).map(d => ({ kind: d.kind, content: d.content, allow_conflict: allow, org_unit_id: common ? null : orgId,
         evidence: { investigation_id: inv, event_ids: (seed.eventIds || []).slice(0, 50), source: seed.source || "event" } })),
       judgement: verdict && flow ? { run_id: flow.runId, flow_key: flow.key, verdict, note, event_ids: flow.eventIds.slice(0, 200) }
         : verdict ? { verdict, note, event_ids: (seed.eventIds || []).slice(0, 200) } : null }),
@@ -118,6 +122,10 @@ export function RememberDialog({ inv, seed, flow, onClose, onSaved }: { inv: str
         </div>)}
         <div className="row wrap"><button className="btn sm" onClick={() => setDrafts([...drafts, blankActivity({ host: seed.host || drafts[0]?.content.host })])}>업무 의미 추가</button>
           <button className="btn sm" onClick={() => setDrafts([...drafts, blankLink({ host: seed.host || drafts[0]?.content.host })])}>연결 기준 추가</button></div>
+        <label className="row small">적용 범위
+          <select className="input" aria-label="적용 범위" value={common || !orgId ? "common" : "org"} disabled={!orgId} onChange={e => setCommon(e.target.value === "common")}>
+            {orgId && <option value="org">이 관계사만 ({invq.data?.org_unit || "지정된 관계사"})</option>}<option value="common">모든 관계사 공통</option></select>
+          <span className="muted">{orgId ? "다른 관계사의 같은 주소에는 적용하지 않습니다." : "이 조사에 관계사가 없어 공통으로 저장합니다."}</span></label>
         <h4 className="fk-h">이번 사건의 판단 (선택)</h4>
         <div className="row wrap small"><select className="input" aria-label="이번 사건의 판단" value={verdict} onChange={e => setVerdict(e.target.value)}>
           <option value="">판단 남기지 않음</option><option value="normal">정상으로 확인</option><option value="suspicious">의심</option><option value="undetermined">미확정</option></select>
