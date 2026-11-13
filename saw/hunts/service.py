@@ -286,11 +286,27 @@ def compute(s, inv: Investigation, time: TimeRange | None = None) -> dict:
         if a["id"] not in seen:
             seen.add(a["id"])
             unique.append(a)
+    _with_assets(s, inv, unique[:MAX_ACTIVITIES])
     statuses = {m["status"] for m in methods}
     status = "failed" if statuses == {"failed"} else "partial" if statuses & {"partial", "failed"} or len(unique) > MAX_ACTIVITIES else "complete"
     return {"scope": _scope(s, inv, es, time), "methods": methods, "activities": unique[:MAX_ACTIVITIES], "status": status,
             "summary": {"activities": len(unique), "shown": min(len(unique), MAX_ACTIVITIES),
                         "methods": {st: sum(1 for m in methods if m["status"] == st) for st in sorted(statuses)}}}
+
+
+def _with_assets(s, inv: Investigation, activities: list[dict]) -> None:
+    """Put what is registered about an activity's addresses next to it. An asset explains; it never hides."""
+    from saw.assets import service as assets
+    from saw.knowledge import asset as store
+
+    rows = [assets.out(a) for a in store.all_assets(s)]
+    if not rows:
+        return
+    for a in activities:
+        found = assets.context_lines(rows, org_unit_id=inv.org_unit_id, entities=a.get("entities") or [], at=(a.get("time") or {}).get("start"))
+        if found:
+            a["assets"] = found
+            a["normal"] = [*a["normal"], *[f["text"] for f in found]][:8]
 
 
 def _versions(s, inv: Investigation) -> dict:
