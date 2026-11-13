@@ -26,6 +26,43 @@ def run(inv_id: str, body: service.RunIn | None = None, ctx: AuthContext = Depen
     return service.run(s, ctx.principal, inv_id, body)
 
 
+@router.get("/investigations/{inv_id}/ai-investigations")
+def ai_list(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from saw.llm import investigator
+
+    return investigator.listing(s, ctx.principal, inv_id)
+
+
+@router.post("/investigations/{inv_id}/ai-investigations", status_code=201)
+def ai_start(inv_id: str, body: dict | None = None, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from saw.core.application.investigations import Forbidden
+    from saw.core.security.authz import can
+    from saw.llm import investigator
+
+    if not can(ctx.principal, "ai.use"):
+        raise Forbidden("ai.use")
+    return investigator.start(s, ctx.principal, inv_id, body)
+
+
+@router.post("/investigations/{inv_id}/ai-investigations/{run_id}/cancel")
+def ai_cancel(inv_id: str, run_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from saw.llm import investigator
+
+    return investigator.cancel(s, ctx.principal, inv_id, run_id)
+
+
+@router.post("/ai/investigator/probe")
+def ai_probe(ctx: AuthContext = Depends(auth)):
+    """Ask the model for one real answer: a server that lists models is not yet a model that can investigate."""
+    from saw.core.application.investigations import Forbidden
+    from saw.core.security.authz import can
+    from saw.llm import investigator
+
+    if not can(ctx.principal, "ai.use"):
+        raise Forbidden("ai.use")
+    return investigator.status(probe=True)
+
+
 @router.post("/investigations/{inv_id}/hunt/reviews", status_code=201)
 def review(inv_id: str, body: service.ReviewIn, ctx: AuthContext = Depends(auth),
            s: Session = Depends(db, scope="function")):
