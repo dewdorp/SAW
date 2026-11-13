@@ -149,7 +149,7 @@ function Palette({ onClose }: { onClose: () => void }) {
     ["빠른 분석: 페이로드 디코딩", () => nav("/analyze/payload")], ["빠른 분석: 요청 비교 (Diff)", () => nav("/analyze/diff")],
     ["빠른 분석: IOC", () => nav("/analyze/ioc")], ["빠른 분석: 로그", () => nav("/analyze/log")],
     ["조사 목록", () => nav("/investigations")], ["작업 상태", () => nav("/jobs")], ["케이스", () => nav("/cases")],
-    ["오프라인 룰·파서", () => nav("/content-packages")], ["SOC 지식", () => nav("/knowledge")], ["탐지 룰", () => nav("/detections")], ["위협 헌팅", () => nav("/hunting")],
+    ["오프라인 룰·파서", () => nav("/content-packages")], ["SOC 지식", () => nav("/knowledge")], ["분석 사례집", () => nav("/casebook")], ["탐지 룰", () => nav("/detections")], ["위협 헌팅", () => nav("/hunting")],
     ...((invs.data || []) as any[]).map((i) => [`조사 ${i.display_id} ${i.title}`, () => nav(`/inv/${i.id}`)] as [string, () => void]),
   ];
   const list = cmds.filter(([l]) => l.toLowerCase().includes(q.toLowerCase())).slice(0, 12);
