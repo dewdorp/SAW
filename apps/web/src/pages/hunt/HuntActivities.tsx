@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { ErrorBox, Loading } from "../../components/common";
 import { useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
@@ -8,7 +9,7 @@ import { AiPanel } from "./AiPanel";
 import "./hunt.css";
 
 export const REVIEW_KO: Record<string, string> = { unreviewed: "미검토", needs_check: "추가 확인", normal_work: "정상 업무", threat_confirmed: "위협 확인" };
-const METHOD_TONE: Record<string, string> = { found: "warn", partial: "warn", failed: "bad", insufficient_data: "", unsupported: "", no_match: "ok" };
+const METHOD_TONE: Record<string, string> = { off: "", found: "warn", partial: "warn", failed: "bad", insufficient_data: "", unsupported: "", no_match: "ok" };
 const SOURCE_KO: Record<string, string> = { web: "NDR HTTP·웹", connection: "FW·연결", firewall: "방화벽", waf: "WAF", ips: "IPS", ddos: "DDoS", app: "애플리케이션" };
 
 /** Per-investigation view state kept across a trip to the raw logs: selection, filter, scroll and the unsent note. */
@@ -39,7 +40,18 @@ function EvidenceRows({ inv, a, onOpen }: { inv: string; a: any; onOpen: (eventI
     {d.total != null && d.total > d.shown && <p className="small muted">나머지는 아래 단추로 모두 볼 수 있습니다.</p>}</div>;
 }
 
-function Detail({ inv, a, runVersion, onReviewed }: { inv: string; a: any; runVersion: number; onReviewed: () => void }) {
+/** Where the criterion that produced an activity is changed. */
+function editLink(method: any, org?: string): [string, string] | null {
+  if (!method) return null;
+  const o = org ? `&org=${org}` : "";
+  if (method.edit === "criteria") return [`/criteria?method=${method.id}${o}`, "분석 기준에서 이 기준 고치기"];
+  if (method.edit === "scenarios") return ["/scenarios", "시나리오에서 고치기"];
+  if (method.edit === "knowledge") return ["/knowledge/flows", "업무 의미·흐름에서 고치기"];
+  if (method.edit === "detections") return ["/detections", "탐지 룰 보기"];
+  return null;
+}
+
+function Detail({ inv, a, runVersion, onReviewed, method, org }: { inv: string; a: any; runVersion: number; onReviewed: () => void; method?: any; org?: string }) {
   const ctx = useInv(inv);
   const [notes, setNotes] = useKept<Record<string, string>>(inv, "notes", {});
   const note = notes[a.id] ?? "";
@@ -59,6 +71,8 @@ function Detail({ inv, a, runVersion, onReviewed }: { inv: string; a: any; runVe
       <p className="small muted">{a.time?.start ? `${fmtTime(a.time.start)} ~ ${fmtTime(a.time.end)}` : "시각 범위 없음"} · 연결 강도: {a.strength}{a.not_in_this_run ? " · 최신 분석에는 다시 나오지 않은 활동(판단은 보존)" : ""}</p></header>
     <Section title="1. 무엇을 관측했나" items={a.observed} />
     <Section title="2. 왜 확인할 만한가" items={a.why} />
+    {method && <p className="small ha-from">이 활동을 만든 분석 방법: <b>{method.name}</b>{method.condition ? ` — ${method.condition}` : ""}
+      {editLink(method, org) && <> · <Link to={editLink(method, org)![0]}>{editLink(method, org)![1]}</Link></>}</p>}
     <Section title="3. 정상 업무로 설명될 가능성" items={a.normal} empty="정상 가능성이 기록되지 않았습니다. 없다는 뜻이 아닙니다." />
     <Section title="4. 아직 확인되지 않은 것" items={a.unknown} />
     <section className="ha-section"><h4>5. 시간 흐름과 관련 원문</h4>
@@ -117,16 +131,18 @@ export function HuntActivities({ inv }: { inv: string }) {
       <span>진행: <b>{progress.label}</b></span>
       <span>분석 v{r.version} · {fmtTime(r.created_at)} · {r.status === "complete" ? "전체 처리" : r.status === "partial" ? "일부 처리" : "실행 실패"}</span>
       <button className="btn sm" disabled={run.isPending} onClick={() => run.mutate()}>{run.isPending ? "분석 중…" : "다시 분석"}</button>
+      <Link className="btn sm" to={`/criteria${s.org_unit_id ? `?org=${s.org_unit_id}` : ""}`} title="무엇을 찾고 어떤 기준으로 활동을 만드는지 정합니다">분석 기준{s.criteria?.text ? `: ${s.criteria.text}` : ""}</Link>
     </div>
     {stale.length > 0 && <div className="ha-stale" role="alert">이 결과는 최신이 아닙니다. {stale.join(" ")} <button className="btn sm primary" disabled={run.isPending} onClick={() => run.mutate()}>다시 분석</button></div>}
     <ErrorBox error={run.error} />
     <details className="ha-methods"><summary>분석 방법 {r.methods.length}개와 실제 처리 범위 — {r.methods.map((m: any) => m.status_label).filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i).join(" · ")}</summary>
-      <table className="t"><thead><tr><th>분석 방법</th><th>계산 결과</th><th>후보·표시</th><th>검사한 범위</th><th>필요한 자료·한계</th></tr></thead>
+      <table className="t"><thead><tr><th>분석 방법</th><th>계산 결과</th><th>후보·표시</th><th>검사한 범위</th><th>필요한 자료·한계</th><th>기준</th></tr></thead>
         <tbody>{r.methods.map((m: any) => <tr key={m.id}><td>{m.name}{m.condition && <div className="small muted">{m.condition}</div>}</td>
           <td><span className={`tag ${METHOD_TONE[m.status] || ""}`}>{m.status_label}</span></td>
           <td className="small">{m.found ?? 0}개{m.shown != null && m.shown !== m.found ? ` 중 ${m.shown}개 표시` : ""}</td>
           <td className="small">{m.records != null ? `기록 ${Number(m.records).toLocaleString()}건` : "—"}{m.examined && Object.keys(m.examined).length > 0 && <div className="muted">{Object.entries(m.examined).map(([k, v]) => `${k} ${v}`).join(" · ")}</div>}</td>
-          <td className="small">{[...(m.needs || []), ...(m.partial_reasons || []), m.error ? `오류 ${m.error}` : ""].filter(Boolean).join(" / ") || "—"}</td></tr>)}</tbody></table>
+          <td className="small">{[...(m.needs || []), ...(m.partial_reasons || []), m.error ? `오류 ${m.error}` : ""].filter(Boolean).join(" / ") || "—"}</td>
+          <td className="small nowrap">{editLink(m, s.org_unit_id) ? <Link to={editLink(m, s.org_unit_id)![0]}>고치기</Link> : "—"}{m.criteria_changed?.length > 0 && <div className="muted">기본값에서 바꿈 {m.criteria_changed.length}</div>}</td></tr>)}</tbody></table>
       <p className="small muted">{s.note} "조건 일치 없음"은 이 기준에서 보이지 않았다는 뜻이며 정상이라는 뜻이 아닙니다. "자료 부족"·"미지원"은 계산하지 못한 것입니다.</p></details>
     <AiPanel inv={inv} />
     <div className="ha-body">
@@ -143,7 +159,8 @@ export function HuntActivities({ inv }: { inv: string }) {
             <span className={`tag ${a.review.state === "threat_confirmed" ? "bad" : a.review.state === "normal_work" ? "ok" : a.review.state === "needs_check" ? "warn" : ""}`}>{REVIEW_KO[a.review.state]}</span>
           </button>)}</div>
       </aside>
-      {current ? <Detail key={current.id} inv={inv} a={current} runVersion={r.version} onReviewed={refresh} /> : <div className="ha-detail"><p className="muted">왼쪽에서 활동을 고르세요.</p></div>}
+      {current ? <Detail key={current.id} inv={inv} a={current} runVersion={r.version} onReviewed={refresh} org={s.org_unit_id}
+        method={r.methods.find((m: any) => m.id === current.method) || r.methods.find((m: any) => current.method.startsWith(m.id))} /> : <div className="ha-detail"><p className="muted">왼쪽에서 활동을 고르세요.</p></div>}
     </div>
   </div>;
 }

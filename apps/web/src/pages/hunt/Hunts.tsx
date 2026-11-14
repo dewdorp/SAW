@@ -22,7 +22,7 @@ export function Hunts() {
     && `${i.display_id} ${i.title} ${i.org_unit}`.toLowerCase().includes(text.trim().toLowerCase()));
   return <div className="page col">
     <PageHeader eyebrow="헌팅" title="헌팅" desc="관계사와 자료를 고르면 먼저 확인할 활동을 찾아 줍니다. 의심 IP·가설·시나리오를 미리 정하지 않아도 됩니다."
-      actions={<button className="btn primary" onClick={() => setCreating(true)}>새 헌팅</button>} />
+      actions={<><Link className="btn" to="/criteria">분석 기준</Link><button className="btn primary" onClick={() => setCreating(true)}>새 헌팅</button></>} />
     <div className="row wrap hunts-filters" role="group" aria-label="상태로 걸러 보기">
       <button className={`btn sm ${bucket === "all" ? "primary" : ""}`} aria-pressed={bucket === "all"} onClick={() => setBucket("all")}>전체 {q.data?.items?.length ?? 0}</button>
       {BUCKETS.map(([k, l, hint]) => <button key={k} title={hint} className={`btn sm ${bucket === k ? "primary" : ""}`} aria-pressed={bucket === k} onClick={() => setBucket(k)}>{l} {q.data?.buckets?.[k] ?? 0}</button>)}
@@ -47,7 +47,7 @@ export function Hunts() {
 export function Settings({ permissions }: { permissions: string[] }) {
   const admin = permissions.includes("admin.users") || permissions.includes("audit.read");
   const groups: [string, string, [string, string][]][] = [
-    ["분석 도구", "헌팅 작업대에서 펼쳐 쓰는 보조 도구입니다.", [["/analyze", "붙여넣기 분석(HTTP·페이로드·IOC·비교)"], ["/hunting", "수동 질의(가설 기반 조회)"], ["/cases", "사건 묶음(여러 헌팅에 걸친 사건)"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"]]],
+    ["분석 도구", "헌팅 작업대에서 펼쳐 쓰는 보조 도구입니다.", [["/criteria", "분석 기준(헌팅이 찾는 것과 기준 값)"], ["/analyze", "붙여넣기 분석(HTTP·페이로드·IOC·비교)"], ["/hunting", "수동 질의(가설 기반 조회)"], ["/cases", "사건 묶음(여러 헌팅에 걸친 사건)"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"]]],
     ["지식·사전", "분석에 쓰이는 사전과 과거 경험입니다.", [["/knowledge/flows", "업무 의미·흐름 이력"], ["/registry", "관계사·장비 공격명 사전"], ["/knowledge", "SOC 경험·유사 사례·오탐 규칙"], ["/casebook", "분석 사례집(C·W·F 사례)"]]],
     ["평가 자료(전문가)", "골든셋과 반출은 평가 담당이 씁니다.", [["/golden-candidates", "골든셋 후보함"], ["/knowledge/golden", "정답 사례·반출 패키지"], ["/detections", "탐지 룰"]]],
     ["관리자", "설치·운영 설정입니다.", [["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서 반입"], ...(permissions.includes("ai.models.manage") ? [["/admin/local-models", "로컬 모델"] as [string, string]] : []), ...(admin ? [["/admin", "사용자·권한·감사"] as [string, string], ["/admin/data", "자료 삭제"] as [string, string]] : [])]],

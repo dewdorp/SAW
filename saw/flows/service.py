@@ -186,7 +186,7 @@ def run(s, p, inv_id: str, body: RunIn | dict | None = None, *, system: bool = F
     if inv is None:
         raise NotFound("investigation not found")
     es = container.get().events
-    items = knowledge.snapshot(s, inv.org_unit_id)
+    items = [i for i in knowledge.snapshot(s, inv.org_unit_id) if i["kind"] != "criteria"]
     manifest = _manifest(s, inv, es)
     scope = {"time": body.time.model_dump() if body.time else None, "baseline_end": body.baseline_end,
              "org_unit_id": inv.org_unit_id}
@@ -295,7 +295,7 @@ def auto_run(s, inv_id: str, requested_by: str = "") -> dict | None:
 
 
 def _stale(s, inv: Investigation, row: FlowRun) -> dict:
-    items = knowledge.snapshot(s, inv.org_unit_id)
+    items = [i for i in knowledge.snapshot(s, inv.org_unit_id) if i["kind"] != "criteria"]
     now = {i["id"]: i["version"] for i in items}
     reasons = []
     if now != (row.knowledge or {}):

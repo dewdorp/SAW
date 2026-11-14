@@ -145,8 +145,50 @@ class ScenarioContent(Strict):
         return self
 
 
-CONTENT = {"activity": ActivityContent, "link": LinkContent, "flow": FlowContent, "scenario": ScenarioContent}
-KIND_KO = {"activity": "업무 의미", "link": "연결 기준", "flow": "흐름", "scenario": "시나리오"}
+HUNT_METHODS = ("q.web_attack", "q.transfer", "q.periodic", "q.spread", "target_variation", "flows", "scenarios", "detectors")
+
+
+class VariationCriteria(Strict):
+    """When one source asking one function for many targets becomes an activity."""
+    min_targets: Annotated[int, Field(ge=2, le=5000)] = 8
+    ratio: Annotated[float, Field(ge=1, le=100)] = 4
+
+
+class CriteriaContent(Strict):
+    """Which hunt methods run and with what thresholds, for every affiliate or for one.
+
+    One definition per scope. An affiliate's own definition replaces the common one for that affiliate; with
+    neither, the shipped defaults apply. A method that is switched off is reported as "not used", never as
+    "nothing found".
+    """
+    host: Literal[""] = ""
+    name: Annotated[str, Field(min_length=1, max_length=200)] = "분석 기준"
+    off: list[Literal["q.web_attack", "q.transfer", "q.periodic", "q.spread", "target_variation", "flows", "scenarios",
+                      "detectors"]] = Field(default_factory=list, max_length=8)
+    questions: dict[Literal["web_attack", "transfer", "periodic", "spread"], dict] = Field(default_factory=dict)
+    target_variation: VariationCriteria = Field(default_factory=VariationCriteria)
+    note: Text = ""
+
+    @model_validator(mode="after")
+    def tidy(self):
+        from saw.core.application import question_bundles as qb
+
+        self.off = sorted(set(self.off))
+        # Only what differs from the shipped default is stored, so a later change of a default still reaches
+        # every condition the analyst did not touch.
+        kept = {}
+        for bundle, values in self.questions.items():
+            checked, base = qb.validate(bundle, values), qb.defaults(bundle)
+            changed = {k: v for k, v in checked.items() if k in values and v != base[k]}
+            if changed:
+                kept[bundle] = changed
+        self.questions = kept
+        return self
+
+
+CONTENT = {"activity": ActivityContent, "link": LinkContent, "flow": FlowContent, "scenario": ScenarioContent,
+           "criteria": CriteriaContent}
+KIND_KO = {"activity": "업무 의미", "link": "연결 기준", "flow": "흐름", "scenario": "시나리오", "criteria": "분석 기준"}
 
 
 class Evidence(Strict):
@@ -156,7 +198,7 @@ class Evidence(Strict):
 
 
 class KnowledgeIn(Strict):
-    kind: Literal["activity", "link", "flow", "scenario"]
+    kind: Literal["activity", "link", "flow", "scenario", "criteria"]
     org_unit_id: Annotated[str, Field(max_length=36)] | None = None
     content: dict
     change_note: Text = ""
@@ -194,6 +236,8 @@ def scope_key(kind: str, org: str | None, content: dict) -> str:
         return f"link|{org}|{content['host']}"
     if kind == "scenario":
         return f"scenario|{org}|{content['name']}"[:700]
+    if kind == "criteria":
+        return f"criteria|{org}"
     return f"flow|{org}|{content['host']}|{content['name']}"[:700]
 
 
@@ -258,6 +302,8 @@ def _core(kind: str, c: dict):
         return (c.get("session_cookie"), bool(c.get("request_id_confirmed")))
     if kind == "scenario":
         return json.dumps({k: v for k, v in c.items() if k not in ("name", "state", "purpose", "normal_note")}, sort_keys=True)
+    if kind == "criteria":
+        return json.dumps({k: v for k, v in c.items() if k not in ("name", "note")}, sort_keys=True)
     return json.dumps(c.get("steps"), sort_keys=True)
 
 

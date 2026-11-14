@@ -7,7 +7,7 @@ import { fmtTime } from "../../lib/format";
 import { ROLE_KO } from "../inv/flows/RememberDialog";
 import "../inv/flows/flows.css";
 
-const KIND_KO: Record<string, string> = { activity: "업무 의미", link: "연결 기준", flow: "흐름" };
+const KIND_KO: Record<string, string> = { activity: "업무 의미", link: "연결 기준", flow: "흐름", scenario: "시나리오", criteria: "분석 기준" };
 
 function describe(item: any, names: Record<string, string>): string {
   const c = item.content;

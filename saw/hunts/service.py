@@ -28,7 +28,7 @@ ENGINE = "saw.hunt/1"
 MAX_ACTIVITIES = 500
 REVIEW_STATES = ("unreviewed", "needs_check", "normal_work", "threat_confirmed")
 STATUS_KO = {"found": "후보 있음", "no_match": "조건 일치 없음", "insufficient_data": "자료 부족", "partial": "일부 처리",
-             "failed": "실패", "unsupported": "미지원", "looked_none": "조건 일치 없음"}
+             "failed": "실패", "unsupported": "미지원", "looked_none": "조건 일치 없음", "off": "사용 안 함"}
 
 
 class RunIn(BaseModel):
@@ -67,20 +67,27 @@ def _activity(method, title, *, observed, why, normal, unknown, next_checks=(), 
 # ---------------------------------------------------------------------------------------------------------------
 # Methods. Each returns (method record, activities).
 
-def _questions(inv, time) -> tuple[list[dict], list[dict]]:
+def _questions(inv, time, criteria: dict | None = None) -> tuple[list[dict], list[dict]]:
     """The four log-derived questions (web, transfer, periodic, spread), computed over every matching record."""
     from saw.core.application import question_bundles as qb
 
-    built = qb.build(inv, time=time)
+    criteria = criteria or {}
     methods, activities = [], []
-    for b in built["bundles"]:
+    for key, title, _ in qb.BUNDLES:
+        if f"q.{key}" in (criteria.get("off") or []):
+            methods.append(_off(f"q.{key}", title))
+            continue
+        changed = (criteria.get("questions") or {}).get(key) or {}
+        b = qb.run_one(inv, key, changed or None, time=time)
+        b["changed"] = sorted(changed)
         status = {"looked_none": "no_match"}.get(b["status"], b["status"])
         if status == "found" and b.get("completeness") == "partial":
             status = "partial"
         methods.append({"id": f"q.{b['id']}", "name": b["title"], "status": status, "needs": b.get("missing") or [],
                         "condition": b.get("description"), "records": b.get("records"), "found": b.get("found", 0),
                         "shown": b.get("shown", 0), "partial_reasons": b.get("partial_reasons") or [],
-                        "examined": b.get("examined") or {}, "error": b.get("error")})
+                        "examined": b.get("examined") or {}, "error": b.get("error"), "edit": "criteria",
+                        "criteria_changed": b.get("changed") or []})
         for item in b.get("items") or []:
             activities.append(_activity(
                 f"q.{b['id']}", item["title"], observed=item.get("observed"),
@@ -100,14 +107,27 @@ def _findings(s, inv_id: str) -> tuple[list[dict], list[dict]]:
                           .order_by(Finding.risk_score.desc()).limit(300)))
     activities = []
     for f in rows:
-        metrics = [f"{m.get('label') or m.get('name')}: {m.get('value')}" for m in (f.metrics or [])[:6] if isinstance(m, dict)]
-        counter = [c.get("text") or c.get("label") or str(c) for c in (f.counter_evidence or [])[:5]] if f.counter_evidence else []
-        open_checks = [c.get("label") for c in (f.checks or []) if isinstance(c, dict) and c.get("passed") is None][:5]
+        # A detection stores numbers ("observed"), checks (passed / not passed / not evaluated) and the words of
+        # its explanation. Scoring internals (risk factor weights) are not a reason and are not shown as one.
+        metrics = []
+        for m in (f.metrics or [])[:8]:
+            if isinstance(m, dict) and m.get("observed") not in (None, ""):
+                base = m.get("baseline") or {}
+                compare = f" (평소 {base.get('typical') or base.get('median') or base.get('max')})" if isinstance(base, dict) and (
+                    base.get("typical") or base.get("median") or base.get("max")) else ""
+                metrics.append(f"{m.get('label') or m.get('name')}: {m['observed']}{m.get('unit') or ''}{compare}")
+        words = [line.strip(" -*#\t") for line in (f.explanation_md or "").splitlines() if line.strip(" -*#\t")]
+        checks = [c for c in (f.checks or []) if isinstance(c, dict)]
+        failed = [f"{c.get('label')}: {c.get('detail') or c.get('value') or '확인됨'}" for c in checks if c.get("passed") is True][:4]
+        unsure = [f"{c.get('label')}: {c.get('detail') or '확인되지 않음'}" for c in checks if c.get("passed") is not True][:5]
+        counter = [str(c.get("text") or c.get("label") or c.get("detail") or "") for c in (f.counter_evidence or [])[:5] if isinstance(c, dict)]
+        level = {"critical": "매우 높음", "high": "높음", "medium": "보통", "low": "낮음", "info": "참고"}.get(f.risk_level, f.risk_level)
+        sure = {"high": "높음", "medium": "보통", "low": "낮음"}.get(f.confidence, f.confidence)
         activities.append(_activity(
-            f"detectors.{f.detector_id}", f.title, observed=metrics or [f.explanation_md.splitlines()[0] if f.explanation_md else f.title],
-            why=[str(r.get("label") or r) if isinstance(r, dict) else str(r) for r in (f.risk_factors or [])[:5]],
-            normal=counter or ["정상 업무로 설명될 수 있는지 이 탐지에는 기록되어 있지 않습니다."],
-            unknown=open_checks or ["이 탐지의 확인 항목을 '조사 제안'에서 확인하세요."],
+            f"detectors.{f.detector_id}", f.title, observed=metrics or words[:2] or [f.title],
+            why=[*(words[:3] if metrics else words[2:4]), *failed, f"탐지 {f.display_id}: 위험도 {level} · 신뢰도 {sure}"][:6],
+            normal=[c for c in counter if c] or ["정상 업무로 설명될 수 있는지 이 탐지에는 기록되어 있지 않습니다."],
+            unknown=unsure or ["요청이 실제로 처리됐는지와 이 대상의 업무·권한은 이 탐지로 알 수 없습니다."],
             time={"start": f.time_start.isoformat() if f.time_start else None, "end": f.time_end.isoformat() if f.time_end else None},
             entities=[str(e) for e in (f.entities or [])[:10]], evidence={"finding_id": f.id, "display_id": f.display_id},
             counts={"risk": f.risk_level}, key=f.id))
@@ -169,7 +189,12 @@ def _flows(s, inv: Investigation) -> tuple[list[dict], list[dict]]:
              "flow_run_version": row.version}], activities
 
 
-def _target_variation(es, inv_id: str, time, *, min_targets: int = 8) -> tuple[list[dict], list[dict]]:
+def _off(method: str, name: str) -> dict:
+    return {"id": method, "name": name, "status": "off", "found": 0, "shown": 0, "edit": "criteria",
+            "needs": ["분석 기준에서 이 방법을 꺼 두었습니다. 계산하지 않았으며 '조건 일치 없음'이 아닙니다."], "partial_reasons": []}
+
+
+def _target_variation(es, inv_id: str, time, *, min_targets: int = 8, ratio: float = 4) -> tuple[list[dict], list[dict]]:
     """Who asked one function for many different targets, compared with everyone else asking the same function.
 
     No knowledge is needed: a "function" is a host + path, a "target" is the value of one query parameter. Every HTTP
@@ -183,7 +208,7 @@ def _target_variation(es, inv_id: str, time, *, min_targets: int = 8) -> tuple[l
     total = es.count(inv_id, filters, time)
     if not total:
         return [{"id": "target_variation", "name": name, "status": "insufficient_data", "needs": ["쿼리 파라미터가 있는 HTTP 요청 기록"],
-                 "found": 0, "shown": 0, "records": 0, "partial_reasons": []}], []
+                 "found": 0, "shown": 0, "records": 0, "partial_reasons": [], "edit": "criteria"}], []
     seen: dict[tuple, dict] = defaultdict(lambda: defaultdict(lambda: {"values": set(), "n": 0, "first": None, "last": None, "ids": []}))
     read = with_params = 0
     for e in ordered(es, inv_id, filters, time):
@@ -210,14 +235,14 @@ def _target_variation(es, inv_id: str, time, *, min_targets: int = 8) -> tuple[l
         median = statistics.median(sizes)
         for src, a in actors.items():
             distinct = len(a["values"])
-            if distinct < min_targets or distinct < 4 * max(median, 1) or len(actors) < 2 and distinct < 3 * min_targets:
+            if distinct < min_targets or distinct < ratio * max(median, 1) or len(actors) < 2 and distinct < 3 * min_targets:
                 continue
             span = (epoch(a["last"]) or 0) - (epoch(a["first"]) or 0)
             activities.append(_activity(
                 "target_variation", f"{src}에서 {host}{path}의 {pname} 값을 {distinct}가지로 바꿔 가며 요청했습니다.",
                 observed=[f"요청 {a['n']}건, 서로 다른 {pname} 값 {distinct}개, {a['first']} ~ {a['last']} (약 {int(span // 60)}분)",
                           f"같은 기능을 요청한 출발지 {len(actors)}곳의 값 가짓수 중앙값은 {median:g}개입니다."],
-                why=[f"같은 기능을 쓰는 다른 출발지보다 대상이 {distinct / max(median, 1):.0f}배 많습니다(기준: {min_targets}개 이상이면서 중앙값의 4배 이상)."],
+                why=[f"같은 기능을 쓰는 다른 출발지보다 대상이 {distinct / max(median, 1):.0f}배 많습니다(기준: {min_targets}개 이상이면서 중앙값의 {ratio:g}배 이상)."],
                 normal=["상담·정산·배치처럼 여러 고객을 차례로 조회하는 업무일 수 있습니다.", "프록시·NAT 뒤 여러 사용자의 요청이 한 주소로 보일 수 있습니다."],
                 unknown=[f"{pname} 값이 조회 대상을 뜻하는지(파라미터 의미 미확인)", "요청이 실제로 처리됐는지(HTTP 상태만으로는 알 수 없음)",
                          "이 출발지의 업무와 권한"],
@@ -231,7 +256,8 @@ def _target_variation(es, inv_id: str, time, *, min_targets: int = 8) -> tuple[l
     return [{"id": "target_variation", "name": name, "status": "found" if activities else "no_match" if with_params else "insufficient_data",
              "needs": [] if with_params else ["쿼리 파라미터가 있는 HTTP 요청 기록"], "found": len(activities), "shown": len(activities),
              "records": total, "examined": {"records_read": read, "with_parameters": with_params, "functions": len(seen)},
-             "partial_reasons": [], "condition": f"서로 다른 값 {min_targets}개 이상이고 같은 기능 이용자 중앙값의 4배 이상"}], activities
+             "partial_reasons": [], "edit": "criteria",
+             "condition": f"서로 다른 값 {min_targets}개 이상이고 같은 기능 이용자 중앙값의 {ratio:g}배 이상"}], activities
 
 
 def _scenarios(s, inv: Investigation, es, time) -> tuple[list[dict], list[dict]]:
@@ -266,11 +292,41 @@ def _scope(s, inv: Investigation, es, time) -> dict:
             "note": "선택 자료 건수는 저장된 기록 수입니다. 각 분석이 실제로 읽은 건수는 분석 방법별로 따로 표시합니다."}
 
 
+CRITERIA_DEFAULT = {"off": [], "questions": {}, "target_variation": {"min_targets": 8, "ratio": 4}}
+EDIT_WHERE = {"flows": "knowledge", "flows.transition": "knowledge", "scenario": "scenarios", "detectors": "detections"}
+
+
+def criteria_for(s, org_unit_id: str | None) -> dict:
+    """The criteria that apply to one affiliate: its own, else the common ones, else the shipped defaults."""
+    from saw.flows import knowledge
+
+    items = [i for i in knowledge.snapshot(s, org_unit_id) if i["kind"] == "criteria"]
+    own = [i for i in items if i["org_unit_id"]]
+    common = [i for i in items if not i["org_unit_id"]]
+    for group, scope in ((own, "affiliate"), (common, "common")):
+        if len(group) == 1:
+            return {**CRITERIA_DEFAULT, **{k: group[0]["content"][k] for k in CRITERIA_DEFAULT}, "source": scope,
+                    "id": group[0]["id"], "version": group[0]["version"]}
+        if len(group) > 1:  # two active definitions of one scope: neither is applied silently
+            return {**CRITERIA_DEFAULT, "source": "default", "conflict": True, "id": None, "version": None}
+    return {**CRITERIA_DEFAULT, "source": "default", "id": None, "version": None}
+
+
 def compute(s, inv: Investigation, time: TimeRange | None = None) -> dict:
     es = container.get().events
     methods, activities, failed = [], [], 0
-    for fn in (lambda: _questions(inv, time), lambda: _target_variation(es, inv.id, time), lambda: _flows(s, inv),
-               lambda: _scenarios(s, inv, es, time), lambda: _findings(s, inv.id)):
+    crit = criteria_for(s, inv.org_unit_id)
+    off, tv = set(crit["off"]), crit["target_variation"]
+    named = {"target_variation": "조회 대상 변화(같은 기능을 여러 대상으로 요청)", "flows": "업무 흐름(등록한 업무 의미 적용)",
+             "scenarios": "사용 중인 시나리오", "detectors": "저장된 탐지(이상·동종 비교·시간 변화·장비 관측)"}
+
+    def gate(method, fn):
+        return (lambda: ([_off(method, named[method])], [])) if method in off else fn
+
+    for fn in (lambda: _questions(inv, time, crit),
+               gate("target_variation", lambda: _target_variation(es, inv.id, time, min_targets=tv["min_targets"], ratio=tv["ratio"])),
+               gate("flows", lambda: _flows(s, inv)), gate("scenarios", lambda: _scenarios(s, inv, es, time)),
+               gate("detectors", lambda: _findings(s, inv.id))):
         try:
             m, a = fn()
             methods += m
@@ -281,6 +337,7 @@ def compute(s, inv: Investigation, time: TimeRange | None = None) -> dict:
                             "error": type(exc).__name__, "needs": [], "partial_reasons": []})
     for m in methods:
         m["status_label"] = STATUS_KO.get(m["status"], m["status"])
+        m.setdefault("edit", next((v for k, v in EDIT_WHERE.items() if m["id"].startswith(k)), ""))
     seen, unique = set(), []
     for a in sorted(activities, key=lambda a: (-a.get("attention", 1), a["method"])):
         if a["id"] not in seen:
@@ -288,8 +345,13 @@ def compute(s, inv: Investigation, time: TimeRange | None = None) -> dict:
             unique.append(a)
     _with_assets(s, inv, unique[:MAX_ACTIVITIES])
     statuses = {m["status"] for m in methods}
-    status = "failed" if statuses == {"failed"} else "partial" if statuses & {"partial", "failed"} or len(unique) > MAX_ACTIVITIES else "complete"
-    return {"scope": _scope(s, inv, es, time), "methods": methods, "activities": unique[:MAX_ACTIVITIES], "status": status,
+    status = "failed" if statuses - {"off"} == {"failed"} else "partial" if statuses & {"partial", "failed"} or len(unique) > MAX_ACTIVITIES else "complete"
+    scope = _scope(s, inv, es, time)
+    scope["criteria"] = {"source": crit["source"], "id": crit["id"], "version": crit["version"], "off": sorted(off),
+                         "conflict": bool(crit.get("conflict")),
+                         "text": {"affiliate": "이 관계사의 분석 기준", "common": "공통 분석 기준", "default": "기본 분석 기준"}[crit["source"]]
+                                 + (f" v{crit['version']}" if crit["version"] else "")}
+    return {"scope": scope, "methods": methods, "activities": unique[:MAX_ACTIVITIES], "status": status,
             "summary": {"activities": len(unique), "shown": min(len(unique), MAX_ACTIVITIES),
                         "methods": {st: sum(1 for m in methods if m["status"] == st) for st in sorted(statuses)}}}
 
@@ -398,7 +460,11 @@ def latest(s, p, inv_id: str) -> dict:
     if row is not None:
         now = _versions(s, inv)
         if now["knowledge_digest"] != (row.versions or {}).get("knowledge_digest"):
-            stale.append("등록한 업무 지식이 바뀌었습니다.")
+            crit, was = criteria_for(s, inv.org_unit_id), (row.scope or {}).get("criteria") or {}
+            if (crit["id"], crit["version"]) != (was.get("id"), was.get("version")):
+                stale.append("분석 기준이 바뀌었습니다.")
+            else:
+                stale.append("등록한 업무 지식이 바뀌었습니다.")
         events = container.get().events.count(inv_id)
         if (row.scope or {}).get("selected_records") not in (None, events):
             stale.append(f"기록이 {(row.scope or {}).get('selected_records')}건에서 {events}건으로 바뀌었습니다.")
@@ -527,3 +593,36 @@ def activity_evidence(s, p, inv_id: str, activity_id: str) -> dict:
     missing = "" if rows else ("이 활동은 집계 값으로 계산되어 개별 기록 참조가 저장되지 않았습니다. 아래 단추로 원문에서 확인하세요."
                                if not (ids or filters) else "참조한 기록을 지금 자료에서 찾지 못했습니다. 자료가 바뀌었으면 다시 분석하세요.")
     return {"activity_id": activity_id, "rows": rows, "shown": len(rows), "total": total, "basis": basis, "missing": missing}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Analysis criteria: which methods run and with what thresholds. Stored as versioned knowledge (kind "criteria").
+
+METHOD_INFO = [
+    ("q.web_attack", "웹 요청 패턴", "여러 경로를 훑거나 공격 패턴이 든 요청을 한 출발지를 찾습니다.", "criteria"),
+    ("q.transfer", "대량 전송", "통신 쌍의 방향별 바이트 합계가 기준을 넘는 경우를 찾습니다.", "criteria"),
+    ("q.periodic", "반복 접속", "같은 통신 쌍이 일정한 간격으로 반복된 경우를 찾습니다.", "criteria"),
+    ("q.spread", "여러 대상·포트 접촉", "한 출발지가 여러 목적지나 포트에 접촉한 경우를 찾습니다.", "criteria"),
+    ("target_variation", "조회 대상 변화", "같은 기능을 여러 대상(파라미터 값)으로 바꿔 가며 요청한 출발지를, 같은 기능 이용자와 비교해 찾습니다.", "criteria"),
+    ("flows", "업무 흐름", "등록한 업무 의미로 인증 → 조회 같은 흐름을 묶고, 설명되지 않는 순서를 찾습니다.", "knowledge"),
+    ("scenarios", "시나리오", "\"다음 헌팅부터 사용\"으로 저장한 시나리오를 실행합니다.", "scenarios"),
+    ("detectors", "저장된 탐지", "자료를 올릴 때 탐지 단계가 저장한 결과(행동 이상·동종 비교·시간 변화·장비 관측)를 활동으로 보여 줍니다.", "detections"),
+]
+
+
+def criteria_view(s, p, org_unit_id: str | None = None) -> dict:
+    """Everything the criteria screen needs: the methods, their conditions and defaults, and what is saved per scope."""
+    from saw.core.application import question_bundles as qb
+    from saw.flows import knowledge
+
+    rows = [r for r in knowledge.list_all(s, p, kind="criteria", org_unit_id=org_unit_id) if r["status"] == "active"]
+    common = next((r for r in rows if not r["org_unit_id"]), None)
+    own = next((r for r in rows if org_unit_id and r["org_unit_id"] == org_unit_id), None)
+    definitions = qb.definitions()
+    methods = [{"id": mid, "name": name, "what": what, "edit": edit,
+                **({"params": definitions[mid[2:]]["params"], "defaults": definitions[mid[2:]]["defaults"],
+                    "question": definitions[mid[2:]]["title"]} if mid.startswith("q.") else {})}
+               for mid, name, what, edit in METHOD_INFO]
+    return {"methods": methods, "defaults": CRITERIA_DEFAULT, "common": common, "own": own,
+            "effective": criteria_for(s, org_unit_id or None), "can_write": can(p, "knowledge.write"),
+            "note": "저장하면 다음 분석부터 적용됩니다. 이미 끝난 헌팅은 '다시 분석'을 눌러야 바뀌며, 이전 분석 결과는 그대로 남습니다."}

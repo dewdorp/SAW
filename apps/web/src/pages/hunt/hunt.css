@@ -35,3 +35,13 @@
 .ha-evidence { margin: 4px 0 10px; }
 .ha-evidence .fk-table { max-height: 320px; overflow: auto; }
 .ha-what { max-width: 380px; overflow-wrap: anywhere; }
+
+.cr-scope { gap: 14px; align-items: center; }
+.cr-list { display: flex; flex-direction: column; gap: 10px; }
+.cr-card { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.cr-card.focus { outline: 2px solid var(--accent, #4fd1c5); }
+.cr-card.offed { opacity: .75; }
+.cr-params { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 10px 16px; padding: 8px 0; }
+.cr-changed { border-left: 3px solid var(--warn, #d69e2e); padding-left: 8px; }
+.cr-save { position: sticky; bottom: 0; background: var(--bg, #0b1220); border-top: 1px solid var(--line); padding: 10px 0; }
+.ha-from { margin: 2px 0 8px; }

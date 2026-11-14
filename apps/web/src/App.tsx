@@ -38,6 +38,7 @@ const Board = lazy(() => import("./pages/Board").then((m) => ({ default: m.Board
 const Provenance = lazy(() => import("./pages/Provenance").then((m) => ({ default: m.Provenance })));
 const DiffPage = lazy(() => import("./pages/analyze/DiffPage").then((m) => ({ default: m.DiffPage })));
 const Scenarios = lazy(() => import("./pages/scenario/Scenarios").then((m) => ({ default: m.Scenarios })));
+const Criteria = lazy(() => import("./pages/hunt/Criteria").then((m) => ({ default: m.Criteria })));
 const Assets = lazy(() => import("./pages/asset/Assets").then((m) => ({ default: m.Assets })));
 const Registry = lazy(() => import("./pages/Registry").then((m) => ({ default: m.Registry })));
 export type Me = { id: string; username: string; display_name: string; roles: string[]; permissions: string[] };
@@ -65,6 +66,7 @@ export function App() {
         <Route path="/hunts" element={<Hunts />} />
         <Route path="/home" element={<Home />} />
         <Route path="/scenarios" element={<Scenarios />} />
+        <Route path="/criteria" element={<Criteria />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/settings" element={<Settings permissions={me.data.permissions || []} />} />
         <Route path="/analyze" element={<UniversalPage />} />

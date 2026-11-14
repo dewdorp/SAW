@@ -72,3 +72,8 @@ def review(inv_id: str, body: service.ReviewIn, ctx: AuthContext = Depends(auth)
 @router.get("/investigations/{inv_id}/hunt/activities/{activity_id}/evidence")
 def activity_evidence(inv_id: str, activity_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     return service.activity_evidence(s, ctx.principal, inv_id, activity_id)
+
+
+@router.get("/hunt-criteria")
+def criteria(org_unit_id: str | None = None, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return service.criteria_view(s, ctx.principal, org_unit_id)

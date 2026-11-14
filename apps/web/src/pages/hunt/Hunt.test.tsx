@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderUI } from "../../test/helpers";
 import { Assets } from "../asset/Assets";
 import { Scenarios } from "../scenario/Scenarios";
+import { Criteria } from "./Criteria";
 import { HuntActivities } from "./HuntActivities";
 import { Hunts } from "./Hunts";
 
@@ -14,7 +15,7 @@ const activity = (id: string, title: string, state = "unreviewed") => ({ id, met
   strength: "같은 출발지 IP 기준", review: { state, note: "", history: [] } });
 const hunt = (extra: any = {}) => ({ progress: { state: "complete", label: "완료", active: [] }, stale: [], run: { id: "r1", version: 2, mode_label: "기본 분석 · AI 미연결", status: "complete", created_at: "2026-10-21T00:00:00Z",
   scope: { org_unit: "가상 은행", selected_records: 832, by_source: { web: 832 }, observed: { first: "2026-10-20T00:00:00Z", last: "2026-10-20T06:01:00Z" }, records_without_time: 0, note: "선택 자료 건수는 저장된 기록 수입니다." },
-  methods: [{ id: "target_variation", name: "조회 대상 변화", status: "found", status_label: "후보 있음", found: 1, shown: 1, records: 832, examined: { records_read: 832 }, needs: [], partial_reasons: [] },
+  methods: [{ id: "target_variation", name: "조회 대상 변화", edit: "criteria", status: "found", status_label: "후보 있음", found: 1, shown: 1, records: 832, examined: { records_read: 832 }, needs: [], partial_reasons: [] },
     { id: "q.spread", name: "확산", status: "insufficient_data", status_label: "자료 부족", found: 0, shown: 0, needs: ["FW·연결 기록"], partial_reasons: [] },
     { id: "q.web", name: "웹 요청", status: "no_match", status_label: "조건 일치 없음", found: 0, shown: 0, needs: [], partial_reasons: [] }],
   activities: [activity("a1", "10.50.9.77에서 crm.example.test/customer/view.do의 custNo 값을 60가지로 바꿔 가며 요청했습니다."), activity("a2", "두 번째 활동", "needs_check")], carried: [],
@@ -36,6 +37,7 @@ describe("hunt workbench", () => {
     expect(screen.getByText("자료 부족")).toBeTruthy();
     expect(screen.getByText("조건 일치 없음")).toBeTruthy();
     expect(screen.getByText(/정상이라는 뜻이 아닙니다/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "분석 기준에서 이 기준 고치기" }).getAttribute("href")).toBe("/criteria?method=target_variation");
     // A judgement needs a reason; "needs a check" does not.
     expect((screen.getByRole("button", { name: "정상 업무로 확인" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("판단 근거"), { target: { value: "정산 배치로 확인" } });
@@ -70,6 +72,35 @@ describe("hunt workbench", () => {
     expect(screen.getByText("일부 처리")).toBeTruthy();
     expect(screen.getByRole("button", { name: "확인 필요 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "새 헌팅" })).toBeTruthy();
+  });
+});
+
+describe("analysis criteria", () => {
+  it("switches a method off, changes a threshold and saves only what differs from the default", async () => {
+    const methods = [
+      { id: "q.spread", name: "여러 대상·포트 접촉", what: "한 출발지가 여러 목적지나 포트에 접촉한 경우를 찾습니다.", edit: "criteria", question: "D", defaults: { min_targets: 10, min_ports: 10 },
+        params: [{ name: "min_targets", label: "서로 다른 목적지 수", type: "int", default: 10, help: "", min: 1, max: 100000, unit: "개 이상" },
+          { name: "min_ports", label: "서로 다른 목적지 포트 수", type: "int", default: 10, help: "", min: 1, max: 65536, unit: "개 이상" }] },
+      { id: "target_variation", name: "조회 대상 변화", what: "같은 기능을 여러 대상으로 요청", edit: "criteria" },
+      { id: "scenarios", name: "시나리오", what: "저장한 시나리오를 실행합니다.", edit: "scenarios" }];
+    const api = mockApi({ "GET /source-context/org-units": [200, [{ id: "o1", display_name: "가상 은행" }]],
+      "GET /hunt-criteria": [200, { methods, defaults: { off: [], questions: {}, target_variation: { min_targets: 8, ratio: 4 } }, common: null, own: null,
+        effective: { source: "default", version: null }, can_write: true, note: "저장하면 다음 분석부터 적용됩니다." }],
+      "POST /knowledge/flow-items": [201, { id: "c1", version: 1 }] });
+    renderUI(<Criteria />);
+    expect(await screen.findByText("기본 기준(저장된 기준 없음)")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("시나리오 사용"));
+    expect(screen.getByText(/"사용 안 함"으로 표시됩니다/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("서로 다른 대상 수"), { target: { value: "20" } });
+    fireEvent.click(screen.getByText("기준 값 보기·고치기"));
+    fireEvent.change(screen.getByLabelText("서로 다른 목적지 포트 수"), { target: { value: "3" } });
+    expect(screen.getByRole("button", { name: "기본값으로" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "시나리오 열기" }).getAttribute("href")).toBe("/scenarios");
+    fireEvent.click(screen.getByRole("button", { name: "모든 관계사 공통으로 저장" }));
+    await waitFor(() => expect(api.find("POST", "/knowledge/flow-items")).toHaveLength(1));
+    expect(api.find("POST", "/knowledge/flow-items")[0].body).toEqual({ kind: "criteria", org_unit_id: null,
+      content: { off: ["scenarios"], questions: { spread: { min_ports: 3 } }, target_variation: { min_targets: 20, ratio: 4 } } });
+    expect(await screen.findByText("저장했습니다. 다음 분석부터 적용됩니다.")).toBeTruthy();
   });
 });
 

@@ -28,7 +28,7 @@ class ExtractIn(BaseModel):
 
 class PreviewIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: str = Field(pattern="^(activity|link|flow|scenario)$")
+    kind: str = Field(pattern="^(activity|link|flow|scenario|criteria)$")
     content: dict
 
 
@@ -41,7 +41,7 @@ class RememberIn(BaseModel):
 
 
 @router.get("/knowledge/flow-items")
-def items(kind: str | None = Query(None, pattern="^(activity|link|flow|scenario)$"), org_unit_id: str | None = None,
+def items(kind: str | None = Query(None, pattern="^(activity|link|flow|scenario|criteria)$"), org_unit_id: str | None = None,
           host: str | None = None, q: str = Query("", max_length=200), ctx: AuthContext = Depends(auth),
           s: Session = Depends(db, scope="function")):
     return {"items": knowledge.list_all(s, ctx.principal, kind=kind, org_unit_id=org_unit_id, host=host, q=q)}

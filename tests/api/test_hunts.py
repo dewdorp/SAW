@@ -124,3 +124,61 @@ def test_another_analyst_without_access_cannot_read_or_review_a_hunt(senior, app
     assert other.post(f"/investigations/{inv['id']}/hunt/reviews", json={"activity_id": "x", "state": "normal_work"}).status_code == 403
     assert other.get(f"/investigations/{inv['id']}/hunt/activities/x/evidence").status_code == 403
     assert all(i["id"] != inv["id"] for i in other.get("/hunts").json()["items"])
+
+
+def test_analysis_criteria_switch_methods_and_change_thresholds_per_affiliate(senior, analyst):
+    """Which methods run and with what thresholds is the analysts' setting: common, or one affiliate's own."""
+    org = _org(senior)
+    inv = _inv(senior, org, "criteria")
+    _process(senior, inv["id"], "ndr.csv", _walk().encode())
+    first = senior.get(f"/investigations/{inv['id']}/hunt").json()["run"]
+    assert first["scope"]["criteria"]["source"] == "default" and first["scope"]["criteria"]["text"] == "기본 분석 기준"
+    assert any(a["method"] == "target_variation" for a in first["activities"])
+    methods = {m["id"]: m for m in first["methods"]}
+    assert methods["target_variation"]["edit"] == "criteria" and methods["flows"]["edit"] == "knowledge"
+
+    view = senior.get("/hunt-criteria", params={"org_unit_id": org["id"]}).json()
+    assert [m["id"] for m in view["methods"]] == ["q.web_attack", "q.transfer", "q.periodic", "q.spread", "target_variation",
+                                                  "flows", "scenarios", "detectors"]
+    assert view["common"] is None and view["own"] is None and view["effective"]["source"] == "default"
+    spread = next(m for m in view["methods"] if m["id"] == "q.spread")
+    assert spread["defaults"]["min_targets"] == 10 and any(p["name"] == "min_targets" for p in spread["params"])
+
+    # Common criteria: the walker needs 100 different targets now, and the periodic question is switched off.
+    common = senior.post("/knowledge/flow-items", json={"kind": "criteria", "content": {
+        "off": ["q.periodic"], "target_variation": {"min_targets": 100, "ratio": 4}, "questions": {"spread": {"min_targets": 10, "min_ports": 3}}}})
+    assert common.status_code == 201, common.text
+    assert common.json()["content"]["questions"] == {"spread": {"min_ports": 3}}  # only what differs from the default is kept
+    assert senior.get(f"/investigations/{inv['id']}/hunt").json()["stale"] == ["분석 기준이 바뀌었습니다."]
+    second = senior.post(f"/investigations/{inv['id']}/hunt/run", json={}).json()
+    assert second["scope"]["criteria"]["source"] == "common" and second["scope"]["criteria"]["off"] == ["q.periodic"]
+    methods = {m["id"]: m for m in second["methods"]}
+    assert methods["q.periodic"]["status"] == "off" and methods["q.periodic"]["status_label"] == "사용 안 함"
+    assert "조건 일치 없음'이 아닙니다" in methods["q.periodic"]["needs"][0]
+    assert methods["target_variation"]["status"] == "no_match" and "100개 이상" in methods["target_variation"]["condition"]
+    assert methods["q.spread"]["criteria_changed"] == ["min_ports"]
+    assert not any(a["method"] == "target_variation" for a in second["activities"])
+    assert second["status"] == "complete"  # a method that is off is not a failure
+    assert senior.get(f"/investigations/{inv['id']}/hunt").json()["stale"] == []
+
+    # One affiliate's own criteria replace the common ones for that affiliate only.
+    own = senior.post("/knowledge/flow-items", json={"kind": "criteria", "org_unit_id": org["id"], "content": {
+        "target_variation": {"min_targets": 20, "ratio": 2}}})
+    assert own.status_code == 201, own.text
+    third = senior.post(f"/investigations/{inv['id']}/hunt/run", json={}).json()
+    assert third["scope"]["criteria"]["source"] == "affiliate" and third["scope"]["criteria"]["off"] == []
+    assert any(a["method"] == "target_variation" for a in third["activities"])
+    other = _inv(senior, _org(senior), "criteria other affiliate")
+    _process(senior, other["id"], "ndr.csv", _walk().encode())
+    assert senior.get(f"/investigations/{other['id']}/hunt").json()["run"]["scope"]["criteria"]["source"] == "common"
+
+    # A second definition for the same scope is refused; a wrong value is refused in words; a viewer cannot save.
+    again = senior.post("/knowledge/flow-items", json={"kind": "criteria", "content": {"off": ["flows"]}})
+    assert again.status_code == 409
+    bad = senior.put(f"/knowledge/flow-items/{common.json()['id']}", json={"expected_version": 1, "content": {
+        "questions": {"spread": {"min_targets": 0}}}})
+    assert bad.status_code in (400, 422) and "서로 다른 목적지 수" in bad.text
+    assert senior.put(f"/knowledge/flow-items/{common.json()['id']}", json={"expected_version": 1, "content": {
+        "target_variation": {"min_targets": 1}}}).status_code in (400, 422)
+    # Earlier runs keep what they computed.
+    assert first["id"] != second["id"] and any(a["method"] == "target_variation" for a in first["activities"])
