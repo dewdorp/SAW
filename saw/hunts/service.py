@@ -496,6 +496,12 @@ def activity_evidence(s, p, inv_id: str, activity_id: str) -> dict:
         refs = (f.evidence_refs or {}) if f is not None and f.investigation_id == inv_id else {}
         ids, total = list(refs.get("sample_event_ids") or []), refs.get("total")
         basis = f"탐지 {ev.get('display_id') or ''}가 근거로 저장한 표본 기록입니다."
+        query = refs.get("query") or {}
+        if not ids and query.get("filters"):
+            # No sample was stored: read the records of the detection's own condition. Never without a condition,
+            # which would show the whole data as if it were the basis.
+            filters, time, total = query["filters"], query.get("time"), None
+            basis = f"탐지 {ev.get('display_id') or ''}의 조건에 해당하는 기록입니다(시간순 앞부분)."
     elif ev.get("flow_key"):
         run = s.get(FlowRun, ev.get("flow_run_id"))
         flow = next((x for x in ((run.result or {}).get("flows") or []) if x.get("key") == ev["flow_key"]), None) \
@@ -516,7 +522,7 @@ def activity_evidence(s, p, inv_id: str, activity_id: str) -> dict:
         tr = TimeRange(**time) if isinstance(time, dict) and time.get("start") and time.get("end") else None
         rows = [_evidence_row(e) for e in es.search(inv_id, fs, tr, limit=EVIDENCE_ROWS)["events"]]
         total = es.count(inv_id, fs, tr)
-        basis = "이 활동의 조건(대상·기간)에 해당하는 기록입니다(시간순 앞부분)."
+        basis = basis or "이 활동의 조건(대상·기간)에 해당하는 기록입니다(시간순 앞부분)."
     rows.sort(key=lambda r: str(r.get("time") or ""))
     missing = "" if rows else ("이 활동은 집계 값으로 계산되어 개별 기록 참조가 저장되지 않았습니다. 아래 단추로 원문에서 확인하세요."
                                if not (ids or filters) else "참조한 기록을 지금 자료에서 찾지 못했습니다. 자료가 바뀌었으면 다시 분석하세요.")
