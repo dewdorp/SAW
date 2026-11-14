@@ -67,3 +67,8 @@ def ai_probe(ctx: AuthContext = Depends(auth)):
 def review(inv_id: str, body: service.ReviewIn, ctx: AuthContext = Depends(auth),
            s: Session = Depends(db, scope="function")):
     return service.review(s, ctx.principal, inv_id, body)
+
+
+@router.get("/investigations/{inv_id}/hunt/activities/{activity_id}/evidence")
+def activity_evidence(inv_id: str, activity_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return service.activity_evidence(s, ctx.principal, inv_id, activity_id)

@@ -22,9 +22,14 @@ const hunt = (extra: any = {}) => ({ progress: { state: "complete", label: "완�
 
 describe("hunt workbench", () => {
   it("shows scope, what each method examined, and one activity in six parts; statuses are not mixed", async () => {
-    const api = mockApi({ "GET /investigations/i1/hunt": [200, hunt()], "POST /investigations/i1/hunt/reviews": [201, { state: "normal_work" }] });
+    const api = mockApi({ "GET /investigations/i1/hunt": [200, hunt()], "POST /investigations/i1/hunt/reviews": [201, { state: "normal_work" }],
+      "GET /investigations/i1/hunt/activities/a1/evidence": [200, { rows: [{ event_id: "e1", time: "2026-10-20T06:00:00Z", source: "NDR HTTP", src: "10.50.9.77", dst: "10.40.1.10:443",
+        what: "GET crm.example.test /customer/view.do?custNo=C9000", result: "200" }], shown: 1, total: 60, basis: "이 활동을 계산할 때 쓰인 기록입니다.", missing: "" }] });
     renderUI(<HuntActivities inv="i1" />);
     expect(await screen.findByText("기본 분석 · AI 미연결")).toBeTruthy();
+    // The basis is shown with the statement: which records, how many of how many.
+    expect(await screen.findByText("근거 기록 60건 중 1건")).toBeTruthy();
+    expect(screen.getByText("GET crm.example.test /customer/view.do?custNo=C9000")).toBeTruthy();
     expect(document.querySelector(".ha-scope")!.textContent).toContain("선택 자료 832건");
     for (const heading of ["1. 무엇을 관측했나", "2. 왜 확인할 만한가", "3. 정상 업무로 설명될 가능성", "4. 아직 확인되지 않은 것", "5. 시간 흐름과 관련 원문", "6. 판단 남기기"])
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();

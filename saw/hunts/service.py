@@ -453,3 +453,71 @@ def listing(s, p, *, limit: int = 300) -> dict:
         if len(out) >= limit:
             break
     return {"items": out, "buckets": {b: sum(1 for i in out if i["bucket"] == b) for b in ("running", "review", "review_done", "done")}}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Evidence of one activity: the records the statement was computed from, shown where the statement is read.
+
+EVIDENCE_ROWS = 20
+SOURCE_KO = {"web": "NDR HTTP", "connection": "FW·연결", "firewall": "방화벽", "zeek_conn": "연결", "waf": "WAF", "ips": "IPS",
+             "ddos": "DDoS", "app": "애플리케이션"}
+
+
+def _evidence_row(e: dict) -> dict:
+    from saw.core.security.masking import mask_event
+
+    m, _ = mask_event(e)
+    request = " ".join(str(x) for x in (m.get("method"), m.get("hostname"), m.get("uri")) if x)
+    return {"event_id": m.get("event_id"), "time": m.get("timestamp"), "source": SOURCE_KO.get(m.get("data_source"), m.get("data_source")),
+            "src": m.get("src_ip"), "dst": ":".join(str(x) for x in (m.get("dst_ip"), m.get("dst_port")) if x not in (None, "")),
+            "what": request or m.get("alert_name") or m.get("event_type") or "",
+            "result": " · ".join(str(x) for x in (m.get("status_code"), m.get("enforcement_action")) if x not in (None, ""))}
+
+
+def activity_evidence(s, p, inv_id: str, activity_id: str) -> dict:
+    """Up to twenty of the records behind one activity, with how many there are in all and how they were chosen."""
+    from saw.flows.models import FlowRun
+    from saw.core.application.investigations import NotFound
+
+    require(s, p, "investigation.read", inv_id)
+    row = s.scalar(select(HuntRun).where(HuntRun.investigation_id == inv_id).order_by(HuntRun.version.desc()))
+    activity = next((a for a in (row.activities if row else None) or [] if a["id"] == activity_id), None)
+    if activity is None:
+        kept = s.scalar(select(HuntReview).where(HuntReview.investigation_id == inv_id, HuntReview.activity_id == activity_id)
+                        .order_by(HuntReview.created_at.desc()))
+        activity = (kept.activity if kept else None) or None
+    if activity is None:
+        raise NotFound("activity not found")
+    ev = activity.get("evidence") or {}
+    es = container.get().events
+    ids, filters, time, total, basis = list(ev.get("event_ids") or []), ev.get("filters") or [], ev.get("time"), ev.get("records"), ""
+    if ev.get("finding_id"):
+        f = s.get(Finding, ev["finding_id"])
+        refs = (f.evidence_refs or {}) if f is not None and f.investigation_id == inv_id else {}
+        ids, total = list(refs.get("sample_event_ids") or []), refs.get("total")
+        basis = f"탐지 {ev.get('display_id') or ''}가 근거로 저장한 표본 기록입니다."
+    elif ev.get("flow_key"):
+        run = s.get(FlowRun, ev.get("flow_run_id"))
+        flow = next((x for x in ((run.result or {}).get("flows") or []) if x.get("key") == ev["flow_key"]), None) \
+            if run is not None and run.investigation_id == inv_id else None
+        ids = [st.get("event_id") for st in (flow or {}).get("steps") or [] if st.get("event_id")]
+        total = (flow or {}).get("requests")
+        basis = "이 흐름의 단계로 묶인 기록입니다(시간순)."
+    rows = []
+    if ids:
+        for i in ids[:EVIDENCE_ROWS]:
+            e = es.get(inv_id, i)
+            if e is not None:
+                rows.append(_evidence_row(e))
+        basis = basis or "이 활동을 계산할 때 쓰인 기록입니다."
+        total = total if total is not None else len(ids)
+    elif filters:
+        fs = [Filter(**f) for f in filters]
+        tr = TimeRange(**time) if isinstance(time, dict) and time.get("start") and time.get("end") else None
+        rows = [_evidence_row(e) for e in es.search(inv_id, fs, tr, limit=EVIDENCE_ROWS)["events"]]
+        total = es.count(inv_id, fs, tr)
+        basis = "이 활동의 조건(대상·기간)에 해당하는 기록입니다(시간순 앞부분)."
+    rows.sort(key=lambda r: str(r.get("time") or ""))
+    missing = "" if rows else ("이 활동은 집계 값으로 계산되어 개별 기록 참조가 저장되지 않았습니다. 아래 단추로 원문에서 확인하세요."
+                               if not (ids or filters) else "참조한 기록을 지금 자료에서 찾지 못했습니다. 자료가 바뀌었으면 다시 분석하세요.")
+    return {"activity_id": activity_id, "rows": rows, "shown": len(rows), "total": total, "basis": basis, "missing": missing}

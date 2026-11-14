@@ -53,6 +53,11 @@ def test_activities_are_found_without_a_suspect_hypothesis_scenario_or_asset(sen
     assert run["scope"]["selected_records"] == 832 and run["scope"]["by_source"] == {"web": 832}
     # The evidence of the activity is reachable as a filter on the same data.
     assert {"field": "src_ip", "op": "is", "value": "10.50.9.77"} in walker["evidence"]["filters"]
+    # ...and the records themselves are shown with the activity: which rows, how many of how many, chosen how.
+    basis = senior.get(f"/investigations/{inv['id']}/hunt/activities/{walker['id']}/evidence").json()
+    assert basis["total"] == 60 and basis["shown"] == 20 and basis["basis"]
+    assert all(r["src"] == "10.50.9.77" and r["event_id"] and r["time"] and "custNo=" in r["what"] for r in basis["rows"])
+    assert senior.get(f"/investigations/{inv['id']}/hunt/activities/nope/evidence").status_code == 404
     listing = senior.get("/hunts").json()
     mine = next(i for i in listing["items"] if i["id"] == inv["id"])
     assert mine["bucket"] == "review" and mine["unreviewed"] == mine["activities"] >= 1
@@ -102,6 +107,11 @@ def test_registered_knowledge_turns_flows_into_activities_and_marks_the_run_stal
     failed = next(a for a in flows if "인증은 실패로 확인됐고" in a["title"])
     assert any("실패로 확인된 뒤" in line for line in failed["why"]) and failed["evidence"]["tab"] == "flows"
     assert after["versions"]["knowledge"] and senior.get(f"/investigations/{inv['id']}/hunt").json()["stale"] == []
+    # The flow activity shows the records of its steps, in time order, without leaving the activity.
+    basis = senior.get(f"/investigations/{inv['id']}/hunt/activities/{failed['id']}/evidence").json()
+    assert basis["shown"] >= 2 and "단계로 묶인 기록" in basis["basis"]
+    assert [r["time"] for r in basis["rows"]] == sorted(r["time"] for r in basis["rows"])
+    assert any("/memberinfo" in r["what"] for r in basis["rows"])
 
 
 def test_another_analyst_without_access_cannot_read_or_review_a_hunt(senior, app):
@@ -112,4 +122,5 @@ def test_another_analyst_without_access_cannot_read_or_review_a_hunt(senior, app
     other = _reader(app)
     assert other.get(f"/investigations/{inv['id']}/hunt").status_code == 403
     assert other.post(f"/investigations/{inv['id']}/hunt/reviews", json={"activity_id": "x", "state": "normal_work"}).status_code == 403
+    assert other.get(f"/investigations/{inv['id']}/hunt/activities/x/evidence").status_code == 403
     assert all(i["id"] != inv["id"] for i in other.get("/hunts").json()["items"])

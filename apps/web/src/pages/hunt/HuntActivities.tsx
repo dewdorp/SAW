@@ -23,6 +23,22 @@ function Section({ title, items, empty }: { title: string; items?: string[]; emp
     {items?.length ? <ul>{items.map((t, i) => <li key={i}>{t}</li>)}</ul> : <p className="muted small">{empty || "기록된 내용이 없습니다."}</p>}</section>;
 }
 
+/** The records behind the statement, shown where it is read: an analyst should not have to leave to see the basis. */
+function EvidenceRows({ inv, a, onOpen }: { inv: string; a: any; onOpen: (eventId?: string) => void }) {
+  const q = useQuery({ queryKey: ["hunt-evidence", inv, a.id], queryFn: () => api.get(`/investigations/${inv}/hunt/activities/${a.id}/evidence`), retry: false });
+  if (q.isLoading) return <p className="small muted">근거 기록을 불러오는 중…</p>;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const d = q.data;
+  if (!d.rows.length) return <p className="small" role="note">{d.missing}</p>;
+  return <div className="ha-evidence">
+    <p className="small"><b>근거 기록 {d.total != null ? `${Number(d.total).toLocaleString()}건 중 ` : ""}{d.shown}건</b> — {d.basis}</p>
+    <div className="fk-table"><table className="t"><thead><tr><th>시각</th><th>자료</th><th>출발지</th><th>목적지</th><th>요청·경보</th><th>결과</th><th></th></tr></thead>
+      <tbody>{d.rows.map((r: any) => <tr key={r.event_id}><td className="small nowrap">{r.time ? fmtTime(r.time) : "시각 없음"}</td><td className="small">{r.source}</td>
+        <td className="mono small">{r.src}</td><td className="mono small">{r.dst}</td><td className="mono small ha-what">{r.what}</td><td className="small">{r.result}</td>
+        <td><button className="btn ghost sm" onClick={() => onOpen(r.event_id)}>원문</button></td></tr>)}</tbody></table></div>
+    {d.total != null && d.total > d.shown && <p className="small muted">나머지는 아래 단추로 모두 볼 수 있습니다.</p>}</div>;
+}
+
 function Detail({ inv, a, runVersion, onReviewed }: { inv: string; a: any; runVersion: number; onReviewed: () => void }) {
   const ctx = useInv(inv);
   const [notes, setNotes] = useKept<Record<string, string>>(inv, "notes", {});
@@ -46,6 +62,7 @@ function Detail({ inv, a, runVersion, onReviewed }: { inv: string; a: any; runVe
     <Section title="3. 정상 업무로 설명될 가능성" items={a.normal} empty="정상 가능성이 기록되지 않았습니다. 없다는 뜻이 아닙니다." />
     <Section title="4. 아직 확인되지 않은 것" items={a.unknown} />
     <section className="ha-section"><h4>5. 시간 흐름과 관련 원문</h4>
+      <EvidenceRows inv={inv} a={a} onOpen={id => ctx.set({ tab: "raw", filters: [{ field: "event_id", op: "is", value: id }], time: null, selection: null })} />
       <div className="row wrap"><button className="btn sm primary" onClick={openEvidence}>{evidenceLabel}</button>
         {ev.tab === "flows" && <button className="btn sm" onClick={() => ctx.set({ tab: "flows" })}>업무 흐름 열기</button>}
         <button className="btn sm" onClick={() => ctx.set({ tab: "timeline" })}>타임라인</button>

@@ -38,9 +38,13 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
   const [, force] = useState(0);
   const jobs = useQuery({ queryKey: ["jobs", "active"], queryFn: () => api.get("/jobs?active=true"), refetchInterval: 5000 });
   // An open tab keeps running the bundle it loaded: after a server update it must say so instead of showing old screens.
-  const versions = useQuery({ queryKey: ["system-versions"], queryFn: () => api.get("/system/versions"), refetchInterval: 300000, retry: false });
+  const versions = useQuery({ queryKey: ["system-versions"], queryFn: () => api.get("/system/versions"), refetchInterval: 60000, retry: false });
   const loaded = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "";
-  const outdated = !!versions.data && !!loaded && versions.data.app_version !== loaded;
+  const loadedBuild = typeof __APP_BUILT_AT__ === "string" ? __APP_BUILT_AT__ : "";
+  const serverBuild = versions.data?.web_bundle?.built_at || "";
+  // The same version can be rebuilt (a fix during a trial): the build stamp tells an old tab from the files served now.
+  const rebuilt = !!loadedBuild && !!serverBuild && serverBuild !== loadedBuild;
+  const outdated = !!versions.data && !!loaded && (versions.data.app_version !== loaded || rebuilt);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((v) => !v); }
@@ -128,7 +132,8 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
           </button>
           <NavLink to="/jobs" className="btn ghost sm" title="처리 중인 작업"><Icon name="clock" size={15} /> {jobs.data?.length ? `작업 ${jobs.data.length}` : "작업"}</NavLink>
         </header>
-        {outdated && <div className="app-update" role="alert">서버가 <b>{versions.data.app_version}</b> 버전으로 업데이트됐습니다. 이 화면은 이전 버전({loaded})이라 새 메뉴와 사례가 보이지 않습니다.
+        {outdated && <div className="app-update" role="alert">{versions.data.app_version !== loaded ? <>서버가 <b>{versions.data.app_version}</b> 버전으로 업데이트됐습니다. 이 화면은 이전 버전({loaded})이라 새 메뉴와 사례가 보이지 않습니다.</>
+          : <>화면 파일이 새로 설치됐습니다. 이 창은 이전 화면 파일로 열려 있어 새로 추가된 단추와 기능이 보이지 않습니다.</>}
           <button className="btn sm primary" onClick={() => location.reload()}>새로 고침</button></div>}
         {!outdated && versions.data?.notes?.length > 0 && <div className="app-update" role="alert">{versions.data.notes.join(" ")}</div>}
         <main className="main">{children}</main>

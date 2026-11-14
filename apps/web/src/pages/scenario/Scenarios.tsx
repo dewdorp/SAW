@@ -169,7 +169,7 @@ export function Scenarios() {
     <PageHeader eyebrow="시나리오" title="시나리오" desc="'이런 흐름을 어떤 자료로 확인할지'를 저장해 다음 헌팅에서 다시 씁니다. 코드나 조건식을 쓰지 않습니다."
       actions={!editing && <button className="btn primary" onClick={fresh}>직접 만들기</button>} />
     {editing ? <Wizard key={editing.existing?.id || editing.start.template || "new"} start={editing.start} existing={editing.existing} kinds={kinds} onDone={() => setEditing(null)} /> : <>
-      <Panel title={`내 시나리오 ${scenarios.length}개`}>
+      <Panel title={`내 시나리오 ${scenarios.length}개`} right={<button className="btn sm primary" onClick={fresh}>빈 양식에서 새로 만들기</button>}>
         {!scenarios.length && <p>아직 만든 시나리오가 없습니다. 위의 "직접 만들기"로 빈 양식에서 시작하거나 아래 예제에서 시작하세요.{fromHunt ? " 헌팅 결과에서 왔다면, 가장 가까운 예제를 골라 경로와 기준을 그 결과에 맞추면 됩니다." : ""}</p>}
         <ul className="fk-flows">{scenarios.map((s: any) => <li key={s.id} className="fk-item">
           <div className="row wrap"><b>{s.title}</b><span className={`tag ${s.run_state === "다음 헌팅부터 사용" ? "ok" : ""}`}>{s.run_state}</span>
