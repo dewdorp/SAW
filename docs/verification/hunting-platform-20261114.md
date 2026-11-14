@@ -85,3 +85,9 @@
 | 기존 한도 오류 | 10만 행 업로드에서 기존 탐지 단계(공격 스토리)의 `derived_source_scope_limit` 실패 — 미수정 |
 | 세션 재발급 | 로그인 전후 세션 ID가 바뀌는 서비스의 연결 기준(이전·이후 쿠키 대응) |
 | 작업대 정리 | 기존 영역 ①~④·전문 분석 탭을 활동 보조 보기로 접기, 이전 화면 코드 정리 |
+
+## 후보 매체 (2026-11-14, 이 절은 매체에 든 문서에 없다)
+
+- SAW-0.2.6-pilot.20261114-model-free-win-x64.zip(모델 제외) 1,571,936,799바이트, SHA-256 5597e8f6eae4bf8d35120d131afc24ced1e1077577085589dd6c78f1bdf326d9, manifest 006fe23d2ad80150982a15af17908269b4e51967e978f3c85ac21bcd35131bd4, schema 0029, 파일 1,346개. ac120f8에서 빌드했고 독립 해제 재검증을 통과했다.
+- 매체 안 확인: release-manifest의 source_commit ac120f8, application_schema 0029, model_weights EXCLUDED, target_validation PENDING_CLEAN_LTSC, 화면 version.json 0.2.6, app/docs에 OPERATIONS-UPDATE-v0.2.6.md·HUNTING-GUIDE.md 포함.
+- 실행하지 않음: 이 매체의 개발 PC 합성 설치·0.2.5→0.2.6 업데이트·복구 리허설, 대상 LTSC 2019(PENDING_ENV), 릴리스 게시.
