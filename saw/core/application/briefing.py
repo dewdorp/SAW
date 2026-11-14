@@ -491,7 +491,7 @@ def board(s: Session, p: Principal, days: int = 30) -> dict[str, Any]:
     rows.sort(key=lambda r: (r["status"] == "closed", rank.get(r["risk_level"], 9), -r["idle_days"],
                              -(r["created_at"].timestamp() if r["created_at"] else 0)))
     return {
-        "days": days, "generated_at": now, "scope": "all" if any(str(r) == "soc_manager" for r in p.roles) else "mine",
+        "days": days, "generated_at": now, "scope": "all" if any(str(r) in ("soc_manager", "admin") for r in p.roles) else "mine",
         "tiles": {"open": len(open_rows), "urgent": sum(1 for r in open_rows if r["urgent"]),
                   "stale": sum(1 for r in open_rows if r["stale"]), "opened": len(opened_in), "closed": len(closed_in),
                   "review_wait": sum(1 for r in rows if r["reviews_open"]),

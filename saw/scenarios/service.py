@@ -66,6 +66,17 @@ KIND_NEEDS = {"then_variation": ["web"], "sequence": ["web"], "periodic_external
               "ddos_window_access": ["ddos"]}
 
 
+# The ways a scenario can look at data, in the analyst's words. A scenario written from scratch picks one of these.
+KINDS = [
+    {"kind": "sequence", "name": "요청이 이 순서로 이어짐", "hint": "웹 요청 2~6단계가 정한 순서대로 이어진 흐름을 찾습니다.", "needs": ["HTTP 요청 기록"]},
+    {"kind": "then_variation", "name": "앞 요청 뒤 대상을 바꿔 가며 반복", "hint": "첫 요청 뒤 둘째 요청을 여러 대상(파라미터 값)으로 반복한 흐름을 찾습니다.", "needs": ["HTTP 요청 기록(경로·쿼리)"]},
+    {"kind": "periodic_external", "name": "같은 곳으로 반복 통신", "hint": "같은 출발지·목적지 사이에 일정한 간격으로 반복된 통신을 찾습니다.", "needs": ["FW·연결 또는 NDR 기록"]},
+    {"kind": "spread_internal", "name": "여러 대상·포트 접촉", "hint": "한 출발지가 짧은 시간에 여러 대상이나 포트에 접촉한 기록을 찾습니다.", "needs": ["FW·연결 기록"]},
+    {"kind": "alert_then_traffic", "name": "보안장비 경보 뒤 통신", "hint": "IPS·WAF 경보 뒤 같은 주소 사이에 통신이 이어졌는지 봅니다.", "needs": ["IPS 또는 WAF 경보", "FW·연결 또는 NDR 기록"]},
+    {"kind": "ddos_window_access", "name": "DDoS 시간대의 접속", "hint": "DDoS 관측 구간 안의 서비스 요청과 오류 응답을 봅니다.", "needs": ["DDoS 구간 기록", "HTTP 요청 기록"]},
+]
+
+
 def templates() -> list[dict]:
     return TEMPLATES
 
@@ -88,7 +99,8 @@ def describe(c: dict) -> str:
 
 
 def _req(step: dict) -> str:
-    return f"{step.get('method') or '모든 메서드'} {step['path']}{'…' if step.get('match') == 'prefix' else ''}"
+    extra = f", '{step['contains']}' 포함" if step.get("contains") else ""
+    return f"{step.get('method') or '모든 메서드'} {step['path']}{'…' if step.get('match') == 'prefix' else ''}{extra}"
 
 
 def _span(seconds: int) -> str:
@@ -165,7 +177,9 @@ def _request_flow(s, inv, es, time, c: dict, limit: int) -> dict:
         ehost = norm_host(e.get("hostname"))
         path, params = split_uri(e.get("uri"))
         method = (e.get("method") or "").upper()
-        hits = [i for i, m in enumerate(matchers) if (not host or ehost == host) and m.matches(method, path, params)]
+        uri = str(e.get("uri") or "")
+        hits = [i for i, m in enumerate(matchers) if (not host or ehost == host) and m.matches(method, path, params)
+                and (c["steps"][i].get("contains") or "") in uri]
         if not hits:
             continue
         if c["entity"] == "session":
@@ -367,4 +381,4 @@ def catalog(s, p, org_unit_id: str | None = None) -> dict:
         mine.append({**r, "description": describe(c),
                      "run_state": "비활성" if r["status"] == "stopped" else "다음 헌팅부터 사용" if c.get("state") == "active" else "초안(시험만)",
                      "needs": [_need_text(c["kind"])]})
-    return {"scenarios": mine, "templates": TEMPLATES}
+    return {"scenarios": mine, "templates": TEMPLATES, "kinds": KINDS}

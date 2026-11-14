@@ -404,7 +404,7 @@ def cancel(s: Session, p: Principal, inv_id: str, check_id: str, reason: str = "
     require(s, p, "investigation.write", inv_id)
     c = _get(s, inv_id, check_id)
     _require_cited_source(s, p, c)
-    if c.author_id != p.user_id and Role.SOC_MANAGER not in p.roles:
+    if c.author_id != p.user_id and not (p.roles & {Role.SOC_MANAGER, Role.ADMIN}):
         raise ValueError("확인 기록은 작성자(또는 관제 매니저)만 취소할 수 있습니다")
     if c.state != "active":
         raise Conflict("이 기록은 이미 변경되었거나 취소되었습니다")

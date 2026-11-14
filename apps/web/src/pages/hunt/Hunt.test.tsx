@@ -100,6 +100,32 @@ describe("scenarios and assets", () => {
     expect(body.content.steps[1].path).toBe("/memberinfo");
   });
 
+  it("writes a scenario from scratch: pick how to look, type the steps as lines, save", async () => {
+    const api = mockApi({ "GET /scenarios": [200, { scenarios: [], templates: [], kinds: [{ kind: "sequence", name: "요청이 이 순서로 이어짐", hint: "순서대로 이어진 흐름을 찾습니다.", needs: ["HTTP 요청 기록"] },
+        { kind: "then_variation", name: "앞 요청 뒤 대상을 바꿔 가며 반복", hint: "h", needs: ["HTTP 요청 기록(경로·쿼리)"] }] }],
+      "GET /hunts": [200, { items: [] }], "GET /source-context/org-units": [200, []], "POST /scenarios/describe": [200, { description: "세 단계 순서", unit: "순서가 완성된 횟수" }],
+      "POST /knowledge/flow-items": [201, { id: "k2" }] });
+    renderUI(<Scenarios />);
+    fireEvent.click(await screen.findByRole("button", { name: "직접 만들기" }));
+    expect((screen.getByRole("button", { name: "다음: 흐름 확인" }) as HTMLButtonElement).disabled).toBe(true);  // a name is all that is required
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "보고서 전체 내려받기" } });
+    expect((screen.getByLabelText("찾는 방식") as HTMLSelectElement).value).toBe("sequence");
+    fireEvent.click(screen.getByRole("button", { name: "다음: 흐름 확인" }));
+    fireEvent.change(screen.getByLabelText("단계를 글로 적기"), { target: { value: "로그인: POST /login\n/report/*\n이건 경로가 아님\n전체 내려받기: GET /report/export?mode=all" } });
+    fireEvent.click(screen.getByRole("button", { name: "아래 단계 카드로 바꾸기" }));
+    expect(screen.getByRole("alert").textContent).toContain("읽지 못한 줄 1개");
+    expect((screen.getByLabelText("3단계 포함 글자") as HTMLInputElement).value).toBe("mode=all");
+    fireEvent.click(screen.getByRole("button", { name: "다음: 현재 자료로 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음: 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "초안으로 저장(시험만)" }));
+    await waitFor(() => expect(api.find("POST", "/knowledge/flow-items")).toHaveLength(1));
+    const content = api.find("POST", "/knowledge/flow-items")[0].body.content;
+    expect(content.template).toBe("");
+    expect(content.steps).toEqual([{ label: "로그인", method: "POST", path: "/login", match: "exact", contains: "" },
+      { label: "/report/", method: "", path: "/report/", match: "prefix", contains: "" },
+      { label: "전체 내려받기", method: "GET", path: "/report/export", match: "exact", contains: "mode=all" }]);
+  });
+
   it("previews a file refresh before applying and registers with a name and one identifier", async () => {
     const api = mockApi({ "GET /source-context/org-units": [200, []], "GET /asset-book": [200, { items: [], to_review: [] }],
       "POST /asset-book": [201, { id: "a1" }],

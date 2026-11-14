@@ -67,12 +67,12 @@ def test_custom_export_omits_test_data_and_preserves_current_conditions(analyst)
     assert analyst.get(f"/detections/{d['id']}").json()["status"] == "draft"
 
 
-def test_exports_require_authentication_and_custom_rule_read_permission(app, admin):
+def test_exports_require_authentication_and_custom_rule_read_permission(app, admin, analyst):
     from fastapi.testclient import TestClient
     client = TestClient(app)
     assert client.get("/api/v1/detection-catalog/export").status_code == 401
     assert client.get("/api/v1/detections/export").status_code == 401
-    assert admin.get("/detections/export").status_code == 403
+    assert admin.get("/detections/export").status_code == 200  # the administrator can use every function
 
 
 def test_export_over_limit_fails_without_partial_file(analyst, monkeypatch):

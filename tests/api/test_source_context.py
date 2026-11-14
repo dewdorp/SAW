@@ -125,12 +125,12 @@ def test_cross_investigation_and_admin_access_denied(senior, app):
     assert other.post(f"/source-context/evidence/{other_ev}/context", json={"device_profile_version_id": p["id"]}).status_code == 400
     make_user("context-admin", ["admin"])
     admin = Api(app, "context-admin")
-    assert admin.get(f"/source-context/investigations/{inv['id']}/devices").status_code == 403
-    # Administrators register affiliates, but still cannot read any investigation's data.
+    assert admin.get(f"/source-context/investigations/{inv['id']}/devices").status_code == 200
+    # Administrators register affiliates and, since 0.2.6, can use every function on any investigation.
     created = admin.post("/source-context/org-units", json={"display_name": "Admin registered"})
     assert created.status_code == 201
     assert any(o["id"] == created.json()["id"] for o in admin.get("/source-context/org-units").json())
-    assert admin.get(f"/source-context/evidence/{ev}/context").status_code == 403
+    assert admin.get(f"/source-context/evidence/{ev}/context").status_code == 200
 
 
 def test_profile_and_snapshot_are_append_only(senior):

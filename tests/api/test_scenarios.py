@@ -111,3 +111,43 @@ def test_templates_say_which_are_executable_and_device_scenarios_report_what_the
     assert all("통신" in m["title"] and "장비 조치" in m["title"] for m in alert["matches"])
     ddos = senior.post(f"/investigations/{inv['id']}/scenarios/preview", json={"content": {"name": "d", "kind": "ddos_window_access"}}).json()
     assert ddos["status"] == "found" and "같은 공격자의 행위로 묶지 않습니다" in ddos["notes"][0]
+
+
+def test_a_scenario_written_from_scratch_runs_three_steps_and_a_text_condition(senior, manager, admin):
+    """No template: the analyst picks how to look, writes the steps and an optional text the request must contain."""
+    from saw.core.security.authz import ALL_PERMISSIONS
+
+    catalog = senior.get("/scenarios").json()
+    assert {k["kind"] for k in catalog["kinds"]} == {"sequence", "then_variation", "periodic_external", "spread_internal",
+                                                    "alert_then_traffic", "ddos_window_access"}
+    assert all(k["name"] and k["hint"] and k["needs"] for k in catalog["kinds"])
+    org = _org(senior)
+    inv = _inv(senior, org, "own scenario")
+    rows = [
+        # A: the three steps in order, the last one with mode=all.
+        _row("09:00:00", "10.61.1.10", "POST", "/login", "-"), _row("09:01:00", "10.61.1.10", "GET", "/report/list", "-"),
+        _row("09:02:00", "10.61.1.10", "GET", "/report/export", "mode=all"),
+        # B: the same paths, but the export is for one page only.
+        _row("10:00:00", "10.61.1.20", "POST", "/login", "-"), _row("10:01:00", "10.61.1.20", "GET", "/report/list", "-"),
+        _row("10:02:00", "10.61.1.20", "GET", "/report/export", "mode=page"),
+    ]
+    _process(senior, inv["id"], "ndr.csv", (H + "".join(rows)).encode())
+    own = {"name": "보고서 전체 내려받기", "kind": "sequence", "host": "svc.example.test", "window_seconds": 600, "min_count": 1, "template": "",
+           "steps": [{"label": "로그인", "method": "POST", "path": "/login"}, {"label": "보고서 화면", "path": "/report/", "match": "prefix"},
+                     {"label": "전체 내려받기", "method": "GET", "path": "/report/export", "contains": "mode=all"}]}
+    said = senior.post("/scenarios/describe", json={"content": own}).json()
+    assert "'전체 내려받기'(GET /report/export, 'mode=all' 포함)" in said["description"]
+    p = senior.post(f"/investigations/{inv['id']}/scenarios/preview", json={"content": own}).json()
+    assert p["status"] == "found" and [m["entity"] for m in p["matches"]] == ["10.61.1.10"]
+    # Without the text condition both actors complete the order.
+    loose = {**own, "steps": [*own["steps"][:2], {**own["steps"][2], "contains": ""}]}
+    both = senior.post(f"/investigations/{inv['id']}/scenarios/preview", json={"content": loose}).json()
+    assert sorted(m["entity"] for m in both["matches"]) == ["10.61.1.10", "10.61.1.20"]
+
+    # The manager and the administrator hold every permission: both can save it, try it on any hunt and open the hunt.
+    for lead in (manager, admin):
+        assert set(lead.get("/auth/me").json()["permissions"]) == set(ALL_PERMISSIONS)
+        saved = lead.post("/knowledge/flow-items", json={"kind": "scenario", "org_unit_id": org["id"], "content": {**own, "name": own["name"] + lead.get("/auth/me").json()["username"]}})
+        assert saved.status_code == 201, saved.text
+        assert lead.post(f"/investigations/{inv['id']}/scenarios/preview", json={"content": own}).json()["status"] == "found"
+        assert lead.get(f"/investigations/{inv['id']}/hunt").status_code == 200

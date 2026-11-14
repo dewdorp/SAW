@@ -19,8 +19,29 @@ function blank(t: any): any {
     min_count: 5, state: "draft", normal_note: t.normal_note || "", template: t.id, ...(t.defaults || {}) };
 }
 
+/** A scenario written from scratch: nothing filled in but safe starting values. */
+const EMPTY = { name: "", purpose: "", kind: "sequence", host: "", entity: "src_ip", window_seconds: 600, count_unit: "distinct_param", count_param: "", min_count: 1,
+  state: "draft", normal_note: "", template: "",
+  steps: [{ label: "1단계", method: "", path: "/", match: "exact", contains: "" }, { label: "2단계", method: "", path: "/", match: "exact", contains: "" }] };
+
+/** Steps typed as lines, one per step: "이름: GET /path*?포함글자". Only the path is required. */
+export function stepsFromText(text: string): { steps: any[]; skipped: string[] } {
+  const steps: any[] = [], skipped: string[] = [];
+  for (const raw of text.split(/\r?\n|→|->/).map(l => l.trim()).filter(Boolean)) {
+    const m = raw.match(/^(?:(.*?)\s*[:：]\s*)?(?:(GET|POST|PUT|DELETE|PATCH|HEAD)\s+)?(\/\S*)$/i);
+    if (!m) { skipped.push(raw); continue; }
+    const [whole, contains = ""] = m[3].split(/\?(.*)/s);
+    const prefix = whole.endsWith("*");
+    const path = prefix ? whole.slice(0, -1) || "/" : whole;
+    steps.push({ label: (m[1] || path).slice(0, 100), method: (m[2] || "").toUpperCase(), path, match: prefix ? "prefix" : "exact", contains: contains.slice(0, 200) });
+  }
+  return { steps: steps.slice(0, 6), skipped };
+}
+
 /** Four steps, no code: what to find, what the flow is, try it on real data, save. */
-function Wizard({ start, existing, onDone }: { start: any; existing?: any; onDone: () => void }) {
+function Wizard({ start, existing, kinds, onDone }: { start: any; existing?: any; kinds: any[]; onDone: () => void }) {
+  const [typed, setTyped] = useState("");
+  const [skipped, setSkipped] = useState<string[]>([]);
   const qc = useQueryClient();
   const [c, setC] = useState<any>(start);
   const [step, setStep] = useState(1);
@@ -38,6 +59,20 @@ function Wizard({ start, existing, onDone }: { start: any; existing?: any; onDon
   const setStepAt = (i: number, patch: any) => set({ steps: c.steps.map((s: any, k: number) => k === i ? { ...s, ...patch } : s) });
   const p = preview.data;
   const flow = flowKinds.has(c.kind);
+  const kind = kinds.find(k => k.kind === c.kind);
+  const newStep = (n: number) => ({ label: `${n}단계`, method: "", path: "/", match: "exact", contains: "" });
+  // Changing how the scenario looks at data keeps what was typed and only fixes the number of steps.
+  const setKind = (k: string) => {
+    let steps = c.steps || [];
+    if (flowKinds.has(k)) while (steps.length < 2) steps = [...steps, newStep(steps.length + 1)];
+    if (k === "then_variation") steps = steps.slice(0, 2);
+    set({ kind: k, steps, min_count: k === "then_variation" && c.min_count < 2 ? 5 : c.min_count });
+  };
+  const useTyped = () => {
+    const out = stepsFromText(typed);
+    setSkipped(out.skipped);
+    if (out.steps.length >= 2) set({ steps: c.kind === "then_variation" ? out.steps.slice(0, 2) : out.steps });
+  };
   return <Panel title={existing ? `시나리오 수정 — ${existing.title} (v${existing.version})` : "새 시나리오"} right={<button className="btn ghost sm" onClick={onDone}>닫기</button>}>
     <ol className="sc-steps" aria-label="작성 단계">{["무엇을 찾을까요?", "어떤 흐름인가요?", "현재 자료로 확인", "저장"].map((l, i) =>
       <li key={l} className={step === i + 1 ? "on" : ""}><button className="btn sm ghost" aria-current={step === i + 1} onClick={() => setStep(i + 1)}>{i + 1}. {l}</button></li>)}</ol>
@@ -45,12 +80,22 @@ function Wizard({ start, existing, onDone }: { start: any; existing?: any; onDon
     {step === 1 && <div className="col">
       <label className="col small">이름<input className="input" value={c.name} onChange={e => set({ name: e.target.value })} /></label>
       <label className="col small">무엇을 찾는 시나리오인가요?<textarea className="input" rows={2} value={c.purpose} onChange={e => set({ purpose: e.target.value })} /></label>
-      <p className="small muted">찾는 방식: <b>{KIND_WORD[c.kind]}</b>. 방식은 예제에서 정해지며, 다음 단계에서 대상·시간·기준을 고칩니다.</p>
+      <label className="col small">찾는 방식
+        <select className="input" aria-label="찾는 방식" value={c.kind} onChange={e => setKind(e.target.value)}>
+          {kinds.map(k => <option key={k.kind} value={k.kind}>{k.name}</option>)}</select></label>
+      <p className="small muted">{kind?.hint || KIND_WORD[c.kind]} 필요한 자료: {(kind?.needs || []).join(", ")}. 방식은 언제든 바꿀 수 있고, 다음 단계에서 대상·시간·기준을 정합니다.</p>
       <div className="row"><div className="grow" /><button className="btn primary" disabled={!c.name.trim()} onClick={() => setStep(2)}>다음: 흐름 확인</button></div></div>}
 
     {step === 2 && <div className="col">
       {flow && <>
         <label className="col small">어느 서비스에서 찾을까요? (비우면 모든 서비스)<input className="input" value={c.host} onChange={e => set({ host: e.target.value })} placeholder="예: portal.example.test" /></label>
+        <details className="sc-typed"><summary>단계를 글로 한꺼번에 적기</summary>
+          <p className="small muted">한 줄에 한 단계씩 적습니다. 경로만 적어도 됩니다. 끝의 *는 "이 경로로 시작", ? 뒤는 "이 글자 포함"입니다.</p>
+          <textarea className="input mono" rows={4} aria-label="단계를 글로 적기" value={typed} onChange={e => setTyped(e.target.value)}
+            placeholder={"로그인: POST /login\n내려받기 화면: /report/*\n전체 내려받기: GET /report/export?mode=all"} />
+          <div className="row wrap"><button className="btn sm" disabled={!typed.trim()} onClick={useTyped}>아래 단계 카드로 바꾸기</button>
+            {skipped.length > 0 && <span className="small" role="alert">읽지 못한 줄 {skipped.length}개(경로가 /로 시작해야 합니다): {skipped.slice(0, 3).join(" | ")}</span>}
+            {typed.trim() && !skipped.length && stepsFromText(typed).steps.length < 2 && <span className="small muted">단계가 2개 이상 필요합니다.</span>}</div></details>
         <div className="sc-cards">{c.steps.map((s: any, i: number) => <div key={i} className="sc-card">
           <b>{i + 1}단계</b>
           <label className="col small">이 단계의 이름<input className="input" value={s.label} onChange={e => setStepAt(i, { label: e.target.value })} /></label>
@@ -58,8 +103,9 @@ function Wizard({ start, existing, onDone }: { start: any; existing?: any; onDon
           <div className="row wrap small"><select className="input" aria-label={`${i + 1}단계 메서드`} value={s.method} onChange={e => setStepAt(i, { method: e.target.value })}><option value="">모든 메서드</option>{["GET", "POST", "PUT", "DELETE"].map(m => <option key={m}>{m}</option>)}</select>
             <select className="input" aria-label={`${i + 1}단계 경로 방식`} value={s.match} onChange={e => setStepAt(i, { match: e.target.value })}><option value="exact">이 경로만</option><option value="prefix">이 경로로 시작</option><option value="pattern">패턴</option></select>
             {c.kind === "sequence" && c.steps.length > 2 && <button className="btn ghost sm" onClick={() => set({ steps: c.steps.filter((_: any, k: number) => k !== i) })}>단계 빼기</button>}</div>
+          <label className="col small">요청에 이 글자가 있을 때만 (선택)<input className="input mono" aria-label={`${i + 1}단계 포함 글자`} placeholder="예: mode=export" value={s.contains || ""} onChange={e => setStepAt(i, { contains: e.target.value })} /></label>
         </div>)}
-          {c.kind === "sequence" && c.steps.length < 6 && <button className="btn sm" onClick={() => set({ steps: [...c.steps, { label: `${c.steps.length + 1}단계`, method: "", path: "/", match: "exact" }] })}>단계 추가</button>}</div>
+          {c.kind === "sequence" && c.steps.length < 6 && <button className="btn sm" onClick={() => set({ steps: [...c.steps, newStep(c.steps.length + 1)] })}>단계 추가</button>}</div>
         <label className="row wrap small">같은 대상으로 묶는 기준
           <select className="input" aria-label="같은 대상 기준" value={c.entity} onChange={e => set({ entity: e.target.value })}><option value="src_ip">같은 출발지 IP (후보 — 같은 사용자라는 근거는 아님)</option><option value="session">같은 세션 (세션 쿠키가 연결 기준으로 등록된 서비스)</option></select></label>
       </>}
@@ -116,13 +162,15 @@ export function Scenarios() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scenarios"] }) });
   if (q.isLoading) return <div className="page"><Loading /></div>;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
-  const { scenarios, templates } = q.data;
+  const { scenarios, templates, kinds = [] } = q.data;
+  const fresh = () => setEditing({ start: { ...EMPTY, steps: EMPTY.steps.map(s => ({ ...s })) } });
   const fromHunt = params.get("from");
   return <div className="page col">
-    <PageHeader eyebrow="시나리오" title="시나리오" desc="'이런 흐름을 어떤 자료로 확인할지'를 저장해 다음 헌팅에서 다시 씁니다. 코드나 조건식을 쓰지 않습니다." />
-    {editing ? <Wizard key={editing.existing?.id || editing.start.template} start={editing.start} existing={editing.existing} onDone={() => setEditing(null)} /> : <>
+    <PageHeader eyebrow="시나리오" title="시나리오" desc="'이런 흐름을 어떤 자료로 확인할지'를 저장해 다음 헌팅에서 다시 씁니다. 코드나 조건식을 쓰지 않습니다."
+      actions={!editing && <button className="btn primary" onClick={fresh}>직접 만들기</button>} />
+    {editing ? <Wizard key={editing.existing?.id || editing.start.template || "new"} start={editing.start} existing={editing.existing} kinds={kinds} onDone={() => setEditing(null)} /> : <>
       <Panel title={`내 시나리오 ${scenarios.length}개`}>
-        {!scenarios.length && <p>아직 만든 시나리오가 없습니다. 아래 예제에서 시작하세요.{fromHunt ? " 헌팅 결과에서 왔다면, 가장 가까운 예제를 골라 경로와 기준을 그 결과에 맞추면 됩니다." : ""}</p>}
+        {!scenarios.length && <p>아직 만든 시나리오가 없습니다. 위의 "직접 만들기"로 빈 양식에서 시작하거나 아래 예제에서 시작하세요.{fromHunt ? " 헌팅 결과에서 왔다면, 가장 가까운 예제를 골라 경로와 기준을 그 결과에 맞추면 됩니다." : ""}</p>}
         <ul className="fk-flows">{scenarios.map((s: any) => <li key={s.id} className="fk-item">
           <div className="row wrap"><b>{s.title}</b><span className={`tag ${s.run_state === "다음 헌팅부터 사용" ? "ok" : ""}`}>{s.run_state}</span>
             <span className="small muted">v{s.version} · {s.org_unit_id ? "관계사 지정" : "공통"} · 고친 날 {fmtTime(s.updated_at)}</span><div className="grow" />

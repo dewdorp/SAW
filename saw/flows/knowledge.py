@@ -106,6 +106,8 @@ class ScenarioStep(Strict):
     method: Annotated[str, Field(max_length=16, pattern=r"^[A-Za-z]*$")] = ""
     path: Annotated[str, Field(min_length=1, max_length=900, pattern=r"^/")]
     match: Literal["exact", "prefix", "pattern"] = "exact"
+    # Optional: text the request (path and query) must contain, e.g. "mode=export". Plain text, not a pattern.
+    contains: Annotated[str, Field(max_length=200)] = ""
 
 
 class ScenarioContent(Strict):

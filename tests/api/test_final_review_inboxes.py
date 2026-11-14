@@ -40,7 +40,7 @@ def test_inboxes_require_current_owning_investigation_access(analyst, senior, ki
         elif revocation == "membership":
             s.delete(s.get(InvestigationMember, (rows[0][0]["id"], caller_id)))
         else:
-            s.get(User, caller_id).roles = ["admin"]
+            s.get(User, caller_id).roles = []
     payload = caller.get(route).json()
     assert set(payload) == ({"items"} if kind == "support" else {"to_review", "returned"})
     assert [r["id"] for r in payload[field]] == ([rows[1][1]["id"]] if revocation != "role" else [])

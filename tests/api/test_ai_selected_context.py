@@ -11,6 +11,7 @@ from saw.llm import service
 from saw.llm.providers import LLMResponse
 from saw.storage.db import session_scope
 from saw.storage.models import AttackStory, Finding, Note
+from tests.conftest import Api, make_user
 
 
 def selected_case(api, *, query=None, count=5):
@@ -147,11 +148,13 @@ def test_invalid_finding_time_rejected_without_events(analyst, time, monkeypatch
     assert "bad-time" not in response.text
 
 
-def test_context_requires_both_ai_permission_and_investigation_access(analyst, senior, admin):
+def test_context_requires_both_ai_permission_and_investigation_access(app, analyst, senior, admin):
     inv, fid = selected_case(senior)
     params = {"investigation_id": inv, "finding_id": fid}
     assert analyst.get("/ai/context", params=params).status_code == 403
-    assert admin.get("/ai/context", params=params).status_code == 403
+    make_user("ai-viewer", ["viewer"])  # no AI permission
+    assert Api(app, "ai-viewer").get("/ai/context", params=params).status_code == 403
+    assert admin.get("/ai/context", params=params).status_code == 200  # the administrator can use every function
 
 
 @pytest.mark.parametrize("action", ["explain_finding", "next_steps", "report_draft"])

@@ -19,7 +19,7 @@ def _change_authority(uid, inv, change):
         if change == "disabled":
             s.get(User, uid).status = "disabled"
         elif change == "role":
-            s.get(User, uid).roles = ["admin"]
+            s.get(User, uid).roles = []
         elif change == "membership":
             s.execute(delete(InvestigationMember).where(
                 InvestigationMember.investigation_id == inv,
