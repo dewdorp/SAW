@@ -180,8 +180,15 @@ describe("scenarios and assets", () => {
     fireEvent.click(screen.getByRole("button", { name: "2. 조건 정하기" }));  // jumping ahead without a name is not an error
     expect(screen.queryByText(/validation error/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "조건 추가" }));
-    fireEvent.change(screen.getByLabelText("조건 1 항목"), { target: { value: "dst_port" } });
-    fireEvent.change(screen.getByLabelText("조건 1 값"), { target: { value: "443" } });
+    fireEvent.change(screen.getByLabelText("묶음 1 조건 1 항목"), { target: { value: "dst_port" } });
+    fireEvent.change(screen.getByLabelText("묶음 1 조건 1 값"), { target: { value: "443,8443" } });
+    // A second condition in the same group joined by "or", then a second group; groups joined by "or" too.
+    fireEvent.click(screen.getByRole("button", { name: "묶음 1에 조건 추가" }));
+    fireEvent.change(screen.getByLabelText("묶음 1 조건 2 값"), { target: { value: "차단" } });
+    fireEvent.change(screen.getByLabelText("묶음 1 방식"), { target: { value: "any" } });
+    fireEvent.click(screen.getByRole("button", { name: "조건 묶음 추가" }));
+    fireEvent.change(screen.getByLabelText("묶음 2 조건 1 값"), { target: { value: "허용" } });
+    fireEvent.change(screen.getByLabelText("묶음 사이"), { target: { value: "any" } });
     fireEvent.change(screen.getByLabelText("묶는 기준"), { target: { value: "pair" } });
     fireEvent.change(screen.getByLabelText("세는 값"), { target: { value: "bytes_total" } });
     fireEvent.change(screen.getByLabelText("기준 값"), { target: { value: "50" } });
@@ -201,7 +208,9 @@ describe("scenarios and assets", () => {
     await waitFor(() => expect(api.find("POST", "/knowledge/flow-items")).toHaveLength(1));
     const content = api.find("POST", "/knowledge/flow-items")[0].body.content;
     expect(content).toMatchObject({ name: "10분에 50MB 이상", kind: "threshold", sources: ["fw"], group_by: "pair", measure: "bytes_total", threshold: 50, byte_unit: "MB",
-      window_seconds: 600, state: "active", conditions: [{ field: "dst_port", op: "is", value: "443" }] });
+      window_seconds: 600, state: "active", conditions: [], groups_mode: "any", condition_groups: [
+        { mode: "any", conditions: [{ field: "dst_port", op: "is", value: "443,8443" }, { field: "enforcement_action", op: "is", value: "차단" }] },
+        { mode: "all", conditions: [{ field: "enforcement_action", op: "is", value: "허용" }] }] });
   });
 
   it("previews a file refresh before applying and registers with a name and one identifier", async () => {

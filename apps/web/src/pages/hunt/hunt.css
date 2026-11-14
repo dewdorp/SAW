@@ -47,3 +47,6 @@
 .ha-from { margin: 2px 0 8px; }
 .sc-th { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
 .sc-th legend { font-weight: 600; font-size: 13px; padding: 0 6px; }
+.sc-group { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.sc-join { align-self: center; font-weight: 600; font-size: 12px; margin-top: -4px; }
+.sc-word { font-weight: 600; }

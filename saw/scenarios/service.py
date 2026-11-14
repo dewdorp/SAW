@@ -395,8 +395,8 @@ ACTION_WORD = {"허용": "allowed", "allow": "allowed", "accept": "allowed", "pe
 THRESHOLD_OPTIONS = {
     "sources": [{"id": k, "name": v} for k, v in SOURCE_WORD.items()],
     "fields": [{"id": k, "name": v} for k, v in FIELD_WORD.items()],
-    "ops": [{"id": "is", "name": "같음(쉼표로 여러 값, IP는 대역 10.0.0.0/8 가능)"}, {"id": "is_not", "name": "다름"}, {"id": "contains", "name": "이 글자 포함"},
-            {"id": "gte", "name": "이상(숫자)"}, {"id": "lte", "name": "이하(숫자)"}],
+    "ops": [{"id": "is", "name": "같음"}, {"id": "is_not", "name": "다름"}, {"id": "contains", "name": "포함"},
+            {"id": "gte", "name": "이상"}, {"id": "lte", "name": "이하"}],
     "group_by": [{"id": k, "name": v} for k, v in GROUP_WORD.items()],
     "measures": [{"id": k, "name": v, "bytes": k.startswith("bytes")} for k, v in MEASURE_WORD.items()],
     "byte_units": list(BYTE_UNIT),
@@ -412,12 +412,33 @@ def _cond_text(cond: dict) -> str:
     return f"{FIELD_WORD[cond['field']]} {OP_WORD[cond['op']]} {cond['value']}"
 
 
+def _groups(c: dict) -> list[dict]:
+    """Every condition group of a definition; the plain list saved by older definitions is one "all" group."""
+    first = [{"mode": "all", "conditions": c["conditions"]}] if c.get("conditions") else []
+    return first + [g for g in c.get("condition_groups") or [] if g.get("conditions")]
+
+
+def _groups_ok(e: dict, groups: list[dict], mode: str) -> bool:
+    if not groups:
+        return True
+    results = ((all if g.get("mode", "all") == "all" else any)(_cond_ok(e, x) for x in g["conditions"]) for g in groups)
+    return all(results) if mode == "all" else any(results)
+
+
+def _groups_text(c: dict) -> str:
+    groups = _groups(c)
+    parts = [(" 그리고 " if g.get("mode", "all") == "all" else " 또는 ").join(_cond_text(x) for x in g["conditions"]) for g in groups]
+    if len(parts) > 1:
+        parts = [f"({p})" if len(g["conditions"]) > 1 else p for p, g in zip(parts, groups)]
+    return (" 그리고 " if c.get("groups_mode", "all") == "all" else " 또는 ").join(parts)
+
+
 def _describe_threshold(c: dict) -> str:
     src = "·".join(SOURCE_WORD[x] for x in c["sources"])
-    conds = [_cond_text(x) for x in c.get("conditions") or []]
+    conds = [x for x in (_groups_text(c),) if x]
     if c.get("host"):
         conds.insert(0, f"서비스 = {c['host']}")
-    which = f" 중 [{', '.join(conds)}]인 것" if conds else ""
+    which = f" 중 [{' 그리고 '.join(conds) if len(conds) == 1 else conds[0] + ' 그리고 (' + conds[1] + ')'}]인 것" if conds else ""
     return (f"{src} 기록{which}을 {GROUP_WORD[c['group_by']]}(으)로 묶어, {_span(c['window_seconds'])} 안에 "
             f"{MEASURE_WORD[c['measure']]}이(가) {_threshold_text(c)} 이상인 경우")
 
@@ -469,7 +490,7 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
     filters = [Filter(field="data_source", op="in", value=names)]
     if c.get("host"):
         filters.append(Filter(field="hostname", value=c["host"]))
-    measure, window, conds = c["measure"], c["window_seconds"], c.get("conditions") or []
+    measure, window, groups_of, how = c["measure"], c["window_seconds"], _groups(c), c.get("groups_mode", "all")
     scale = BYTE_UNIT[c.get("byte_unit") or "MB"] if measure.startswith("bytes") else 1
     need = c["threshold"] * scale
     fields = GROUP_FIELDS[c["group_by"]]
@@ -479,7 +500,7 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
     read = kept = no_group = no_value = no_time = over = 0
     for e in ordered(es, inv_id, filters, time):
         read += 1
-        if not all(_cond_ok(e, x) for x in conds):
+        if not _groups_ok(e, groups_of, how):
             continue
         t = epoch(e.get("timestamp"))
         if t is None:

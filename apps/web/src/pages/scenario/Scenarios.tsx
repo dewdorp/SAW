@@ -16,7 +16,7 @@ const STATUS_TONE: Record<string, string> = { found: "warn", no_match: "ok", ins
 const flowKinds = new Set(["then_variation", "sequence"]);
 
 /** Starting values of a "threshold" scenario: which records, grouped by what, measured how, against what value. */
-const THRESHOLD = { sources: [] as string[], conditions: [] as any[], group_by: "src_ip", measure: "records", threshold: 0, byte_unit: "MB" };
+const THRESHOLD = { sources: [] as string[], conditions: [] as any[], condition_groups: [] as any[], groups_mode: "all", group_by: "src_ip", measure: "records", threshold: 0, byte_unit: "MB" };
 
 function blank(t: any): any {
   return { name: t.name, purpose: t.purpose, kind: t.kind, host: "", entity: "src_ip", window_seconds: 600, steps: [], count_unit: "distinct_param", count_param: "",
@@ -47,7 +47,9 @@ function Wizard({ start, existing, kinds, options, onDone }: { start: any; exist
   const [typed, setTyped] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
   const qc = useQueryClient();
-  const [c, setC] = useState<any>({ ...THRESHOLD, ...start });
+  // Conditions saved as one plain list (older definitions, shipped examples) open as the first "all" group.
+  const [c, setC] = useState<any>(() => { const v = { ...THRESHOLD, ...start };
+    return v.conditions?.length ? { ...v, conditions: [], condition_groups: [{ mode: "all", conditions: v.conditions }, ...(v.condition_groups || [])] } : v; });
   const [step, setStep] = useState(1);
   const [inv, setInv] = useState("");
   const [org, setOrg] = useState<string>(existing?.org_unit_id || "");
@@ -66,7 +68,10 @@ function Wizard({ start, existing, kinds, options, onDone }: { start: any; exist
   const th = c.kind === "threshold";
   const o = options || { sources: [], fields: [], ops: [], group_by: [], measures: [], byte_units: ["KB", "MB", "GB"] };
   const bytes = String(c.measure).startsWith("bytes");
-  const setCond = (i: number, patch: any) => set({ conditions: c.conditions.map((x: any, k: number) => k === i ? { ...x, ...patch } : x) });
+  const newCond = () => ({ field: "enforcement_action", op: "is", value: "" });
+  const setGroup = (gi: number, patch: any) => set({ condition_groups: c.condition_groups.map((g: any, k: number) => k === gi ? { ...g, ...patch } : g)
+    .filter((g: any) => g.conditions.length > 0) });
+  const setCond = (gi: number, i: number, patch: any) => setGroup(gi, { conditions: c.condition_groups[gi].conditions.map((x: any, k: number) => k === i ? { ...x, ...patch } : x) });
   const named = !!String(c.name || "").trim();
   const kind = kinds.find(k => k.kind === c.kind);
   const newStep = (n: number) => ({ label: `${n}단계`, method: "", path: "/", match: "exact", contains: "" });
@@ -102,14 +107,28 @@ function Wizard({ start, existing, kinds, options, onDone }: { start: any; exist
           <div className="row wrap">{o.sources.map((s: any) => <label key={s.id} className="row small"><input type="checkbox" aria-label={`${s.name} 자료`} checked={c.sources.includes(s.id)}
             onChange={() => set({ sources: c.sources.includes(s.id) ? c.sources.filter((x: string) => x !== s.id) : [...c.sources, s.id] })} />{s.name}</label>)}</div></fieldset>
         <fieldset className="sc-th"><legend>2. 어떤 기록만 볼까요? (선택 — 비우면 고른 자료 전체)</legend>
-          {c.conditions.map((x: any, i: number) => <div key={i} className="row wrap small">
-            <select className="input" aria-label={`조건 ${i + 1} 항목`} value={x.field} onChange={e => setCond(i, { field: e.target.value })}>{o.fields.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
-            <select className="input" aria-label={`조건 ${i + 1} 비교`} value={x.op} onChange={e => setCond(i, { op: e.target.value })}>{o.ops.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
-            <input className="input mono" aria-label={`조건 ${i + 1} 값`} placeholder={x.field === "enforcement_action" ? "허용 또는 차단" : x.field.endsWith("_ip") ? "예: 10.0.0.0/8" : "값"} value={x.value}
-              onChange={e => setCond(i, { value: e.target.value })} style={{ width: 200 }} />
-            <button className="btn ghost sm" onClick={() => set({ conditions: c.conditions.filter((_: any, k: number) => k !== i) })}>빼기</button></div>)}
-          {c.conditions.length < 8 && <button className="btn sm" onClick={() => set({ conditions: [...c.conditions, { field: "enforcement_action", op: "is", value: "" }] })}>조건 추가</button>}
-          <p className="small muted">조건은 모두 만족해야 합니다. 예: 조치 = 차단, 목적지 포트 = 22,3389, 응답 코드 ≥ 400, 출발지 IP = 10.0.0.0/8</p></fieldset>
+          {c.condition_groups.length > 1 && <label className="row wrap small">묶음이 여러 개일 때
+            <select className="input" aria-label="묶음 사이" value={c.groups_mode} onChange={e => set({ groups_mode: e.target.value })}>
+              <option value="all">모든 묶음을 만족 (그리고)</option><option value="any">묶음 중 하나라도 만족 (또는)</option></select></label>}
+          {c.condition_groups.map((g: any, gi: number) => <div key={gi} className="sc-group">
+            {gi > 0 && <div className="sc-join">{c.groups_mode === "all" ? "그리고" : "또는"}</div>}
+            <div className="row wrap small"><b>묶음 {gi + 1}</b> 이 안의 조건을
+              <select className="input" aria-label={`묶음 ${gi + 1} 방식`} value={g.mode} onChange={e => setGroup(gi, { mode: e.target.value })}>
+                <option value="all">모두 만족 (그리고)</option><option value="any">하나라도 만족 (또는)</option></select>
+              <div className="grow" /><button className="btn ghost sm" onClick={() => set({ condition_groups: c.condition_groups.filter((_: any, k: number) => k !== gi) })}>묶음 빼기</button></div>
+            {g.conditions.map((x: any, i: number) => <div key={i} className="row wrap small">
+              {i > 0 && <span className="sc-word">{g.mode === "all" ? "그리고" : "또는"}</span>}
+              <select className="input" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 항목`} value={x.field} onChange={e => setCond(gi, i, { field: e.target.value })}>{o.fields.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
+              <select className="input" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 비교`} value={x.op} onChange={e => setCond(gi, i, { op: e.target.value })}>{o.ops.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
+              <input className="input mono" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 값`} placeholder={x.field === "enforcement_action" ? "허용 또는 차단" : x.field.endsWith("_ip") ? "예: 10.0.0.0/8" : "값"} value={x.value}
+                onChange={e => setCond(gi, i, { value: e.target.value })} style={{ width: 200 }} />
+              <button className="btn ghost sm" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 빼기`} onClick={() => setGroup(gi, { conditions: g.conditions.filter((_: any, k: number) => k !== i) })}>빼기</button></div>)}
+            {g.conditions.length < 8 && <div><button className="btn sm" aria-label={`묶음 ${gi + 1}에 조건 추가`} onClick={() => setGroup(gi, { conditions: [...g.conditions, newCond()] })}>이 묶음에 조건 추가</button></div>}
+          </div>)}
+          {c.condition_groups.length < 6 && <div><button className="btn sm" onClick={() => set({ condition_groups: [...c.condition_groups, { mode: "all", conditions: [newCond()] }] })}>
+            {c.condition_groups.length ? "조건 묶음 추가" : "조건 추가"}</button></div>}
+          <p className="small muted">묶음 안은 "모두(그리고)" 또는 "하나라도(또는)", 묶음끼리도 "그리고" 또는 "또는"으로 잇습니다.
+            예: (조치 = 차단 그리고 목적지 포트 = 22,3389) 또는 (응답 코드 ≥ 500). "같음"은 한 칸에 쉼표로 여러 값을 적으면 그중 하나와 같으면 되고, IP는 대역(10.0.0.0/8)도 됩니다. "이상·이하"는 숫자입니다.</p></fieldset>
         <fieldset className="sc-th"><legend>3. 무엇끼리 묶어, 얼마 동안, 무엇이 얼마 이상일 때?</legend>
           <div className="row wrap small">
             <select className="input" aria-label="묶는 기준" value={c.group_by} onChange={e => set({ group_by: e.target.value })}>{o.group_by.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>끼리 묶어

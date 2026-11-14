@@ -118,6 +118,12 @@ class ScenarioCondition(Strict):
     value: Annotated[str, Field(min_length=1, max_length=300)]
 
 
+class ScenarioConditionGroup(Strict):
+    """Conditions that belong together: all of them (and) or any one of them (or)."""
+    mode: Literal["all", "any"] = "all"
+    conditions: list[ScenarioCondition] = Field(min_length=1, max_length=8)
+
+
 class ScenarioContent(Strict):
     """An executable procedure: what flow to look for, tied by what, within what time, counted in what unit.
 
@@ -144,6 +150,10 @@ class ScenarioContent(Strict):
     # kind "threshold": which records, grouped by what, measured how, and the value that makes it an activity.
     sources: list[Literal["fw", "web", "waf", "ips", "ddos", "app"]] = Field(default_factory=list, max_length=6)
     conditions: list[ScenarioCondition] = Field(default_factory=list, max_length=8)
+    # Groups of conditions, each "all" (and) or "any" (or), joined by groups_mode. `conditions` above is one more
+    # "all" group, kept so that definitions saved before groups existed mean the same.
+    condition_groups: list[ScenarioConditionGroup] = Field(default_factory=list, max_length=6)
+    groups_mode: Literal["all", "any"] = "all"
     group_by: Literal["src_ip", "dst_ip", "pair", "dst_service", "hostname", "alert_name", "all"] = "src_ip"
     measure: Literal["records", "bytes_total", "bytes_out", "bytes_in", "distinct_dst_ip", "distinct_dst_port", "distinct_src_ip",
                      "distinct_alert", "distinct_path"] = "records"

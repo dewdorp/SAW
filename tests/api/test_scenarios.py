@@ -205,6 +205,22 @@ def test_a_threshold_scenario_finds_volume_counts_and_distinct_values_on_device_
     assert [(m["entity"], m["count"]) for m in p["matches"]] == [("10.70.1.30", 12)]  # D reaches one port only
     none = senior.post(url, json={"content": {**blocked, "threshold": 500}}).json()
     assert none["status"] == "no_match" and any("10.70.1.30" in n["text"] and "12" in n["text"] for n in none["near"])
+    # And / or: (blocked and port 1000..1005) or (the 60 MB destination). Groups are joined by "or", the first is "all".
+    mixed = {"name": "섞은 조건", "kind": "threshold", "sources": ["fw"], "group_by": "src_ip", "measure": "records", "threshold": 3, "window_seconds": 600,
+             "groups_mode": "any", "condition_groups": [
+                 {"mode": "all", "conditions": [{"field": "enforcement_action", "value": "차단"}, {"field": "dst_port", "op": "lte", "value": "1005"}]},
+                 {"mode": "any", "conditions": [{"field": "dst_ip", "value": "198.51.100.7"}, {"field": "dst_port", "value": "9999"}]}]}
+    said = senior.post("/scenarios/describe", json={"content": mixed}).json()["description"]
+    assert "[(조치 = 차단 그리고 목적지 포트 ≤ 1005) 또는 (목적지 IP = 198.51.100.7 또는 목적지 포트 = 9999)]인 것" in said
+    p = senior.post(url, json={"content": mixed}).json()
+    assert sorted((m["entity"], m["count"]) for m in p["matches"]) == [("10.70.1.10", 3), ("10.70.1.30", 6)]
+    assert p["examined"]["records_matching_conditions"] == 9
+    both = senior.post(url, json={"content": {**mixed, "groups_mode": "all"}}).json()  # no record is in both groups
+    assert both["status"] == "no_match" and both["examined"]["records_matching_conditions"] == 0
+    # The plain list of older definitions is one more "all" group.
+    legacy = senior.post(url, json={"content": {**mixed, "groups_mode": "all", "conditions": [{"field": "src_ip", "value": "10.70.1.30"}],
+                                               "condition_groups": mixed["condition_groups"][:1]}}).json()
+    assert [(m["entity"], m["count"]) for m in legacy["matches"]] == [("10.70.1.30", 6)]
     # A source this hunt does not have is "not checked", never an empty result.
     absent = senior.post(url, json={"content": {**blocked, "sources": ["ips"], "conditions": []}}).json()
     assert absent["status"] == "insufficient_data" and absent["missing"] == ["IPS 기록"]
