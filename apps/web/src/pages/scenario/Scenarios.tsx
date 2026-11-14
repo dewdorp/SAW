@@ -16,7 +16,7 @@ const STATUS_TONE: Record<string, string> = { found: "warn", no_match: "ok", ins
 const flowKinds = new Set(["then_variation", "sequence"]);
 
 /** Starting values of a "threshold" scenario: which records, grouped by what, measured how, against what value. */
-const THRESHOLD = { sources: [] as string[], conditions: [] as any[], condition_groups: [] as any[], groups_mode: "all", group_by: "src_ip", measure: "records", threshold: 0, byte_unit: "MB" };
+const THRESHOLD = { sources: [] as string[], conditions: [] as any[], condition_groups: [] as any[], groups_mode: "all", compare: "gte", baseline: "none", baseline_multiple: 3, ratio_condition: null as any, min_records: 10, group_by: "src_ip", measure: "records", threshold: 0, byte_unit: "MB" };
 
 function blank(t: any): any {
   return { name: t.name, purpose: t.purpose, kind: t.kind, host: "", entity: "src_ip", window_seconds: 600, steps: [], count_unit: "distinct_param", count_param: "",
@@ -69,6 +69,13 @@ function Wizard({ start, existing, kinds, options, onDone }: { start: any; exist
   const o = options || { sources: [], fields: [], ops: [], group_by: [], measures: [], byte_units: ["KB", "MB", "GB"] };
   const bytes = String(c.measure).startsWith("bytes");
   const newCond = () => ({ field: "enforcement_action", op: "is", value: "" });
+  const noValue = (op: string) => op === "exists" || op === "not_exists";
+  const hint = (field: string) => o.fields.find((f: any) => f.id === field)?.hint || "값";
+  const isRatio = c.measure === "ratio";
+  const usual = c.baseline === "own";
+  const rc = c.ratio_condition || newCond();
+  // Picking the share measure needs its condition; leaving it drops the condition again.
+  const setMeasure = (m: string) => set({ measure: m, ratio_condition: m === "ratio" ? rc : null, threshold: m === "ratio" && c.threshold > 100 ? 80 : c.threshold });
   const setGroup = (gi: number, patch: any) => set({ condition_groups: c.condition_groups.map((g: any, k: number) => k === gi ? { ...g, ...patch } : g)
     .filter((g: any) => g.conditions.length > 0) });
   const setCond = (gi: number, i: number, patch: any) => setGroup(gi, { conditions: c.condition_groups[gi].conditions.map((x: any, k: number) => k === i ? { ...x, ...patch } : x) });
@@ -120,23 +127,36 @@ function Wizard({ start, existing, kinds, options, onDone }: { start: any; exist
               {i > 0 && <span className="sc-word">{g.mode === "all" ? "그리고" : "또는"}</span>}
               <select className="input" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 항목`} value={x.field} onChange={e => setCond(gi, i, { field: e.target.value })}>{o.fields.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
               <select className="input" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 비교`} value={x.op} onChange={e => setCond(gi, i, { op: e.target.value })}>{o.ops.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
-              <input className="input mono" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 값`} placeholder={x.field === "enforcement_action" ? "허용 또는 차단" : x.field.endsWith("_ip") ? "예: 10.0.0.0/8" : "값"} value={x.value}
-                onChange={e => setCond(gi, i, { value: e.target.value })} style={{ width: 200 }} />
+              {!noValue(x.op) && <input className="input mono" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 값`} placeholder={hint(x.field)} value={x.value}
+                onChange={e => setCond(gi, i, { value: e.target.value })} style={{ width: 200 }} />}
               <button className="btn ghost sm" aria-label={`묶음 ${gi + 1} 조건 ${i + 1} 빼기`} onClick={() => setGroup(gi, { conditions: g.conditions.filter((_: any, k: number) => k !== i) })}>빼기</button></div>)}
             {g.conditions.length < 8 && <div><button className="btn sm" aria-label={`묶음 ${gi + 1}에 조건 추가`} onClick={() => setGroup(gi, { conditions: [...g.conditions, newCond()] })}>이 묶음에 조건 추가</button></div>}
           </div>)}
           {c.condition_groups.length < 6 && <div><button className="btn sm" onClick={() => set({ condition_groups: [...c.condition_groups, { mode: "all", conditions: [newCond()] }] })}>
             {c.condition_groups.length ? "조건 묶음 추가" : "조건 추가"}</button></div>}
+          <p className="small muted">시각은 22-6처럼, 요일은 토,일·평일·주말, 내부·외부는 내부 또는 외부, 한 기록의 전송량은 10MB처럼 적습니다. "값이 있음/없음"은 값 없이 씁니다.</p>
           <p className="small muted">묶음 안은 "모두(그리고)" 또는 "하나라도(또는)", 묶음끼리도 "그리고" 또는 "또는"으로 잇습니다.
             예: (조치 = 차단 그리고 목적지 포트 = 22,3389) 또는 (응답 코드 ≥ 500). "같음"은 한 칸에 쉼표로 여러 값을 적으면 그중 하나와 같으면 되고, IP는 대역(10.0.0.0/8)도 됩니다. "이상·이하"는 숫자입니다.</p></fieldset>
-        <fieldset className="sc-th"><legend>3. 무엇끼리 묶어, 얼마 동안, 무엇이 얼마 이상일 때?</legend>
+        <fieldset className="sc-th"><legend>3. 무엇끼리 묶어, 얼마 동안, 무엇이 얼마일 때?</legend>
           <div className="row wrap small">
             <select className="input" aria-label="묶는 기준" value={c.group_by} onChange={e => set({ group_by: e.target.value })}>{o.group_by.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>끼리 묶어
-            <select className="input" aria-label="시간 범위" value={c.window_seconds} onChange={e => set({ window_seconds: Number(e.target.value) })}>{WINDOWS.map(([v, l]) => <option key={v} value={v}>{l} 안에</option>)}</select>
-            <select className="input" aria-label="세는 값" value={c.measure} onChange={e => set({ measure: e.target.value })}>{o.measures.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>이(가)
-            <input className="input" type="number" min={0} step={bytes ? 0.1 : 1} aria-label="기준 값" value={c.threshold} onChange={e => set({ threshold: Number(e.target.value) || 0 })} style={{ width: 110 }} />
+            <select className="input" aria-label="시간 범위" value={c.window_seconds} onChange={e => set({ window_seconds: Number(e.target.value) })}>{WINDOWS.map(([v, l]) => <option key={v} value={v}>{l} {c.compare === "lte" || usual ? "단위로" : "안에"}</option>)}</select>
+            <select className="input" aria-label="세는 값" value={c.measure} onChange={e => setMeasure(e.target.value)}>{o.measures.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>이(가)
+            <input className="input" type="number" min={0} max={isRatio ? 100 : undefined} step={bytes ? 0.1 : 1} aria-label="기준 값" value={c.threshold} onChange={e => set({ threshold: Number(e.target.value) || 0 })} style={{ width: 110 }} />
             {bytes && <select className="input" aria-label="전송량 단위" value={c.byte_unit} onChange={e => set({ byte_unit: e.target.value })}>{o.byte_units.map((u: string) => <option key={u}>{u}</option>)}</select>}
-            이상</div>
+            {isRatio && "%"}
+            <select className="input" aria-label="이상 또는 이하" value={c.compare} onChange={e => set({ compare: e.target.value, baseline: e.target.value === "lte" ? "none" : c.baseline })}>
+              {(o.compare || [{ id: "gte", name: "이상" }, { id: "lte", name: "이하" }]).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
+          {isRatio && <div className="row wrap small sc-sub"><b>비율을 셀 조건</b>
+            <select className="input" aria-label="비율 조건 항목" value={rc.field} onChange={e => set({ ratio_condition: { ...rc, field: e.target.value } })}>{o.fields.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
+            <select className="input" aria-label="비율 조건 비교" value={rc.op} onChange={e => set({ ratio_condition: { ...rc, op: e.target.value } })}>{o.ops.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
+            {!noValue(rc.op) && <input className="input mono" aria-label="비율 조건 값" placeholder={hint(rc.field)} value={rc.value} onChange={e => set({ ratio_condition: { ...rc, value: e.target.value } })} style={{ width: 160 }} />}
+            인 기록의 비율 · 기록이 <input className="input" type="number" min={1} aria-label="최소 기록 수" value={c.min_records} onChange={e => set({ min_records: Math.max(1, Number(e.target.value) || 1) })} style={{ width: 80 }} />건 이상일 때만</div>}
+          {c.compare !== "lte" && <label className="row wrap small sc-sub"><input type="checkbox" aria-label="평소 대비로 보기" checked={usual} onChange={e => set({ baseline: e.target.checked ? "own" : "none" })} />
+            평소 대비로 보기: 같은 대상의 평소(구간 중앙값)의
+            <input className="input" type="number" min={1.1} step={0.5} aria-label="평소의 몇 배" disabled={!usual} value={c.baseline_multiple} onChange={e => set({ baseline_multiple: Number(e.target.value) || 3 })} style={{ width: 80 }} />배 이상
+            {usual && <span className="muted">(위의 기준 값은 "적어도 이만큼"으로 쓰이며 0이면 쓰지 않습니다)</span>}</label>}
+          {c.compare === "lte" && <p className="small muted">"이하"는 시간을 고정 구간으로 나눠, 그 대상의 첫 기록 뒤 구간마다 봅니다. 기록 수 0 이하는 "있던 통신이 끊김"입니다.</p>}
           <label className="col small">특정 서비스(호스트)만 볼 때 (선택)<input className="input" value={c.host} onChange={e => set({ host: e.target.value })} placeholder="예: portal.example.test" /></label></fieldset>
       </>}
       {flow && <>

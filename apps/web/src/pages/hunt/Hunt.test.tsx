@@ -213,6 +213,38 @@ describe("scenarios and assets", () => {
         { mode: "all", conditions: [{ field: "enforcement_action", op: "is", value: "허용" }] }] });
   });
 
+  it("writes a share, a multiple of the usual and an at-most threshold, with conditions that need no value", async () => {
+    const options = { sources: [{ id: "fw", name: "방화벽·연결" }], fields: [{ id: "enforcement_action", name: "조치", hint: "허용 또는 차단" }, { id: "hour", name: "시각", hint: "예: 22-6" }, { id: "user_agent", name: "User-Agent", hint: "예: curl" }],
+      ops: [{ id: "is", name: "같음" }, { id: "not_exists", name: "값이 없음" }], group_by: [{ id: "src_ip", name: "같은 출발지 IP" }],
+      measures: [{ id: "records", name: "기록 수" }, { id: "ratio", name: "조건에 맞는 기록의 비율(%)" }, { id: "bytes_total", name: "전송량 합계", bytes: true }], byte_units: ["KB", "MB", "GB"],
+      compare: [{ id: "gte", name: "이상" }, { id: "lte", name: "이하 (끊김·줄어듦)" }] };
+    const api = mockApi({ "GET /scenarios": [200, { scenarios: [], templates: [], threshold_options: options, kinds: [{ kind: "threshold", name: "기준을 넘는 통신·기록", hint: "h", needs: ["x"] }] }],
+      "GET /hunts": [200, { items: [] }], "GET /source-context/org-units": [200, []], "POST /scenarios/describe": [200, { description: "문장", unit: "비율(%)" }],
+      "POST /knowledge/flow-items": [201, { id: "k4" }] });
+    renderUI(<Scenarios />);
+    fireEvent.click(await screen.findByRole("button", { name: "직접 만들기" }));
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "차단 비율" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 조건 정하기" }));
+    fireEvent.click(screen.getByRole("button", { name: "조건 추가" }));
+    expect((screen.getByLabelText("묶음 1 조건 1 값") as HTMLInputElement).placeholder).toBe("허용 또는 차단");
+    fireEvent.change(screen.getByLabelText("묶음 1 조건 1 항목"), { target: { value: "user_agent" } });
+    fireEvent.change(screen.getByLabelText("묶음 1 조건 1 비교"), { target: { value: "not_exists" } });
+    expect(screen.queryByLabelText("묶음 1 조건 1 값")).toBeNull();  // "has no value" takes no value
+    fireEvent.change(screen.getByLabelText("세는 값"), { target: { value: "ratio" } });
+    fireEvent.change(screen.getByLabelText("비율 조건 값"), { target: { value: "차단" } });
+    fireEvent.change(screen.getByLabelText("최소 기록 수"), { target: { value: "20" } });
+    fireEvent.change(screen.getByLabelText("기준 값"), { target: { value: "80" } });
+    fireEvent.click(screen.getByLabelText("평소 대비로 보기"));
+    fireEvent.change(screen.getByLabelText("평소의 몇 배"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("이상 또는 이하"), { target: { value: "lte" } });  // "at most" drops the usual comparison
+    expect(screen.queryByLabelText("평소 대비로 보기")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "4. 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "초안으로 저장(시험만)" }));
+    await waitFor(() => expect(api.find("POST", "/knowledge/flow-items")).toHaveLength(1));
+    expect(api.find("POST", "/knowledge/flow-items")[0].body.content).toMatchObject({ measure: "ratio", threshold: 80, min_records: 20, compare: "lte", baseline: "none",
+      ratio_condition: { field: "enforcement_action", op: "is", value: "차단" }, condition_groups: [{ mode: "all", conditions: [{ field: "user_agent", op: "not_exists", value: "" }] }] });
+  });
+
   it("previews a file refresh before applying and registers with a name and one identifier", async () => {
     const api = mockApi({ "GET /source-context/org-units": [200, []], "GET /asset-book": [200, { items: [], to_review: [] }],
       "POST /asset-book": [201, { id: "a1" }],

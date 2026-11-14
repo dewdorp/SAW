@@ -50,3 +50,4 @@
 .sc-group { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; position: relative; }
 .sc-join { align-self: center; font-weight: 600; font-size: 12px; margin-top: -4px; }
 .sc-word { font-weight: 600; }
+.sc-sub { border-left: 3px solid var(--line); padding-left: 8px; }

@@ -87,6 +87,26 @@ TEMPLATES = [
      "purpose": "같은 대상에 DDoS 관측 기록이 정한 시간 안에 여러 번 남은 경우를 찾습니다.", "needs": ["DDoS 구간 기록"],
      "normal_note": "행사·공지로 접속이 몰린 시간대일 수 있습니다. 집계 기록이며 공격자를 가리키지 않습니다.",
      "defaults": {"sources": ["ddos"], "group_by": "dst_ip", "measure": "records", "threshold": 2, "window_seconds": 3600}},
+    {"id": "night_external_volume", "name": "야간에 외부로 나간 큰 전송량 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "밤 10시~아침 6시에 외부 목적지와 주고받은 양이 기준을 넘는 통신을 찾습니다.", "needs": ["방화벽·연결 기록(바이트 열)"],
+     "normal_note": "야간 백업·배치·해외 지사 업무 시간일 수 있습니다.",
+     "defaults": {"sources": ["fw"], "condition_groups": [{"mode": "all", "conditions": [{"field": "hour", "op": "is", "value": "22-6"},
+                                                                                     {"field": "dst_side", "op": "is", "value": "외부"}]}],
+                  "group_by": "pair", "measure": "bytes_total", "threshold": 50, "byte_unit": "MB", "window_seconds": 600}},
+    {"id": "blocked_ratio", "name": "차단 비율이 높은 출발지 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지의 통신 가운데 차단된 비율이 높은 경우를 찾습니다. 건수만 볼 때보다 통신량이 많은 정상 서버가 덜 잡힙니다.",
+     "needs": ["방화벽·연결 기록(조치 열)"], "normal_note": "정책이 바뀐 직후나 잘못 설정된 프로그램일 수 있습니다.",
+     "defaults": {"sources": ["fw"], "group_by": "src_ip", "measure": "ratio", "ratio_condition": {"field": "enforcement_action", "op": "is", "value": "차단"},
+                  "threshold": 80, "min_records": 20, "window_seconds": 600}},
+    {"id": "volume_vs_usual", "name": "평소보다 크게 늘어난 전송량 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지의 1시간 전송량이 그 출발지 평소의 여러 배로 늘어난 구간을 찾습니다.", "needs": ["방화벽·연결 기록(바이트 열, 여러 시간 분량)"],
+     "normal_note": "월말 정산·정기 백업·배포처럼 주기적으로 늘어나는 업무일 수 있습니다.",
+     "defaults": {"sources": ["fw"], "group_by": "src_ip", "measure": "bytes_total", "baseline": "own", "baseline_multiple": 5, "threshold": 10,
+                  "byte_unit": "MB", "window_seconds": 3600}},
+    {"id": "went_quiet", "name": "있던 통신이 끊김 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "기록이 있던 출발지→목적지 통신이 정한 시간 동안 한 건도 없는 구간을 찾습니다.", "needs": ["방화벽·연결 기록"],
+     "normal_note": "업무 종료·점검·자료 수집 중단일 수 있습니다. 통신이 끊긴 것과 자료가 없는 것을 구분하지 못합니다.",
+     "defaults": {"sources": ["fw"], "group_by": "pair", "measure": "records", "compare": "lte", "threshold": 0, "window_seconds": 3600}},
     {"id": "auth_fail_then_success", "name": "반복 인증 실패 뒤 성공과 이후 활동", "executable": False,
      "purpose": "인증 실패가 이어진 뒤 성공하고 조회가 이어지는 흐름.", "needs": ["인증 결과를 알려 주는 애플리케이션 기록", "업무 의미와 결과 확인 기준"],
      "reason": "인증 결과는 '업무 흐름' 분석이 등록된 결과 확인 기준으로 판정합니다(헌팅의 '인증 실패 뒤 조회' 활동). 실패 횟수 조건을 거는 전용 실행기는 아직 없습니다."},
@@ -181,7 +201,7 @@ def execute(s, inv, es, time, c: dict, *, limit: int = MAX_MATCHES) -> dict:
 
 def _unit(c: dict) -> str:
     if c["kind"] == "threshold":
-        return MEASURE_WORD[c["measure"]] + (f"({c.get('byte_unit') or 'MB'})" if c["measure"].startswith("bytes") else "")
+        return _measure_text(c) + (f"({c.get('byte_unit') or 'MB'})" if c["measure"].startswith("bytes") else "(%)" if c["measure"] == "ratio" else "")
     if c["kind"] == "then_variation":
         return f"서로 다른 {c.get('count_param')} 값의 수" if c.get("count_unit") == "distinct_param" else "중복 전달을 뺀 요청 수"
     return {"sequence": "순서가 완성된 횟수", "periodic_external": "출발지·목적지 쌍의 접속 횟수", "spread_internal": "서로 다른 대상·포트 수",
@@ -376,40 +396,59 @@ def _ddos_window(s, inv) -> dict:
 
 SOURCE_SETS = {"fw": ["connection", "firewall", "zeek_conn"], "web": ["web"], "waf": ["waf"], "ips": ["ips"], "ddos": ["ddos"], "app": ["app"]}
 SOURCE_WORD = {"fw": "방화벽·연결", "web": "웹(NDR HTTP)", "waf": "WAF", "ips": "IPS", "ddos": "DDoS", "app": "애플리케이션"}
-FIELD_WORD = {"enforcement_action": "조치", "src_ip": "출발지 IP", "dst_ip": "목적지 IP", "dst_port": "목적지 포트", "protocol": "프로토콜",
-              "hostname": "서비스(호스트)", "method": "메서드", "uri": "요청 경로·쿼리", "status_code": "응답 코드", "alert_name": "공격명",
-              "severity": "심각도"}
-OP_WORD = {"is": "=", "is_not": "≠", "contains": "에 포함:", "gte": "≥", "lte": "≤"}
+FIELD_WORD = {"enforcement_action": "조치", "src_ip": "출발지 IP", "dst_ip": "목적지 IP", "src_side": "출발지 내부·외부", "dst_side": "목적지 내부·외부",
+              "dst_port": "목적지 포트", "src_port": "출발지 포트", "protocol": "프로토콜", "hour": "시각(0~23시, 한국 시간)", "weekday": "요일(한국 시간)",
+              "record_bytes": "한 기록의 전송량", "duration": "지속 시간(초)", "hostname": "서비스(호스트)", "method": "메서드", "uri": "요청 경로·쿼리",
+              "status_code": "응답 코드", "user_agent": "User-Agent", "user": "사용자", "alert_name": "공격명", "severity": "심각도", "device": "장비 이름"}
+FIELD_HINT = {"enforcement_action": "허용 또는 차단", "src_ip": "예: 10.0.0.0/8", "dst_ip": "예: 198.51.100.7", "src_side": "내부 또는 외부", "dst_side": "내부 또는 외부",
+              "dst_port": "예: 22,3389", "src_port": "예: 53", "protocol": "예: TCP", "hour": "예: 22-6", "weekday": "예: 토,일 또는 주말", "record_bytes": "예: 10MB",
+              "duration": "예: 3600", "hostname": "예: portal.example.test", "method": "예: POST", "uri": "예: /export", "status_code": "예: 500",
+              "user_agent": "예: curl", "user": "예: admin", "alert_name": "예: SQL", "severity": "예: high", "device": "예: fw-01"}
+OP_WORD = {"is": "=", "is_not": "≠", "contains": "에 포함:", "gte": "≥", "lte": "≤", "exists": "값이 있음", "not_exists": "값이 없음"}
 GROUP_WORD = {"src_ip": "같은 출발지 IP", "dst_ip": "같은 목적지 IP", "pair": "같은 출발지 → 목적지", "dst_service": "같은 목적지 IP·포트",
               "hostname": "같은 서비스(호스트)", "alert_name": "같은 공격명", "all": "전체(묶지 않음)"}
 GROUP_FIELDS = {"src_ip": ["src_ip"], "dst_ip": ["dst_ip"], "pair": ["src_ip", "dst_ip"], "dst_service": ["dst_ip", "dst_port"],
                 "hostname": ["hostname"], "alert_name": ["alert_name"], "all": []}
 MEASURE_WORD = {"records": "기록 수", "bytes_total": "전송량 합계(보낸 양+받은 양)", "bytes_out": "보낸 양(bytes_out)", "bytes_in": "받은 양(bytes_in)",
+                "ratio": "조건에 맞는 기록의 비율(%)",
                 "distinct_dst_ip": "서로 다른 목적지 IP 수", "distinct_dst_port": "서로 다른 목적지 포트 수", "distinct_src_ip": "서로 다른 출발지 IP 수",
-                "distinct_alert": "서로 다른 공격명 수", "distinct_path": "서로 다른 요청 경로 수"}
-DISTINCT_FIELD = {"distinct_dst_ip": "dst_ip", "distinct_dst_port": "dst_port", "distinct_src_ip": "src_ip", "distinct_alert": "alert_name"}
+                "distinct_alert": "서로 다른 공격명 수", "distinct_path": "서로 다른 요청 경로 수", "distinct_user": "서로 다른 사용자 수",
+                "distinct_user_agent": "서로 다른 User-Agent 수", "distinct_hostname": "서로 다른 서비스(호스트) 수"}
+DISTINCT_FIELD = {"distinct_dst_ip": "dst_ip", "distinct_dst_port": "dst_port", "distinct_src_ip": "src_ip", "distinct_alert": "alert_name",
+                  "distinct_user": "user", "distinct_user_agent": "user_agent", "distinct_hostname": "hostname"}
 BYTE_UNIT = {"KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3}
 ACTION_WORD = {"허용": "allowed", "allow": "allowed", "accept": "allowed", "permit": "allowed", "차단": "blocked", "block": "blocked",
                "deny": "blocked", "drop": "blocked", "denied": "blocked"}
+MIN_BASELINE_INTERVALS = 4
+MAX_INTERVALS = 200_000
 # What the wizard offers for a threshold scenario, in the analyst's words.
 THRESHOLD_OPTIONS = {
     "sources": [{"id": k, "name": v} for k, v in SOURCE_WORD.items()],
-    "fields": [{"id": k, "name": v} for k, v in FIELD_WORD.items()],
+    "fields": [{"id": k, "name": v, "hint": FIELD_HINT[k]} for k, v in FIELD_WORD.items()],
     "ops": [{"id": "is", "name": "같음"}, {"id": "is_not", "name": "다름"}, {"id": "contains", "name": "포함"},
-            {"id": "gte", "name": "이상"}, {"id": "lte", "name": "이하"}],
+            {"id": "gte", "name": "이상"}, {"id": "lte", "name": "이하"}, {"id": "exists", "name": "값이 있음"}, {"id": "not_exists", "name": "값이 없음"}],
     "group_by": [{"id": k, "name": v} for k, v in GROUP_WORD.items()],
     "measures": [{"id": k, "name": v, "bytes": k.startswith("bytes")} for k, v in MEASURE_WORD.items()],
     "byte_units": list(BYTE_UNIT),
+    "compare": [{"id": "gte", "name": "이상"}, {"id": "lte", "name": "이하 (끊김·줄어듦)"}],
 }
 
 
+def _measure_text(c: dict) -> str:
+    if c["measure"] == "ratio" and c.get("ratio_condition"):
+        return f"[{_cond_text(c['ratio_condition'])}]인 기록의 비율"
+    return MEASURE_WORD[c["measure"]]
+
+
 def _threshold_text(c: dict) -> str:
-    amount = f"{c['threshold']:g}{c.get('byte_unit') or 'MB'}" if c["measure"].startswith("bytes") else f"{int(c['threshold'])}"
-    return amount
+    if c["measure"].startswith("bytes"):
+        return f"{c['threshold']:g}{c.get('byte_unit') or 'MB'}"
+    return f"{c['threshold']:g}%" if c["measure"] == "ratio" else f"{int(c['threshold'])}"
 
 
 def _cond_text(cond: dict) -> str:
-    return f"{FIELD_WORD[cond['field']]} {OP_WORD[cond['op']]} {cond['value']}"
+    name = FIELD_WORD[cond["field"]].split("(")[0]
+    return f"{name}에 {OP_WORD[cond['op']]}" if cond["op"] in ("exists", "not_exists") else f"{name} {OP_WORD[cond['op']]} {cond['value']}"
 
 
 def _groups(c: dict) -> list[dict]:
@@ -438,49 +477,125 @@ def _describe_threshold(c: dict) -> str:
     conds = [x for x in (_groups_text(c),) if x]
     if c.get("host"):
         conds.insert(0, f"서비스 = {c['host']}")
-    which = f" 중 [{' 그리고 '.join(conds) if len(conds) == 1 else conds[0] + ' 그리고 (' + conds[1] + ')'}]인 것" if conds else ""
-    return (f"{src} 기록{which}을 {GROUP_WORD[c['group_by']]}(으)로 묶어, {_span(c['window_seconds'])} 안에 "
-            f"{MEASURE_WORD[c['measure']]}이(가) {_threshold_text(c)} 이상인 경우")
+    which = f" 중 [{conds[0] if len(conds) == 1 else conds[0] + ' 그리고 (' + conds[1] + ')'}]인 것" if conds else ""
+    head = f"{src} 기록{which}을 {GROUP_WORD[c['group_by']]}(으)로 묶어, "
+    span, what, amount = _span(c["window_seconds"]), _measure_text(c), _threshold_text(c)
+    least = f"(기록 {c.get('min_records') or 10}건 이상일 때)" if c["measure"] == "ratio" else ""
+    if c.get("baseline") == "own":
+        floor = f"이고 {amount} 이상" if c["threshold"] > 0 else ""
+        return f"{head}{span} 단위 구간의 {what}이(가) 그 대상 평소(구간 중앙값)의 {c.get('baseline_multiple') or 3:g}배 이상{floor}인 경우{least}"
+    if c.get("compare") == "lte":
+        return f"{head}{span} 단위 구간마다 {what}이(가) {amount} 이하인 경우(그 대상의 첫 기록 뒤부터){least}"
+    return f"{head}{span} 안에 {what}이(가) {amount} 이상인 경우{least}"
+
+
+def _field_value(e: dict, field: str):
+    """The value a condition looks at; some are worked out from the record (time of day, inside or outside, size)."""
+    if field == "device":
+        return ext(e, "_device_name")
+    if field == "duration":
+        v = e.get("duration")
+        return v if v not in (None, "") else ext(e, "duration")
+    if field == "record_bytes":
+        nums = [float(x) for x in (e.get("bytes_in"), e.get("bytes_out")) if isinstance(x, (int, float))]
+        return sum(nums) if nums else None
+    if field in ("hour", "weekday"):
+        from datetime import datetime, timezone
+
+        t = epoch(e.get("timestamp"))
+        if t is None:
+            return None
+        local = datetime.fromtimestamp(t + 9 * 3600, timezone.utc)  # Korean time, as the screens show it
+        return local.hour if field == "hour" else local.weekday()
+    if field in ("src_side", "dst_side"):
+        from saw.core.application.briefing import _is_internal
+
+        ip = e.get("src_ip" if field == "src_side" else "dst_ip")
+        return None if not ip else "internal" if _is_internal(str(ip)) else "external"
+    return e.get(field)
 
 
 def _cond_ok(e: dict, cond: dict) -> bool:
     import ipaddress
 
-    v, want = e.get(cond["field"]), cond["value"].strip()
+    field, op, want = cond["field"], cond["op"], (cond.get("value") or "").strip()
+    v = _field_value(e, field)
+    if op in ("exists", "not_exists"):
+        return (v not in (None, "")) == (op == "exists")
     if v in (None, ""):
-        return cond["op"] == "is_not"
+        return op == "is_not"
     text = str(v).strip().lower()
-    if cond["op"] in ("gte", "lte"):
+    if op in ("gte", "lte"):
         try:
-            a, b = float(text), float(want)
-        except ValueError:
+            a = float(text)
+            b = knowledge.parse_size(want) if field == "record_bytes" else float(want)
+        except (TypeError, ValueError):
             return False
-        return a >= b if cond["op"] == "gte" else a <= b
-    if cond["op"] == "contains":
+        if b is None:
+            return False
+        return a >= b if op == "gte" else a <= b
+    if op == "contains":
         return want.lower() in text
-    hit = False
-    for one in (x.strip().lower() for x in want.split(",") if x.strip()):
-        if cond["field"] == "enforcement_action":
-            one = ACTION_WORD.get(one, one)
-        if cond["field"] in ("src_ip", "dst_ip") and "/" in one:
-            try:
-                hit = ipaddress.ip_address(text) in ipaddress.ip_network(one, strict=False)
-            except ValueError:
-                hit = False
-        else:
-            hit = text == one
-        if hit:
-            break
-    return hit if cond["op"] == "is" else not hit
+    if field == "hour":
+        hit = v in (knowledge.parse_hours(want) or ())
+    elif field == "weekday":
+        hit = v in (knowledge.parse_weekdays(want) or ())
+    elif field in ("src_side", "dst_side"):
+        hit = v == knowledge.SIDE_WORD.get(want.lower())
+    elif field == "record_bytes":
+        hit = v == knowledge.parse_size(want)
+    else:
+        hit = False
+        for one in (x.strip().lower() for x in want.split(",") if x.strip()):
+            if field == "enforcement_action":
+                one = ACTION_WORD.get(one, one)
+            if field in ("src_ip", "dst_ip") and "/" in one:
+                try:
+                    hit = ipaddress.ip_address(text) in ipaddress.ip_network(one, strict=False)
+                except ValueError:
+                    hit = False
+            else:
+                hit = text == one
+            if hit:
+                break
+    return hit if op == "is" else not hit
+
+
+def _measure_value(e: dict, c: dict):
+    """What one record adds to the measure; None when the record has no value for it."""
+    measure = c["measure"]
+    if measure == "records":
+        return 1
+    if measure == "ratio":
+        return 1 if _cond_ok(e, c["ratio_condition"]) else 0
+    if measure.startswith("bytes"):
+        parts = [e.get(f) for f in (("bytes_in", "bytes_out") if measure == "bytes_total" else (measure,))]
+        nums = [float(x) for x in parts if isinstance(x, (int, float))]
+        return sum(nums) if nums else None
+    value = split_uri(e.get("uri"))[0] if measure == "distinct_path" else e.get(DISTINCT_FIELD[measure])
+    return None if value in (None, "") else value
+
+
+def _aggregate(values: list, c: dict):
+    """The measure of one interval; None when a share cannot be judged from so few records."""
+    measure = c["measure"]
+    if measure == "records":
+        return len(values)
+    if measure == "ratio":
+        return 100.0 * sum(values) / len(values) if len(values) >= (c.get("min_records") or 10) else None
+    return float(sum(values)) if measure.startswith("bytes") else len(set(values))
 
 
 def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
-    """Records of the chosen sources, grouped, measured over a moving time window, against one threshold.
+    """Records of the chosen sources, grouped and measured against one threshold.
 
-    A group that stays over the threshold is one match that keeps growing; it ends when the window falls below.
+    "At least" looks at a moving time window; a group that stays over the threshold is one match that keeps growing.
+    "At most" and "times the usual" look at fixed intervals of the same length, because a quiet interval has no record
+    to start a moving window from and a usual value needs comparable intervals.
     """
     from collections import Counter, deque
 
+    from saw.flows.engine import _iso
     from saw.flows.service import ordered
 
     names = [n for x in c["sources"] for n in SOURCE_SETS[x]]
@@ -494,10 +609,14 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
     scale = BYTE_UNIT[c.get("byte_unit") or "MB"] if measure.startswith("bytes") else 1
     need = c["threshold"] * scale
     fields = GROUP_FIELDS[c["group_by"]]
-    distinct = measure.startswith("distinct")
+    distinct, ratio = measure.startswith("distinct"), measure == "ratio"
+    least = c.get("min_records") or 10
+    baseline, under = c.get("baseline") == "own", c.get("compare") == "lte"
+    moving = not baseline and not under
     groups: dict[tuple, dict] = {}
     matches, best = [], {}
     read = kept = no_group = no_value = no_time = over = 0
+    first_bucket = last_bucket = None
     for e in ordered(es, inv_id, filters, time):
         read += 1
         if not _groups_ok(e, groups_of, how):
@@ -510,21 +629,17 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
         if any(k in (None, "") for k in key):
             no_group += 1
             continue
-        if measure == "records":
-            value = 1
-        elif measure.startswith("bytes"):
-            parts = [e.get(f) for f in (("bytes_in", "bytes_out") if measure == "bytes_total" else (measure,))]
-            nums = [float(x) for x in parts if isinstance(x, (int, float))]
-            if not nums:
-                no_value += 1
-                continue
-            value = sum(nums)
-        else:
-            value = split_uri(e.get("uri"))[0] if measure == "distinct_path" else e.get(DISTINCT_FIELD[measure])
-            if value in (None, ""):
-                no_value += 1
-                continue
+        value = _measure_value(e, c)
+        if value is None:
+            no_value += 1
+            continue
         kept += 1
+        if not moving:
+            b = int(t // window)
+            first_bucket = b if first_bucket is None else min(first_bucket, b)
+            last_bucket = b if last_bucket is None else max(last_bucket, b)
+            groups.setdefault(key, {}).setdefault(b, []).append((value, e.get("event_id")))
+            continue
         g = groups.setdefault(key, {"q": deque(), "sum": 0.0, "seen": Counter(), "open": None})
         g["q"].append((t, value, e.get("event_id"), e.get("timestamp")))
         if distinct:
@@ -539,10 +654,13 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
                     del g["seen"][old]
             else:
                 g["sum"] -= old
-        now = len(g["seen"]) if distinct else g["sum"]
-        if now > best.get(key, 0):
+        if ratio:
+            now = 100.0 * g["sum"] / len(g["q"]) if len(g["q"]) >= least else None
+        else:
+            now = len(g["seen"]) if distinct else g["sum"]
+        if now is not None and now > best.get(key, 0):
             best[key] = now
-        if now < need:
+        if now is None or now < need:
             g["open"] = None
             continue
         m = g["open"]
@@ -550,8 +668,7 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
             over += 1
             if len(matches) >= limit:
                 continue
-            m = g["open"] = {"entity": " → ".join(str(k) for k in key) if c["group_by"] == "pair" else ":".join(str(k) for k in key) or "전체",
-                             "host": "", "start": g["q"][0][3], "end": e.get("timestamp"), "peak": now, "records": len(g["q"]),
+            m = g["open"] = {"host": "", "start": g["q"][0][3], "end": e.get("timestamp"), "peak": now, "records": len(g["q"]),
                              "event_ids": [x[2] for x in g["q"] if x[2]][:60], "key": key}
             matches.append(m)
         else:
@@ -561,23 +678,103 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
     if measure.startswith("bytes") and not kept and no_value:
         return {"status": "insufficient_data", "missing": ["전송량(바이트) 열 — 고른 자료의 기록에 값이 없습니다."],
                 "examined": {"records_read": read}}
-    show = (lambda x: round(x / scale, 2)) if scale != 1 else (lambda x: int(x))
-    unit = (c.get("byte_unit") or "MB") if scale != 1 else ""
+
+    def name(key) -> str:
+        return (" → ".join(str(k) for k in key) if c["group_by"] == "pair" else ":".join(str(k) for k in key)) or "전체"
+
+    show = (lambda x: round(x / scale, 2)) if scale != 1 else (lambda x: round(x, 1)) if ratio else (lambda x: int(x))
+    unit = (c.get("byte_unit") or "MB") if scale != 1 else "%" if ratio else ""
+    what, span, amount = _measure_text(c), _span(window), _threshold_text(c)
+    notes, near, short, cut = [], [], 0, False
+    if not moving and kept:
+        multiple = c.get("baseline_multiple") or 3
+        checked = 0
+        closest = []
+        for key, buckets in groups.items():
+            if baseline:
+                values = {b: _aggregate([v for v, _ in rows], c) for b, rows in buckets.items()}
+                usable = sorted(v for v in values.values() if v is not None)
+                if len(usable) < MIN_BASELINE_INTERVALS:
+                    short += 1
+                    continue
+                import statistics
+
+                usual = statistics.median(usable)
+                if usual <= 0:
+                    continue
+                order = sorted(buckets)
+                hit = {b for b in order if values[b] is not None and values[b] >= multiple * usual and values[b] >= need}
+                top = max((v for v in usable), default=0)
+                if not hit:
+                    closest.append((top / usual, key, top, usual))
+            else:
+                order = range(min(buckets), last_bucket + 1)
+                checked += len(order)
+                if checked > MAX_INTERVALS:
+                    cut = True
+                    break
+                values = {b: _aggregate([v for v, _ in buckets.get(b, [])], c) for b in order}
+                hit = {b for b in order if values[b] is not None and values[b] <= need}
+                usual = None
+                low = min((v for v in values.values() if v is not None), default=None)
+                if not hit and low is not None:
+                    closest.append((-low, key, low, None))
+            run: list[int] = []
+            for b in [*order, None]:
+                if b is not None and b in hit and (not run or b == run[-1] + 1):
+                    run.append(b)
+                    continue
+                if run:
+                    over += 1
+                    if len(matches) < limit:
+                        rows = [r for x in run for r in buckets.get(x, [])]
+                        vals = [values[x] for x in run]
+                        peak = max(vals) if baseline else min(vals)
+                        matches.append({"host": "", "start": _iso(run[0] * window), "end": _iso((run[-1] + 1) * window), "peak": peak,
+                                        "records": len(rows), "event_ids": [i for _, i in rows if i][:60], "key": key, "intervals": len(run),
+                                        "usual": usual})
+                run = [b] if b is not None and b in hit else []
+        for score, key, value, usual in sorted(closest, key=lambda x: -x[0])[:5]:
+            text = (f"{name(key)}: 조건 미달 — 가장 컸던 구간 {show(value):,}{unit}, 평소 {show(usual):,}{unit}의 {value / usual:.1f}배 (기준 {multiple:g}배)" if baseline
+                    else f"{name(key)}: 조건 미달 — 가장 작았던 구간 {show(value):,}{unit} (기준 {amount} 이하)")
+            near.append({"kind": "below", "entity": name(key), "text": text})
     out = []
     for m in matches:
         key = m.pop("key")
+        m["entity"] = name(key)
         m["count"] = show(m.pop("peak"))
         m["filters"] = [f.model_dump() for f in filters] + [{"field": f, "op": "is", "value": k} for f, k in zip(fields, key)]
         m["time"] = {"start": m["start"], "end": m["end"]}
-        m["title"] = (f"{m['entity']}: {_span(window)} 안에 {MEASURE_WORD[measure]} {m['count']:,}{unit} (기준 {_threshold_text(c)}) · "
-                      f"기준을 넘은 동안의 기록 {m['records']:,}건")
+        usual, intervals = m.pop("usual", None), m.pop("intervals", None)
+        if baseline:
+            m["title"] = (f"{m['entity']}: {span} 구간의 {what} {m['count']:,}{unit} — 평소(중앙값 {show(usual):,}{unit})의 "
+                          f"{(m['count'] / show(usual)) if show(usual) else 0:.1f}배 (기준 {c.get('baseline_multiple') or 3:g}배) · 구간 {intervals}개 · 기록 {m['records']:,}건")
+        elif under:
+            m["title"] = f"{m['entity']}: {span} 단위 구간 {intervals}개 동안 {what} {m['count']:,}{unit} 이하 (기준 {amount} 이하) · 그 동안의 기록 {m['records']:,}건"
+        else:
+            m["title"] = (f"{m['entity']}: {span} 안에 {what} {m['count']:,}{unit} (기준 {amount}) · "
+                          f"기준을 넘은 동안의 기록 {m['records']:,}건")
         out.append(m)
-    done = {m["entity"] for m in out}
-    below = sorted(((n, k) for k, n in best.items() if n < need), key=lambda x: -x[0])[:5]
-    near = [{"kind": "below", "entity": " → ".join(str(x) for x in k) or "전체",
-             "text": f"{' → '.join(str(x) for x in k) or '전체'}: 조건 미달 — 가장 컸던 {MEASURE_WORD[measure]} {show(n):,}{unit} (기준 {_threshold_text(c)})"}
-            for n, k in below if (" → ".join(str(x) for x in k) or "전체") not in done]
-    notes = ["시간 범위는 움직이는 구간입니다: 각 기록에서 거슬러 그 시간만큼의 기록을 더합니다. 기준을 계속 넘는 동안은 한 건으로 묶습니다."]
+    if moving:
+        done = {m["entity"] for m in out}
+        below = sorted(((n, k) for k, n in best.items() if n < need), key=lambda x: -x[0])[:5]
+        near = [{"kind": "below", "entity": name(k), "text": f"{name(k)}: 조건 미달 — 가장 컸던 {what} {show(n):,}{unit} (기준 {amount})"}
+                for n, k in below if name(k) not in done]
+        notes.append("시간 범위는 움직이는 구간입니다: 각 기록에서 거슬러 그 시간만큼의 기록을 더합니다. 기준을 계속 넘는 동안은 한 건으로 묶습니다.")
+    elif baseline:
+        notes.append(f"평소 값은 그 대상의 기록이 있는 {span} 단위 구간들의 중앙값입니다(이 헌팅의 자료 안에서 계산). 이어진 구간은 한 건으로 묶습니다.")
+        if short:
+            notes.append(f"기록이 있는 구간이 {MIN_BASELINE_INTERVALS}개 미만이라 평소를 알 수 없는 대상 {short:,}개는 판단하지 않았습니다.")
+    else:
+        notes.append(f"{span} 단위의 고정 구간으로 나눠, 그 대상의 첫 기록이 있은 뒤의 구간만 봅니다. 한 번 나타났다 사라진 대상도 해당하며, 자료 수집이 끊긴 것과 구분하지 못합니다.")
+        if cut:
+            notes.append(f"구간이 {MAX_INTERVALS:,}개를 넘어 일부 대상만 확인했습니다. 시간 범위를 늘리거나 조건을 좁혀 주세요.")
+    if ratio:
+        notes.append(f"비율은 기록이 {least}건 이상 모인 구간에서만 계산합니다.")
+    if any(x["field"] in ("hour", "weekday") for g in groups_of for x in g["conditions"]):
+        notes.append("시각·요일은 한국 시간 기준입니다.")
+    if any(x["field"] in ("src_side", "dst_side") for g in groups_of for x in g["conditions"]):
+        notes.append("내부는 사설·CGNAT·링크로컬 대역이며 그 밖은 외부로 봅니다. 공인 주소를 쓰는 사내 망은 외부로 분류됩니다.")
     if measure.startswith("bytes"):
         notes.append("전송량은 기록에 적힌 바이트 값의 합입니다. 보낸 양·받은 양의 방향은 장비가 기록한 열의 뜻을 따르며, 세션이 끝날 때 한 번에 기록하는 장비는 긴 통신이 한 시점에 몰려 보일 수 있습니다.")
     if c["group_by"] in ("src_ip", "pair"):
@@ -588,8 +785,8 @@ def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
         if n:
             notes.append(f"{text} {n:,}건은 넣지 않았습니다.")
     if over > len(out):
-        notes.append(f"기준을 넘은 경우는 모두 {over:,}번이며 앞의 {len(out):,}개만 보여 줍니다.")
-    return {"status": "found" if out else "no_match", "matches": out, "near": near, "notes": notes,
+        notes.append(f"기준에 해당한 경우는 모두 {over:,}번이며 앞의 {len(out):,}개만 보여 줍니다.")
+    return {"status": "partial" if cut and out else "found" if out else "no_match", "matches": out, "near": near, "notes": notes,
             "examined": {"records_read": read, "records_matching_conditions": kept, "groups": len(groups), "shown": len(out), "limit": limit,
                          "found_total": over}}
 

@@ -98,7 +98,7 @@ def test_a_scenario_is_built_from_a_template_tried_saved_and_used_by_the_next_hu
 
 def test_templates_say_which_are_executable_and_device_scenarios_report_what_they_saw(senior):
     templates = {t["id"]: t for t in senior.get("/scenarios").json()["templates"]}
-    assert len(templates) == 19 and sum(1 for t in templates.values() if t["executable"]) == 15
+    assert len(templates) == 23 and sum(1 for t in templates.values() if t["executable"]) == 19
     assert all(t.get("reason") for t in templates.values() if not t["executable"])  # never an empty success
     inv = _inv(senior, _org(senior), "devices")
     sample = flow_samples.build(background_sessions=3)
@@ -247,12 +247,14 @@ def test_threshold_scenarios_run_on_web_ips_waf_and_ddos_records_and_errors_are_
     url = f"/investigations/{inv['id']}/scenarios/preview"
     templates = {t["id"]: t for t in senior.get("/scenarios").json()["templates"] if t.get("kind") == "threshold"}
     assert set(templates) == {"fw_volume", "fw_blocked_burst", "fw_port_sweep", "ips_alert_burst", "alert_many_names", "waf_block_burst",
-                              "web_error_burst", "web_large_response", "ddos_repeat"}
+                              "web_error_burst", "web_large_response", "ddos_repeat", "night_external_volume", "blocked_ratio", "volume_vs_usual", "went_quiet"}
     for t in templates.values():  # every shipped example is a valid definition and runs on the data it names
-        body = {"name": t["name"], "kind": "threshold", **t["defaults"], "threshold": 1, "byte_unit": "KB", "conditions": []}
+        body = {"name": t["name"], "kind": "threshold", **t["defaults"], "threshold": 1, "byte_unit": "KB", "conditions": [], "condition_groups": [],
+                "min_records": 1}
         out = senior.post(url, json={"content": body})
         assert out.status_code == 200, (t["id"], out.text)
-        assert out.json()["status"] == "found", (t["id"], out.json()["status"], out.json()["missing"], out.json()["notes"])
+        want = ("found", "no_match") if t["id"] in ("volume_vs_usual", "went_quiet", "blocked_ratio") else ("found",)
+        assert out.json()["status"] in want, (t["id"], out.json()["status"], out.json()["missing"], out.json()["notes"])
         assert senior.post("/scenarios/describe", json={"content": {"name": "", "kind": "threshold", **t["defaults"]}}).status_code == 200
     ips = senior.post(url, json={"content": {"name": "i", "kind": "threshold", "sources": ["ips", "waf"], "group_by": "alert_name",
                                              "measure": "records", "threshold": 1, "window_seconds": 3600}}).json()
@@ -267,3 +269,80 @@ def test_threshold_scenarios_run_on_web_ips_waf_and_ddos_records_and_errors_are_
                         ({"name": "x", "kind": "sequence", "steps": [{"label": "a", "path": "nope"}, {"label": "b", "path": "/b"}]}, "/로 시작해야 합니다")):
         r = senior.post(url, json={"content": body})
         assert r.status_code == 400 and words in r.json()["detail"], r.text
+
+
+def test_threshold_conditions_on_time_side_size_and_empty_values_and_the_ratio_usual_and_quiet_measures(senior):
+    """More ways to say which records and how much: time of day, inside or outside, one record's size, a share,
+    several times the usual, and a communication that stopped."""
+    inv = _inv(senior, _org(senior), "threshold more")
+    mb = 1024 * 1024
+    rows = [
+        # A: at night (23:00 KST) 30 MB out to an outside address; B: the same by day.
+        _fw("23:00:00", "10.71.1.10", "198.51.100.7", 443, sent=30 * mb, rcvd=0), _fw("14:00:00", "10.71.1.20", "198.51.100.7", 443, sent=30 * mb, rcvd=0),
+        # C: at night, but to an inside address.
+        _fw("23:10:00", "10.71.1.30", "10.71.9.9", 445, sent=30 * mb, rcvd=0),
+        # D: ten attempts in ten minutes, nine blocked. E: ten attempts, one blocked.
+        *[_fw(f"08:0{k}:00", "10.71.1.40", "10.71.9.9", 22, action="deny" if k else "allow", sent=60, rcvd=0) for k in range(10)],
+        *[_fw(f"08:0{k}:00", "10.71.1.50", "10.71.9.9", 22, action="allow" if k else "deny", sent=60, rcvd=0) for k in range(10)],
+        # F: 1 MB every hour from 00:00 to 05:00, then 20 MB at 06:00 (twenty times the usual), then nothing.
+        *[_fw(f"0{h}:30:00", "10.71.1.60", "10.71.9.8", 443, sent=mb, rcvd=0) for h in range(6)],
+        _fw("06:30:00", "10.71.1.60", "10.71.9.8", 443, sent=20 * mb, rcvd=0),
+    ]
+    _process(senior, inv["id"], "fw.csv", (FW + "".join(rows)).encode())
+    url = f"/investigations/{inv['id']}/scenarios/preview"
+    base = {"name": "x", "kind": "threshold", "sources": ["fw"], "group_by": "src_ip", "measure": "bytes_total", "threshold": 10, "byte_unit": "MB",
+            "window_seconds": 600}
+
+    night = {**base, "condition_groups": [{"mode": "all", "conditions": [{"field": "hour", "value": "22-6"}, {"field": "dst_side", "value": "외부"}]}]}
+    said = senior.post("/scenarios/describe", json={"content": night}).json()["description"]
+    assert "[시각 = 22-6 그리고 목적지 내부·외부 = 외부]인 것" in said
+    p = senior.post(url, json={"content": night}).json()
+    assert [m["entity"] for m in p["matches"]] == ["10.71.1.10"]  # not the daytime one, not the inside one
+    assert any("한국 시간" in n for n in p["notes"]) and any("공인 주소를 쓰는 사내 망" in n for n in p["notes"])
+    big = senior.post(url, json={"content": {**base, "measure": "records", "threshold": 1,
+                                             "conditions": [{"field": "record_bytes", "op": "gte", "value": "25MB"}, {"field": "weekday", "value": "평일"}]}}).json()
+    assert sorted(m["entity"] for m in big["matches"]) == ["10.71.1.10", "10.71.1.20", "10.71.1.30"]  # 2026-10-20 is a Tuesday
+    weekend = senior.post(url, json={"content": {**base, "measure": "records", "threshold": 1, "conditions": [{"field": "weekday", "value": "주말"}]}}).json()
+    assert weekend["status"] == "no_match" and weekend["examined"]["records_matching_conditions"] == 0
+    empty = senior.post(url, json={"content": {**base, "measure": "records", "threshold": 1, "group_by": "all",
+                                               "conditions": [{"field": "user_agent", "op": "not_exists"}, {"field": "device", "op": "exists"},
+                                                              {"field": "duration", "op": "gte", "value": "30"}, {"field": "src_port", "value": "50000"}]}}).json()
+    assert empty["status"] == "found" and empty["examined"]["records_matching_conditions"] == len(rows)
+
+    share = {**base, "measure": "ratio", "threshold": 80, "min_records": 10, "ratio_condition": {"field": "enforcement_action", "value": "차단"}}
+    said = senior.post("/scenarios/describe", json={"content": share}).json()
+    assert "10분 안에 [조치 = 차단]인 기록의 비율이(가) 80% 이상인 경우(기록 10건 이상일 때)" in said["description"]
+    p = senior.post(url, json={"content": share}).json()
+    assert [(m["entity"], m["count"]) for m in p["matches"]] == [("10.71.1.40", 90.0)] and "90.0%" in p["matches"][0]["title"]
+    assert any("10.71.1.50" in n["text"] and "10.0%" in n["text"] for n in p["near"])
+    assert senior.post(url, json={"content": {**share, "min_records": 11}}).json()["status"] == "no_match"  # too few records to call it a share
+
+    usual = {**base, "window_seconds": 3600, "baseline": "own", "baseline_multiple": 5, "threshold": 2}
+    said = senior.post("/scenarios/describe", json={"content": usual}).json()["description"]
+    assert "1시간 단위 구간의 전송량 합계(보낸 양+받은 양)이(가) 그 대상 평소(구간 중앙값)의 5배 이상이고 2MB 이상인 경우" in said
+    p = senior.post(url, json={"content": usual}).json()
+    assert [(m["entity"], m["count"]) for m in p["matches"]] == [("10.71.1.60", 20.0)]
+    assert "평소(중앙값 1.0MB)의 20.0배" in p["matches"][0]["title"] and len(p["matches"][0]["event_ids"]) == 1
+    assert any("평소를 알 수 없는 대상" in n for n in p["notes"])  # the others have fewer than four intervals
+
+    quiet = {**base, "measure": "records", "compare": "lte", "threshold": 0, "window_seconds": 3600, "group_by": "pair",
+             "conditions": [{"field": "src_ip", "value": "10.71.1.60"}]}
+    said = senior.post("/scenarios/describe", json={"content": quiet}).json()["description"]
+    assert "1시간 단위 구간마다 기록 수이(가) 0 이하인 경우(그 대상의 첫 기록 뒤부터)" in said
+    assert senior.post(url, json={"content": quiet}).json()["status"] == "no_match"  # no gap between its first and the last record of the data
+    gap = senior.post(url, json={"content": {**quiet, "conditions": [{"field": "dst_port", "value": "443"}]}}).json()
+    silent = {m["entity"]: m for m in gap["matches"]}
+    assert "10.71.1.60 → 10.71.9.8" in silent and "구간 17개" in silent["10.71.1.60 → 10.71.9.8"]["title"]  # 07:00 to 24:00 KST
+    assert any("자료 수집이 끊긴 것과 구분하지 못합니다" in n for n in gap["notes"])
+
+    for body, words in (({**base, "conditions": [{"field": "hour", "value": "25"}]}, "시각은 0~23"),
+                        ({**base, "conditions": [{"field": "weekday", "value": "휴일"}]}, "요일은"),
+                        ({**base, "conditions": [{"field": "dst_side", "value": "밖"}]}, "내부 또는 외부"),
+                        ({**base, "conditions": [{"field": "record_bytes", "op": "gte", "value": "많이"}]}, "예: 10MB"),
+                        ({**base, "conditions": [{"field": "dst_port", "op": "gte", "value": "abc"}]}, "숫자로 적어 주세요"),
+                        ({**base, "conditions": [{"field": "dst_port"}]}, "조건의 값을 적어 주세요"),
+                        ({**base, "measure": "ratio", "threshold": 50}, "비율을 셀 조건"),
+                        ({**share, "threshold": 150}, "0~100"),
+                        ({**base, "compare": "lte", "baseline": "own"}, "\"이상\" 기준에서만")):
+        r = senior.post(url, json={"content": body})
+        assert r.status_code == 400 and words in r.json()["detail"], (words, r.text)

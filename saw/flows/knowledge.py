@@ -6,6 +6,8 @@ says so, and conflicting definitions are never applied silently (the engine repo
 """
 from __future__ import annotations
 
+from functools import lru_cache
+
 import hashlib
 import json
 import re
@@ -110,12 +112,80 @@ class ScenarioStep(Strict):
     contains: Annotated[str, Field(max_length=200)] = ""
 
 
+SIZE_UNIT = {"": 1, "b": 1, "kb": 1024, "mb": 1024 ** 2, "gb": 1024 ** 3}
+WEEKDAY_KO = "월화수목금토일"
+SIDE_WORD = {"내부": "internal", "internal": "internal", "외부": "external", "external": "external"}
+
+
+@lru_cache(maxsize=512)
+def parse_size(text: str) -> float | None:
+    """'10MB', '500 kb', '1048576' -> bytes."""
+    m = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*(b|kb|mb|gb)?\s*", str(text).lower())
+    return float(m.group(1)) * SIZE_UNIT[m.group(2) or ""] if m else None
+
+
+@lru_cache(maxsize=512)
+def parse_hours(text: str) -> frozenset[int] | None:
+    """'22-6' (wraps past midnight), '9,10,11' -> hours of the day."""
+    out: set[int] = set()
+    for part in (p.strip() for p in str(text).replace("~", "-").split(",") if p.strip()):
+        m = re.fullmatch(r"(\d{1,2})(?:\s*시)?(?:\s*-\s*(\d{1,2})(?:\s*시)?)?", part)
+        if not m:
+            return None
+        a, b = int(m.group(1)), int(m.group(2) if m.group(2) is not None else m.group(1))
+        if a > 23 or b > 23:
+            return None
+        out.update(range(a, b + 1) if a <= b else [*range(a, 24), *range(0, b + 1)])
+    return frozenset(out) if out else None
+
+
+@lru_cache(maxsize=512)
+def parse_weekdays(text: str) -> frozenset[int] | None:
+    """'토,일', '주말', '평일' -> weekdays (Monday is 0)."""
+    out: set[int] = set()
+    for part in (p.strip().removesuffix("요일") for p in str(text).split(",") if p.strip()):
+        if part == "평일":
+            out.update(range(5))
+        elif part == "주말":
+            out.update((5, 6))
+        elif len(part) == 1 and part in WEEKDAY_KO:
+            out.add(WEEKDAY_KO.index(part))
+        else:
+            return None
+    return frozenset(out) if out else None
+
+
 class ScenarioCondition(Strict):
     """One plain condition on a record of a threshold scenario: a field the analyst picks, a comparison, a value."""
     field: Literal["enforcement_action", "src_ip", "dst_ip", "dst_port", "protocol", "hostname", "method", "uri", "status_code",
-                   "alert_name", "severity"]
-    op: Literal["is", "is_not", "contains", "gte", "lte"] = "is"
-    value: Annotated[str, Field(min_length=1, max_length=300)]
+                   "alert_name", "severity", "src_port", "user_agent", "user", "device", "duration", "record_bytes", "hour", "weekday",
+                   "src_side", "dst_side"]
+    op: Literal["is", "is_not", "contains", "gte", "lte", "exists", "not_exists"] = "is"
+    value: Annotated[str, Field(max_length=300)] = ""
+
+    @model_validator(mode="after")
+    def readable(self):
+        self.value = self.value.strip()
+        if self.op in ("exists", "not_exists"):
+            self.value = ""
+            return self
+        if not self.value:
+            raise ValueError("조건의 값을 적어 주세요(\"값이 있음/없음\" 비교는 값 없이 씁니다).")
+        numeric = self.op in ("gte", "lte")
+        if self.field == "hour" and (parse_hours(self.value) is None or (numeric and not self.value.isdigit())):
+            raise ValueError("시각은 0~23으로 적어 주세요. 예: 22-6(밤 10시부터 아침 6시 59분까지), 9,10,11")
+        if self.field == "weekday" and (numeric or self.op == "contains" or parse_weekdays(self.value) is None):
+            raise ValueError("요일은 \"같음/다름\"으로 월,화,수,목,금,토,일 또는 평일·주말을 적어 주세요.")
+        if self.field in ("src_side", "dst_side") and (self.op not in ("is", "is_not") or self.value.lower() not in SIDE_WORD):
+            raise ValueError("내부·외부 구분은 \"같음/다름\"으로 내부 또는 외부를 적어 주세요.")
+        if self.field == "record_bytes" and (self.op == "contains" or parse_size(self.value) is None):
+            raise ValueError("한 기록의 전송량은 숫자와 단위로 적어 주세요. 예: 10MB, 500KB")
+        if numeric and self.field not in ("record_bytes", "hour"):
+            try:
+                float(self.value)
+            except ValueError:
+                raise ValueError("\"이상/이하\" 비교의 값은 숫자로 적어 주세요.") from None
+        return self
 
 
 class ScenarioConditionGroup(Strict):
@@ -156,9 +226,17 @@ class ScenarioContent(Strict):
     groups_mode: Literal["all", "any"] = "all"
     group_by: Literal["src_ip", "dst_ip", "pair", "dst_service", "hostname", "alert_name", "all"] = "src_ip"
     measure: Literal["records", "bytes_total", "bytes_out", "bytes_in", "distinct_dst_ip", "distinct_dst_port", "distinct_src_ip",
-                     "distinct_alert", "distinct_path"] = "records"
+                     "distinct_alert", "distinct_path", "distinct_user", "distinct_user_agent", "distinct_hostname", "ratio"] = "records"
     threshold: Annotated[float, Field(ge=0, le=1e12)] = 0
     byte_unit: Literal["KB", "MB", "GB"] = "MB"
+    # "gte": the value reaches the threshold inside a moving window. "lte": the value of a fixed interval stays at or
+    # under it (a communication that stopped). "own" baseline: an interval is this many times the group's own usual.
+    compare: Literal["gte", "lte"] = "gte"
+    baseline: Literal["none", "own"] = "none"
+    baseline_multiple: Annotated[float, Field(ge=1.1, le=1000)] = 3
+    # measure "ratio": the share of records that also meet this condition, counted only from min_records records on.
+    ratio_condition: ScenarioCondition | None = None
+    min_records: Annotated[int, Field(ge=1, le=1_000_000)] = 10
 
     @model_validator(mode="after")
     def tidy(self):
@@ -166,9 +244,16 @@ class ScenarioContent(Strict):
         if self.kind == "threshold":
             if not self.sources:
                 raise ValueError("어떤 자료에서 찾을지 하나 이상 골라 주세요(방화벽·웹·WAF·IPS·DDoS·애플리케이션).")
-            if self.threshold <= 0:
+            if self.compare == "lte" and self.baseline == "own":
+                raise ValueError("\"평소 대비\"는 \"이상\" 기준에서만 씁니다.")
+            if self.threshold <= 0 and self.compare == "gte" and self.baseline == "none":
                 raise ValueError("기준 값을 0보다 크게 적어 주세요.")
-            if not self.measure.startswith("bytes") and self.threshold != int(self.threshold):
+            if self.measure == "ratio":
+                if self.ratio_condition is None:
+                    raise ValueError("비율을 셀 조건을 적어 주세요(예: 조치 = 차단인 기록의 비율).")
+                if self.threshold > 100:
+                    raise ValueError("비율 기준은 0~100(%)으로 적어 주세요.")
+            elif not self.measure.startswith("bytes") and self.threshold != int(self.threshold):
                 raise ValueError("건수와 개수 기준은 정수로 적어 주세요.")
         need = {"then_variation": 2, "sequence": 2}.get(self.kind, 0)
         if len(self.steps) < need:
