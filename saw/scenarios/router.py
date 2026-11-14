@@ -25,7 +25,9 @@ def catalog(org_unit_id: str | None = None, ctx: AuthContext = Depends(auth), s:
 def describe(body: PreviewIn, ctx: AuthContext = Depends(auth)):
     from saw.flows.knowledge import ScenarioContent
 
-    content = ScenarioContent.model_validate(body.content).model_dump()
+    # The sentence is shown while the analyst is still typing: a name not written yet is not an error here.
+    raw = {**body.content, "name": str(body.content.get("name") or "").strip() or "이름 없음"}
+    content = ScenarioContent.model_validate(raw).model_dump()
     return {"description": service.describe(content), "unit": service._unit(content), "content": content}
 
 

@@ -110,6 +110,14 @@ class ScenarioStep(Strict):
     contains: Annotated[str, Field(max_length=200)] = ""
 
 
+class ScenarioCondition(Strict):
+    """One plain condition on a record of a threshold scenario: a field the analyst picks, a comparison, a value."""
+    field: Literal["enforcement_action", "src_ip", "dst_ip", "dst_port", "protocol", "hostname", "method", "uri", "status_code",
+                   "alert_name", "severity"]
+    op: Literal["is", "is_not", "contains", "gte", "lte"] = "is"
+    value: Annotated[str, Field(min_length=1, max_length=300)]
+
+
 class ScenarioContent(Strict):
     """An executable procedure: what flow to look for, tied by what, within what time, counted in what unit.
 
@@ -119,7 +127,7 @@ class ScenarioContent(Strict):
     name: Annotated[str, Field(min_length=1, max_length=200)]
     purpose: Text = ""
     kind: Literal["then_variation", "sequence", "periodic_external", "spread_internal", "alert_then_traffic",
-                  "ddos_window_access"]
+                  "ddos_window_access", "threshold"]
     host: Annotated[str, Field(max_length=255, pattern=r"^[A-Za-z0-9._\-\[\]:]*$")] = ""
     # What "the same actor" means. A confirmed session needs the service's link criteria; a source address is only
     # a candidate grouping and the result says so.
@@ -133,10 +141,25 @@ class ScenarioContent(Strict):
     state: Literal["draft", "active"] = "draft"
     normal_note: Text = ""
     template: Annotated[str, Field(max_length=64)] = ""
+    # kind "threshold": which records, grouped by what, measured how, and the value that makes it an activity.
+    sources: list[Literal["fw", "web", "waf", "ips", "ddos", "app"]] = Field(default_factory=list, max_length=6)
+    conditions: list[ScenarioCondition] = Field(default_factory=list, max_length=8)
+    group_by: Literal["src_ip", "dst_ip", "pair", "dst_service", "hostname", "alert_name", "all"] = "src_ip"
+    measure: Literal["records", "bytes_total", "bytes_out", "bytes_in", "distinct_dst_ip", "distinct_dst_port", "distinct_src_ip",
+                     "distinct_alert", "distinct_path"] = "records"
+    threshold: Annotated[float, Field(ge=0, le=1e12)] = 0
+    byte_unit: Literal["KB", "MB", "GB"] = "MB"
 
     @model_validator(mode="after")
     def tidy(self):
         self.host = norm_host(self.host)
+        if self.kind == "threshold":
+            if not self.sources:
+                raise ValueError("어떤 자료에서 찾을지 하나 이상 골라 주세요(방화벽·웹·WAF·IPS·DDoS·애플리케이션).")
+            if self.threshold <= 0:
+                raise ValueError("기준 값을 0보다 크게 적어 주세요.")
+            if not self.measure.startswith("bytes") and self.threshold != int(self.threshold):
+                raise ValueError("건수와 개수 기준은 정수로 적어 주세요.")
         need = {"then_variation": 2, "sequence": 2}.get(self.kind, 0)
         if len(self.steps) < need:
             raise ValueError(f"이 흐름에는 단계가 {need}개 이상 필요합니다.")

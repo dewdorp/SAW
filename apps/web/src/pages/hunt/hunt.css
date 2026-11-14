@@ -45,3 +45,5 @@
 .cr-changed { border-left: 3px solid var(--warn, #d69e2e); padding-left: 8px; }
 .cr-save { position: sticky; bottom: 0; background: var(--bg, #0b1220); border-top: 1px solid var(--line); padding: 10px 0; }
 .ha-from { margin: 2px 0 8px; }
+.sc-th { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sc-th legend { font-weight: 600; font-size: 13px; padding: 0 6px; }

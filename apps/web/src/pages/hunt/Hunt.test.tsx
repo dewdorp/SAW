@@ -118,7 +118,7 @@ describe("scenarios and assets", () => {
     expect(await screen.findByText("설명 자료(실행기 없음)")).toBeTruthy();
     expect(screen.getByText("반례 전용 실행기는 아직 없습니다.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "이 예제로 만들기" }));
-    fireEvent.click(screen.getByRole("button", { name: "다음: 흐름 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음: 조건 정하기" }));
     expect(await screen.findByText(/서로 다른 id 값 5개 이상 요청한 흐름/)).toBeTruthy();
     expect(screen.queryByText(/JSON|YAML|SQL/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "다음: 현재 자료로 확인" }));
@@ -143,10 +143,10 @@ describe("scenarios and assets", () => {
       "POST /knowledge/flow-items": [201, { id: "k2" }] });
     renderUI(<Scenarios />);
     fireEvent.click(await screen.findByRole("button", { name: "직접 만들기" }));
-    expect((screen.getByRole("button", { name: "다음: 흐름 확인" }) as HTMLButtonElement).disabled).toBe(true);  // a name is all that is required
+    expect((screen.getByRole("button", { name: "다음: 조건 정하기" }) as HTMLButtonElement).disabled).toBe(true);  // a name is all that is required
     fireEvent.change(screen.getByLabelText("이름"), { target: { value: "보고서 전체 내려받기" } });
-    expect((screen.getByLabelText("찾는 방식") as HTMLSelectElement).value).toBe("sequence");
-    fireEvent.click(screen.getByRole("button", { name: "다음: 흐름 확인" }));
+    fireEvent.change(screen.getByLabelText("찾는 방식"), { target: { value: "sequence" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 조건 정하기" }));
     fireEvent.change(screen.getByLabelText("단계를 글로 적기"), { target: { value: "로그인: POST /login\n/report/*\n이건 경로가 아님\n전체 내려받기: GET /report/export?mode=all" } });
     fireEvent.click(screen.getByRole("button", { name: "아래 단계 카드로 바꾸기" }));
     expect(screen.getByRole("alert").textContent).toContain("읽지 못한 줄 1개");
@@ -160,6 +160,48 @@ describe("scenarios and assets", () => {
     expect(content.steps).toEqual([{ label: "로그인", method: "POST", path: "/login", match: "exact", contains: "" },
       { label: "/report/", method: "", path: "/report/", match: "prefix", contains: "" },
       { label: "전체 내려받기", method: "GET", path: "/report/export", match: "exact", contains: "mode=all" }]);
+  });
+
+  it("writes a threshold scenario: device records, a condition, a group, a time and an amount", async () => {
+    const options = { sources: [{ id: "fw", name: "방화벽·연결" }, { id: "ips", name: "IPS" }], fields: [{ id: "enforcement_action", name: "조치" }, { id: "dst_port", name: "목적지 포트" }],
+      ops: [{ id: "is", name: "같음" }, { id: "gte", name: "이상(숫자)" }], group_by: [{ id: "src_ip", name: "같은 출발지 IP" }, { id: "pair", name: "같은 출발지 → 목적지" }],
+      measures: [{ id: "records", name: "기록 수" }, { id: "bytes_total", name: "전송량 합계(보낸 양+받은 양)", bytes: true }], byte_units: ["KB", "MB", "GB"] };
+    const api = mockApi({ "GET /scenarios": [200, { scenarios: [], templates: [], threshold_options: options,
+        kinds: [{ kind: "threshold", name: "기준을 넘는 통신·기록 (건수·전송량·서로 다른 값)", hint: "h", needs: ["고른 자료 종류의 기록"] }, { kind: "sequence", name: "요청이 이 순서로 이어짐", hint: "h", needs: ["HTTP 요청 기록"] }] }],
+      "GET /hunts": [200, { items: [{ id: "i1", display_id: "INV-1", title: "헌팅", run: { records: 25 } }] }], "GET /source-context/org-units": [200, []],
+      "POST /scenarios/describe": [200, { description: "방화벽·연결 기록을 같은 출발지 → 목적지(으)로 묶어, 10분 안에 전송량 합계가 50MB 이상인 경우", unit: "전송량 합계(MB)" }],
+      "POST /investigations/i1/scenarios/preview": [200, { status: "found", status_label: "조건을 만족한 흐름 있음", description: "d", unit: "전송량 합계(MB)", scope: { range: "이 헌팅의 전체 자료", selected_records: 25 },
+        examined: { records_read: 25, records_matching_conditions: 13 }, missing: [], near: [{ kind: "below", text: "10.70.1.20 → 198.51.100.8: 조건 미달" }], notes: ["움직이는 구간"],
+        matches: [{ entity: "10.70.1.10 → 198.51.100.7", host: "", count: 60, title: "10분 안에 전송량 합계 60MB (기준 50MB)" }] }],
+      "POST /knowledge/flow-items": [201, { id: "k3" }] });
+    renderUI(<Scenarios />);
+    fireEvent.click(await screen.findByRole("button", { name: "빈 양식에서 새로 만들기" }));
+    expect((screen.getByLabelText("찾는 방식") as HTMLSelectElement).value).toBe("threshold");  // the widest way comes first
+    fireEvent.click(screen.getByRole("button", { name: "2. 조건 정하기" }));  // jumping ahead without a name is not an error
+    expect(screen.queryByText(/validation error/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "조건 추가" }));
+    fireEvent.change(screen.getByLabelText("조건 1 항목"), { target: { value: "dst_port" } });
+    fireEvent.change(screen.getByLabelText("조건 1 값"), { target: { value: "443" } });
+    fireEvent.change(screen.getByLabelText("묶는 기준"), { target: { value: "pair" } });
+    fireEvent.change(screen.getByLabelText("세는 값"), { target: { value: "bytes_total" } });
+    fireEvent.change(screen.getByLabelText("기준 값"), { target: { value: "50" } });
+    expect((screen.getByLabelText("전송량 단위") as HTMLSelectElement).value).toBe("MB");
+    fireEvent.click(screen.getByRole("button", { name: "다음: 현재 자료로 확인" }));
+    await screen.findByRole("option", { name: /INV-1/ });
+    fireEvent.change(screen.getByLabelText("시험할 헌팅"), { target: { value: "i1" } });
+    fireEvent.click(screen.getByRole("button", { name: "한 번 시험하기" }));
+    expect(await screen.findByText("10.70.1.10 → 198.51.100.7")).toBeTruthy();
+    expect(screen.getByText(/조건에 맞은 기록 13건/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다음: 저장" }));
+    expect((screen.getByRole("button", { name: "다음 헌팅부터 사용" }) as HTMLButtonElement).disabled).toBe(true);  // no name yet
+    fireEvent.click(screen.getByRole("button", { name: "1단계에서 이름 적기" }));
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "10분에 50MB 이상" } });
+    fireEvent.click(screen.getByRole("button", { name: "4. 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음 헌팅부터 사용" }));
+    await waitFor(() => expect(api.find("POST", "/knowledge/flow-items")).toHaveLength(1));
+    const content = api.find("POST", "/knowledge/flow-items")[0].body.content;
+    expect(content).toMatchObject({ name: "10분에 50MB 이상", kind: "threshold", sources: ["fw"], group_by: "pair", measure: "bytes_total", threshold: 50, byte_unit: "MB",
+      window_seconds: 600, state: "active", conditions: [{ field: "dst_port", op: "is", value: "443" }] });
   });
 
   it("previews a file refresh before applying and registers with a name and one identifier", async () => {

@@ -48,6 +48,45 @@ TEMPLATES = [
     {"id": "ddos_window", "name": "DDoS 시간대의 서비스 접속 흐름", "executable": True, "kind": "ddos_window_access",
      "purpose": "DDoS 관측 구간 안에서 같은 서비스로 들어온 요청과 오류 응답을 구간 밖과 나란히 봅니다.", "needs": ["DDoS 구간 기록", "HTTP 요청 기록"],
      "normal_note": "같은 시간대의 접속은 DDoS와 무관한 정상 이용일 수 있습니다. 같은 공격자로 묶지 않습니다.", "defaults": {"window_seconds": 300}},
+    {"id": "fw_volume", "name": "짧은 시간에 큰 전송량 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "같은 출발지·목적지 사이에 정한 시간 안에 주고받은 양이 기준을 넘는 통신을 찾습니다.", "needs": ["방화벽·연결 기록(바이트 열)"],
+     "normal_note": "백업·배포·영상 회의·대용량 파일 전송 업무일 수 있습니다.",
+     "defaults": {"sources": ["fw"], "group_by": "pair", "measure": "bytes_total", "threshold": 50, "byte_unit": "MB", "window_seconds": 600}},
+    {"id": "fw_blocked_burst", "name": "차단이 몰린 출발지 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지의 통신이 짧은 시간에 여러 번 차단된 기록을 찾습니다.", "needs": ["방화벽·연결 기록(조치 열)"],
+     "normal_note": "잘못 설정된 프로그램이나 만료된 정책 때문에 반복 차단될 수 있습니다.",
+     "defaults": {"sources": ["fw"], "conditions": [{"field": "enforcement_action", "op": "is", "value": "차단"}], "group_by": "src_ip",
+                  "measure": "records", "threshold": 100, "window_seconds": 60}},
+    {"id": "fw_port_sweep", "name": "한 출발지가 여러 포트에 접촉 (방화벽)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지가 짧은 시간에 서로 다른 목적지 포트 여러 개에 접촉한 기록을 찾습니다.", "needs": ["방화벽·연결 기록"],
+     "normal_note": "자산 점검·취약점 진단·모니터링 서버의 정기 작업일 수 있습니다.",
+     "defaults": {"sources": ["fw"], "group_by": "src_ip", "measure": "distinct_dst_port", "threshold": 20, "window_seconds": 600}},
+    {"id": "ips_alert_burst", "name": "같은 출발지의 IPS 경보 반복", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지에서 IPS 경보가 짧은 시간에 여러 번 난 기록을 찾습니다.", "needs": ["IPS 경보 기록"],
+     "normal_note": "취약점 진단 장비나 오탐이 잦은 서명일 수 있습니다. 경보는 공격 성공을 뜻하지 않습니다.",
+     "defaults": {"sources": ["ips"], "group_by": "src_ip", "measure": "records", "threshold": 10, "window_seconds": 600}},
+    {"id": "alert_many_names", "name": "한 출발지에서 여러 종류의 공격명 (IPS·WAF)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지에서 서로 다른 공격명이 여러 개 관측된 기록을 찾습니다.", "needs": ["IPS 또는 WAF 경보 기록"],
+     "normal_note": "취약점 진단·모의 해킹 일정일 수 있습니다.",
+     "defaults": {"sources": ["ips", "waf"], "group_by": "src_ip", "measure": "distinct_alert", "threshold": 3, "window_seconds": 3600}},
+    {"id": "waf_block_burst", "name": "WAF 차단이 몰린 출발지", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지의 요청이 WAF에서 짧은 시간에 여러 번 차단된 기록을 찾습니다.", "needs": ["WAF 기록(조치 열)"],
+     "normal_note": "정상 요청을 막는 룰(오탐)일 수 있습니다.",
+     "defaults": {"sources": ["waf"], "conditions": [{"field": "enforcement_action", "op": "is", "value": "차단"}], "group_by": "src_ip",
+                  "measure": "records", "threshold": 20, "window_seconds": 600}},
+    {"id": "web_error_burst", "name": "오류 응답이 몰린 출발지 (웹)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지의 요청에 4xx·5xx 응답이 짧은 시간에 많이 난 기록을 찾습니다.", "needs": ["HTTP 요청 기록(응답 코드)"],
+     "normal_note": "끊어진 링크·만료된 세션·장애 시간대일 수 있습니다.",
+     "defaults": {"sources": ["web"], "conditions": [{"field": "status_code", "op": "gte", "value": "400"}], "group_by": "src_ip",
+                  "measure": "records", "threshold": 30, "window_seconds": 300}},
+    {"id": "web_large_response", "name": "응답 전송량이 큰 출발지 (웹)", "executable": True, "kind": "threshold",
+     "purpose": "한 출발지가 한 서비스에서 정한 시간 안에 받은 응답의 양이 기준을 넘는 경우를 찾습니다.", "needs": ["HTTP 요청 기록(바이트 열)"],
+     "normal_note": "보고서·첨부 파일 내려받기 업무일 수 있습니다.",
+     "defaults": {"sources": ["web"], "group_by": "src_ip", "measure": "bytes_out", "threshold": 100, "byte_unit": "MB", "window_seconds": 600}},
+    {"id": "ddos_repeat", "name": "같은 대상의 DDoS 기록 반복", "executable": True, "kind": "threshold",
+     "purpose": "같은 대상에 DDoS 관측 기록이 정한 시간 안에 여러 번 남은 경우를 찾습니다.", "needs": ["DDoS 구간 기록"],
+     "normal_note": "행사·공지로 접속이 몰린 시간대일 수 있습니다. 집계 기록이며 공격자를 가리키지 않습니다.",
+     "defaults": {"sources": ["ddos"], "group_by": "dst_ip", "measure": "records", "threshold": 2, "window_seconds": 3600}},
     {"id": "auth_fail_then_success", "name": "반복 인증 실패 뒤 성공과 이후 활동", "executable": False,
      "purpose": "인증 실패가 이어진 뒤 성공하고 조회가 이어지는 흐름.", "needs": ["인증 결과를 알려 주는 애플리케이션 기록", "업무 의미와 결과 확인 기준"],
      "reason": "인증 결과는 '업무 흐름' 분석이 등록된 결과 확인 기준으로 판정합니다(헌팅의 '인증 실패 뒤 조회' 활동). 실패 횟수 조건을 거는 전용 실행기는 아직 없습니다."},
@@ -68,6 +107,9 @@ KIND_NEEDS = {"then_variation": ["web"], "sequence": ["web"], "periodic_external
 
 # The ways a scenario can look at data, in the analyst's words. A scenario written from scratch picks one of these.
 KINDS = [
+    {"kind": "threshold", "name": "기준을 넘는 통신·기록 (건수·전송량·서로 다른 값)",
+     "hint": "방화벽·웹·WAF·IPS·DDoS 기록을 조건으로 고르고, 출발지·목적지 등으로 묶어, 정한 시간 안에 건수·전송량·서로 다른 값의 수가 기준을 넘는 경우를 찾습니다.",
+     "needs": ["고른 자료 종류의 기록"]},
     {"kind": "sequence", "name": "요청이 이 순서로 이어짐", "hint": "웹 요청 2~6단계가 정한 순서대로 이어진 흐름을 찾습니다.", "needs": ["HTTP 요청 기록"]},
     {"kind": "then_variation", "name": "앞 요청 뒤 대상을 바꿔 가며 반복", "hint": "첫 요청 뒤 둘째 요청을 여러 대상(파라미터 값)으로 반복한 흐름을 찾습니다.", "needs": ["HTTP 요청 기록(경로·쿼리)"]},
     {"kind": "periodic_external", "name": "같은 곳으로 반복 통신", "hint": "같은 출발지·목적지 사이에 일정한 간격으로 반복된 통신을 찾습니다.", "needs": ["FW·연결 또는 NDR 기록"]},
@@ -86,6 +128,8 @@ def describe(c: dict) -> str:
     who = "같은 세션(확인된 세션 쿠키)" if c.get("entity") == "session" else "같은 출발지 IP(같은 사용자라는 근거는 아님)"
     window = _span(c.get("window_seconds") or 0)
     steps = c.get("steps") or []
+    if c["kind"] == "threshold":
+        return _describe_threshold(c)
     if c["kind"] == "then_variation":
         unit = f"서로 다른 {c.get('count_param')} 값" if c.get("count_unit") == "distinct_param" else "중복을 뺀 요청"
         return (f"{who}에서 '{steps[0]['label']}'({_req(steps[0])}) 뒤 {window} 안에 '{steps[1]['label']}'({_req(steps[1])})을(를) "
@@ -121,6 +165,8 @@ def _sources(es, inv_id: str, time, names: list[str]) -> int:
 def execute(s, inv, es, time, c: dict, *, limit: int = MAX_MATCHES) -> dict:
     """Run one definition on the whole selected data. Returns status, matches, near misses and what was examined."""
     base = {"description": describe(c), "unit": _unit(c), "matches": [], "near": [], "examined": {}, "missing": [], "notes": []}
+    if c["kind"] == "threshold":
+        return {**base, **_threshold(es, inv.id, time, c, limit)}
     have = _sources(es, inv.id, time, KIND_NEEDS[c["kind"]])
     if not have:
         return {**base, "status": "insufficient_data", "missing": [_need_text(c["kind"])]}
@@ -134,6 +180,8 @@ def execute(s, inv, es, time, c: dict, *, limit: int = MAX_MATCHES) -> dict:
 
 
 def _unit(c: dict) -> str:
+    if c["kind"] == "threshold":
+        return MEASURE_WORD[c["measure"]] + (f"({c.get('byte_unit') or 'MB'})" if c["measure"].startswith("bytes") else "")
     if c["kind"] == "then_variation":
         return f"서로 다른 {c.get('count_param')} 값의 수" if c.get("count_unit") == "distinct_param" else "중복 전달을 뺀 요청 수"
     return {"sequence": "순서가 완성된 횟수", "periodic_external": "출발지·목적지 쌍의 접속 횟수", "spread_internal": "서로 다른 대상·포트 수",
@@ -141,7 +189,7 @@ def _unit(c: dict) -> str:
 
 
 def _need_text(kind: str) -> str:
-    return {"then_variation": "HTTP 요청 기록", "sequence": "HTTP 요청 기록", "periodic_external": "FW·연결 또는 NDR 기록",
+    return {"threshold": "고른 자료 종류의 기록", "then_variation": "HTTP 요청 기록", "sequence": "HTTP 요청 기록", "periodic_external": "FW·연결 또는 NDR 기록",
             "spread_internal": "FW·연결 기록", "alert_then_traffic": "IPS 또는 WAF 경보 기록", "ddos_window_access": "DDoS 구간 기록"}[kind]
 
 
@@ -326,9 +374,210 @@ def _ddos_window(s, inv) -> dict:
             "notes": ["집계 구간입니다. 구간 안의 요청을 DDoS와 같은 공격자의 행위로 묶지 않습니다. 5xx 수는 HTTP 기록에서 센 값입니다."]}
 
 
+SOURCE_SETS = {"fw": ["connection", "firewall", "zeek_conn"], "web": ["web"], "waf": ["waf"], "ips": ["ips"], "ddos": ["ddos"], "app": ["app"]}
+SOURCE_WORD = {"fw": "방화벽·연결", "web": "웹(NDR HTTP)", "waf": "WAF", "ips": "IPS", "ddos": "DDoS", "app": "애플리케이션"}
+FIELD_WORD = {"enforcement_action": "조치", "src_ip": "출발지 IP", "dst_ip": "목적지 IP", "dst_port": "목적지 포트", "protocol": "프로토콜",
+              "hostname": "서비스(호스트)", "method": "메서드", "uri": "요청 경로·쿼리", "status_code": "응답 코드", "alert_name": "공격명",
+              "severity": "심각도"}
+OP_WORD = {"is": "=", "is_not": "≠", "contains": "에 포함:", "gte": "≥", "lte": "≤"}
+GROUP_WORD = {"src_ip": "같은 출발지 IP", "dst_ip": "같은 목적지 IP", "pair": "같은 출발지 → 목적지", "dst_service": "같은 목적지 IP·포트",
+              "hostname": "같은 서비스(호스트)", "alert_name": "같은 공격명", "all": "전체(묶지 않음)"}
+GROUP_FIELDS = {"src_ip": ["src_ip"], "dst_ip": ["dst_ip"], "pair": ["src_ip", "dst_ip"], "dst_service": ["dst_ip", "dst_port"],
+                "hostname": ["hostname"], "alert_name": ["alert_name"], "all": []}
+MEASURE_WORD = {"records": "기록 수", "bytes_total": "전송량 합계(보낸 양+받은 양)", "bytes_out": "보낸 양(bytes_out)", "bytes_in": "받은 양(bytes_in)",
+                "distinct_dst_ip": "서로 다른 목적지 IP 수", "distinct_dst_port": "서로 다른 목적지 포트 수", "distinct_src_ip": "서로 다른 출발지 IP 수",
+                "distinct_alert": "서로 다른 공격명 수", "distinct_path": "서로 다른 요청 경로 수"}
+DISTINCT_FIELD = {"distinct_dst_ip": "dst_ip", "distinct_dst_port": "dst_port", "distinct_src_ip": "src_ip", "distinct_alert": "alert_name"}
+BYTE_UNIT = {"KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3}
+ACTION_WORD = {"허용": "allowed", "allow": "allowed", "accept": "allowed", "permit": "allowed", "차단": "blocked", "block": "blocked",
+               "deny": "blocked", "drop": "blocked", "denied": "blocked"}
+# What the wizard offers for a threshold scenario, in the analyst's words.
+THRESHOLD_OPTIONS = {
+    "sources": [{"id": k, "name": v} for k, v in SOURCE_WORD.items()],
+    "fields": [{"id": k, "name": v} for k, v in FIELD_WORD.items()],
+    "ops": [{"id": "is", "name": "같음(쉼표로 여러 값, IP는 대역 10.0.0.0/8 가능)"}, {"id": "is_not", "name": "다름"}, {"id": "contains", "name": "이 글자 포함"},
+            {"id": "gte", "name": "이상(숫자)"}, {"id": "lte", "name": "이하(숫자)"}],
+    "group_by": [{"id": k, "name": v} for k, v in GROUP_WORD.items()],
+    "measures": [{"id": k, "name": v, "bytes": k.startswith("bytes")} for k, v in MEASURE_WORD.items()],
+    "byte_units": list(BYTE_UNIT),
+}
+
+
+def _threshold_text(c: dict) -> str:
+    amount = f"{c['threshold']:g}{c.get('byte_unit') or 'MB'}" if c["measure"].startswith("bytes") else f"{int(c['threshold'])}"
+    return amount
+
+
+def _cond_text(cond: dict) -> str:
+    return f"{FIELD_WORD[cond['field']]} {OP_WORD[cond['op']]} {cond['value']}"
+
+
+def _describe_threshold(c: dict) -> str:
+    src = "·".join(SOURCE_WORD[x] for x in c["sources"])
+    conds = [_cond_text(x) for x in c.get("conditions") or []]
+    if c.get("host"):
+        conds.insert(0, f"서비스 = {c['host']}")
+    which = f" 중 [{', '.join(conds)}]인 것" if conds else ""
+    return (f"{src} 기록{which}을 {GROUP_WORD[c['group_by']]}(으)로 묶어, {_span(c['window_seconds'])} 안에 "
+            f"{MEASURE_WORD[c['measure']]}이(가) {_threshold_text(c)} 이상인 경우")
+
+
+def _cond_ok(e: dict, cond: dict) -> bool:
+    import ipaddress
+
+    v, want = e.get(cond["field"]), cond["value"].strip()
+    if v in (None, ""):
+        return cond["op"] == "is_not"
+    text = str(v).strip().lower()
+    if cond["op"] in ("gte", "lte"):
+        try:
+            a, b = float(text), float(want)
+        except ValueError:
+            return False
+        return a >= b if cond["op"] == "gte" else a <= b
+    if cond["op"] == "contains":
+        return want.lower() in text
+    hit = False
+    for one in (x.strip().lower() for x in want.split(",") if x.strip()):
+        if cond["field"] == "enforcement_action":
+            one = ACTION_WORD.get(one, one)
+        if cond["field"] in ("src_ip", "dst_ip") and "/" in one:
+            try:
+                hit = ipaddress.ip_address(text) in ipaddress.ip_network(one, strict=False)
+            except ValueError:
+                hit = False
+        else:
+            hit = text == one
+        if hit:
+            break
+    return hit if cond["op"] == "is" else not hit
+
+
+def _threshold(es, inv_id: str, time, c: dict, limit: int) -> dict:
+    """Records of the chosen sources, grouped, measured over a moving time window, against one threshold.
+
+    A group that stays over the threshold is one match that keeps growing; it ends when the window falls below.
+    """
+    from collections import Counter, deque
+
+    from saw.flows.service import ordered
+
+    names = [n for x in c["sources"] for n in SOURCE_SETS[x]]
+    missing = [SOURCE_WORD[x] + " 기록" for x in c["sources"] if not _sources(es, inv_id, time, SOURCE_SETS[x])]
+    if len(missing) == len(c["sources"]):
+        return {"status": "insufficient_data", "missing": missing}
+    filters = [Filter(field="data_source", op="in", value=names)]
+    if c.get("host"):
+        filters.append(Filter(field="hostname", value=c["host"]))
+    measure, window, conds = c["measure"], c["window_seconds"], c.get("conditions") or []
+    scale = BYTE_UNIT[c.get("byte_unit") or "MB"] if measure.startswith("bytes") else 1
+    need = c["threshold"] * scale
+    fields = GROUP_FIELDS[c["group_by"]]
+    distinct = measure.startswith("distinct")
+    groups: dict[tuple, dict] = {}
+    matches, best = [], {}
+    read = kept = no_group = no_value = no_time = over = 0
+    for e in ordered(es, inv_id, filters, time):
+        read += 1
+        if not all(_cond_ok(e, x) for x in conds):
+            continue
+        t = epoch(e.get("timestamp"))
+        if t is None:
+            no_time += 1
+            continue
+        key = tuple(e.get(f) for f in fields)
+        if any(k in (None, "") for k in key):
+            no_group += 1
+            continue
+        if measure == "records":
+            value = 1
+        elif measure.startswith("bytes"):
+            parts = [e.get(f) for f in (("bytes_in", "bytes_out") if measure == "bytes_total" else (measure,))]
+            nums = [float(x) for x in parts if isinstance(x, (int, float))]
+            if not nums:
+                no_value += 1
+                continue
+            value = sum(nums)
+        else:
+            value = split_uri(e.get("uri"))[0] if measure == "distinct_path" else e.get(DISTINCT_FIELD[measure])
+            if value in (None, ""):
+                no_value += 1
+                continue
+        kept += 1
+        g = groups.setdefault(key, {"q": deque(), "sum": 0.0, "seen": Counter(), "open": None})
+        g["q"].append((t, value, e.get("event_id"), e.get("timestamp")))
+        if distinct:
+            g["seen"][value] += 1
+        else:
+            g["sum"] += value
+        while g["q"] and t - g["q"][0][0] > window:
+            _, old, _, _ = g["q"].popleft()
+            if distinct:
+                g["seen"][old] -= 1
+                if not g["seen"][old]:
+                    del g["seen"][old]
+            else:
+                g["sum"] -= old
+        now = len(g["seen"]) if distinct else g["sum"]
+        if now > best.get(key, 0):
+            best[key] = now
+        if now < need:
+            g["open"] = None
+            continue
+        m = g["open"]
+        if m is None:
+            over += 1
+            if len(matches) >= limit:
+                continue
+            m = g["open"] = {"entity": " → ".join(str(k) for k in key) if c["group_by"] == "pair" else ":".join(str(k) for k in key) or "전체",
+                             "host": "", "start": g["q"][0][3], "end": e.get("timestamp"), "peak": now, "records": len(g["q"]),
+                             "event_ids": [x[2] for x in g["q"] if x[2]][:60], "key": key}
+            matches.append(m)
+        else:
+            m["end"], m["peak"], m["records"] = e.get("timestamp"), max(m["peak"], now), m["records"] + 1
+            if len(m["event_ids"]) < 60 and e.get("event_id"):
+                m["event_ids"].append(e.get("event_id"))
+    if measure.startswith("bytes") and not kept and no_value:
+        return {"status": "insufficient_data", "missing": ["전송량(바이트) 열 — 고른 자료의 기록에 값이 없습니다."],
+                "examined": {"records_read": read}}
+    show = (lambda x: round(x / scale, 2)) if scale != 1 else (lambda x: int(x))
+    unit = (c.get("byte_unit") or "MB") if scale != 1 else ""
+    out = []
+    for m in matches:
+        key = m.pop("key")
+        m["count"] = show(m.pop("peak"))
+        m["filters"] = [f.model_dump() for f in filters] + [{"field": f, "op": "is", "value": k} for f, k in zip(fields, key)]
+        m["time"] = {"start": m["start"], "end": m["end"]}
+        m["title"] = (f"{m['entity']}: {_span(window)} 안에 {MEASURE_WORD[measure]} {m['count']:,}{unit} (기준 {_threshold_text(c)}) · "
+                      f"기준을 넘은 동안의 기록 {m['records']:,}건")
+        out.append(m)
+    done = {m["entity"] for m in out}
+    below = sorted(((n, k) for k, n in best.items() if n < need), key=lambda x: -x[0])[:5]
+    near = [{"kind": "below", "entity": " → ".join(str(x) for x in k) or "전체",
+             "text": f"{' → '.join(str(x) for x in k) or '전체'}: 조건 미달 — 가장 컸던 {MEASURE_WORD[measure]} {show(n):,}{unit} (기준 {_threshold_text(c)})"}
+            for n, k in below if (" → ".join(str(x) for x in k) or "전체") not in done]
+    notes = ["시간 범위는 움직이는 구간입니다: 각 기록에서 거슬러 그 시간만큼의 기록을 더합니다. 기준을 계속 넘는 동안은 한 건으로 묶습니다."]
+    if measure.startswith("bytes"):
+        notes.append("전송량은 기록에 적힌 바이트 값의 합입니다. 보낸 양·받은 양의 방향은 장비가 기록한 열의 뜻을 따르며, 세션이 끝날 때 한 번에 기록하는 장비는 긴 통신이 한 시점에 몰려 보일 수 있습니다.")
+    if c["group_by"] in ("src_ip", "pair"):
+        notes.append("출발지 IP로 묶었습니다. NAT·프록시 뒤 여러 사용자가 한 대상으로 보일 수 있습니다.")
+    if missing:
+        notes.append("고른 자료 중 이 헌팅에 없는 것: " + ", ".join(missing))
+    for n, text in ((no_group, "묶는 기준 값이 없는 기록"), (no_value, "세는 값이 없는 기록"), (no_time, "시각이 없는 기록")):
+        if n:
+            notes.append(f"{text} {n:,}건은 넣지 않았습니다.")
+    if over > len(out):
+        notes.append(f"기준을 넘은 경우는 모두 {over:,}번이며 앞의 {len(out):,}개만 보여 줍니다.")
+    return {"status": "found" if out else "no_match", "matches": out, "near": near, "notes": notes,
+            "examined": {"records_read": read, "records_matching_conditions": kept, "groups": len(groups), "shown": len(out), "limit": limit,
+                         "found_total": over}}
+
+
 def preview(s, p, inv_id: str, raw: dict) -> dict:
     """Try a definition on this investigation's data without saving it."""
     inv = require(s, p, "investigation.read", inv_id)
+    # A trial needs no name yet: the analyst names the scenario when saving it.
+    raw = {**raw, "name": str(raw.get("name") or "").strip() or "이름 없음"}
     content = knowledge.ScenarioContent.model_validate(raw).model_dump()
     es = container.get().events
     out = execute(s, inv, es, None, content, limit=50)
@@ -366,8 +615,8 @@ def run_active(s, inv, es, time) -> tuple[list[dict], list[dict]]:
                 unknown=m.get("unknown") or ["요청이 실제로 처리됐는지와 이 대상의 업무·권한"], time={"start": m.get("start"), "end": m.get("end")},
                 entities=[m["entity"], m.get("host") or ""],
                 evidence={"event_ids": [x for x in m.get("event_ids") or [] if x], "filters": m.get("filters") or [], "time": m.get("time"),
-                          "records": m.get("count")},
-                counts={"count": m.get("count")}, strength="세션으로 연결" if c.get("entity") == "session" else "출발지 IP 기준",
+                          "records": m.get("records", m.get("count"))},
+                counts={"count": m.get("count")}, strength="세션으로 연결" if c.get("entity") == "session" else GROUP_WORD[c.get("group_by") or "src_ip"] + " 기준" if c["kind"] == "threshold" else "출발지 IP 기준",
                 key=[item["id"], m["entity"], m.get("start")]))
     return methods, activities
 
@@ -380,5 +629,5 @@ def catalog(s, p, org_unit_id: str | None = None) -> dict:
         c = r["content"]
         mine.append({**r, "description": describe(c),
                      "run_state": "비활성" if r["status"] == "stopped" else "다음 헌팅부터 사용" if c.get("state") == "active" else "초안(시험만)",
-                     "needs": [_need_text(c["kind"])]})
-    return {"scenarios": mine, "templates": TEMPLATES, "kinds": KINDS}
+                     "needs": [" · ".join(SOURCE_WORD[x] for x in c.get("sources") or []) + " 기록"] if c["kind"] == "threshold" else [_need_text(c["kind"])]})
+    return {"scenarios": mine, "templates": TEMPLATES, "kinds": KINDS, "threshold_options": THRESHOLD_OPTIONS}
