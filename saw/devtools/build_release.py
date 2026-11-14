@@ -24,6 +24,7 @@ PUBLIC_DOCS = (
  'docs/verification/readable-workbench-20261104.md',
  'docs/verification/golden-candidates-20261105.md',
  'docs/OPERATIONS-UPDATE-v0.2.5.md',
+ 'docs/OPERATIONS-UPDATE-v0.2.6.md',
  'docs/verification/flow-knowledge-20261113.md',
  'docs/adr/0019-flow-knowledge-and-state-analysis.md',
  'docs/adr/0020-hunting-platform-structure.md',
