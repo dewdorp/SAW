@@ -90,4 +90,6 @@
 
 - SAW-0.2.6-pilot.20261114-model-free-win-x64.zip(모델 제외) 1,571,936,799바이트, SHA-256 5597e8f6eae4bf8d35120d131afc24ced1e1077577085589dd6c78f1bdf326d9, manifest 006fe23d2ad80150982a15af17908269b4e51967e978f3c85ac21bcd35131bd4, schema 0029, 파일 1,346개. ac120f8에서 빌드했고 독립 해제 재검증을 통과했다.
 - 매체 안 확인: release-manifest의 source_commit ac120f8, application_schema 0029, model_weights EXCLUDED, target_validation PENDING_CLEAN_LTSC, 화면 version.json 0.2.6, app/docs에 OPERATIONS-UPDATE-v0.2.6.md·HUNTING-GUIDE.md 포함.
-- 실행하지 않음: 이 매체의 개발 PC 합성 설치·0.2.5→0.2.6 업데이트·복구 리허설, 대상 LTSC 2019(PENDING_ENV), 릴리스 게시.
+- 리허설: 개발 PC(Windows 11 Pro 26200, NoAdmin) 합성 리허설: a19는 리허설 도구에 새로 넣은 헌팅 확인이 목록 응답 모양({"items": [...]})을 잘못 기대해 6단계에서 멈췄다(도구 오류, 제품 아님, 기록 보존). 고친 도구 r19의 a20은 57단계 중 51단계(계획한 차단 실패 1 + PASS 50, 111.6분)가 기대대로 끝난 뒤, 재적용 확인 직전에 도구의 디스크 여유 기준(C: 여유 38.8GB < 약 39.8GB)에 걸려 FAIL로 끝났다. 통과한 것: 0.2.6 신규 설치·재개·재시작·별도 백업/복구, 0.2.5(스키마 0026) 설치 → 점검 → 주입 실패 뒤 자동 복구 → 0.2.6 업데이트·재시작 → 전체 복구로 0.2.5 정확 복귀·나중 객체 분리 보관 → 두 번째 업데이트·후보 담기 → 같은 매체 재적용, 헌팅 확인(목록·예제 23개 중 19개 실행 가능·기준 방식) 2회, 사례집·예제 확인 2회. 남은 읽기 전용 6단계(재적용 뒤 사례집·예제·자료 비교·로그인·헌팅·후보함 확인·정상 종료)는 같은 스크립트로 따로 실행해 모두 통과했고 포트 8개가 닫혔다. 한 번의 실행으로 57단계를 통과한 것은 아니다.
+- 기록: .qa/affiliate-p1-20261020/media-p5-a19, media-p5-a20(receipts-finish는 따로 실행한 6단계).
+- 실행하지 않음: 대상 LTSC 2019(PENDING_ENV), 관리자 서비스·재부팅, 릴리스 게시.
