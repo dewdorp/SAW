@@ -59,7 +59,7 @@ def test_download_rechecks_actor_after_actual_object_read(analyst, manager, seni
                 if change == "disabled":
                     user.status = "disabled"
                 elif change == "role":
-                    user.roles = ["admin"]
+                    user.roles = []
                 elif change == "session":
                     s.execute(update(UserSession).where(UserSession.user_id == user.id).values(revoked_at=utcnow()))
                 else:

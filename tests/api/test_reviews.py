@@ -130,6 +130,8 @@ def test_nobody_reviews_their_own_call(app, analyst):
     r = analyst.post(f"/investigations/{inv['id']}/reviews", json={"conclusion": "내 판단", "reviewer_id": me})
     assert r.status_code == 400
     make_user("adm", ["admin"])
+    make_user("vw", ["viewer"])
     adm = Api(app, "adm")
-    assert all(p["username"] != "adm" for p in analyst.get("/reviews/reviewers").json())   # administrators do not judge cases
+    names = {p["username"] for p in analyst.get("/reviews/reviewers").json()}
+    assert "adm" in names and "vw" not in names   # the administrator can review; a viewer does not judge cases
     assert adm.get("/reviews/inbox").json() == {"to_review": [], "returned": []}

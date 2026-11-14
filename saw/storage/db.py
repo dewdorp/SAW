@@ -56,8 +56,11 @@ def load_models() -> None:
     from saw.detection import service as _det  # noqa: F401
     from saw.detection import truth_models as _dt  # noqa: F401
     from saw.event_generations import models as _eg  # noqa: F401
+    from saw.flows import models as _fl  # noqa: F401
     from saw.followups import models as _fu  # noqa: F401
     from saw.hunting import service as _hunt  # noqa: F401
+    from saw.hunts import models as _hunts  # noqa: F401
+    from saw.llm import investigator as _aiinv  # noqa: F401
     from saw.internal_kb import models as _ik  # noqa: F401
     from saw.knowledge import golden_governance_models as _gg  # noqa: F401
     from saw.knowledge import golden_models as _gm  # noqa: F401

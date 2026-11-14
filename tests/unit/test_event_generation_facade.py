@@ -119,8 +119,8 @@ def test_no_actor_or_admin_content_and_explicit_maintenance(reads):
     with pytest.raises(Forbidden):
         es.count('inv')
     with factory.begin() as s:
-        s.add(User(id='admin', username='admin', password_hash='unused', roles=['admin']))
-    with actor_scope('admin'), pytest.raises(Forbidden):
+        s.add(User(id='norole', username='norole', password_hash='unused', roles=[]))
+    with actor_scope('norole'), pytest.raises(Forbidden):
         es.count('inv')
     checked = []
     with maintenance_scope(checked.append, purpose='authorized-deletion'):

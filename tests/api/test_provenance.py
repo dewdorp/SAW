@@ -72,9 +72,9 @@ def test_roles_see_their_scope_and_the_consolidated_view_flags_inconsistent_sett
     assert len(warn) == 1 and warn[0]["settings_variants"] == 2 and warn[0]["input_sha256"] == hashlib.sha256(SAMPLE.encode()).hexdigest()
     assert summ["warnings"]["draft_parser_runs"][0]["parser_id"] == "u:waf-x@1"
 
-    # the administrator audits processing without seeing case content (file names, titles)
+    # since 0.2.6 the administrator can use every function and sees the same as the manager
     adm = admin.get("/processing-runs?scope=all").json()
-    assert len(adm) == 3 and all(r["file_name"].startswith("(비공개)") for r in adm)
-    assert all("investigation_title" not in r and "settings" not in r for r in adm)
+    assert len(adm) == 3 and not any(r["file_name"].startswith("(비공개)") for r in adm)
+    assert all(r.get("investigation_title") for r in adm)
     assert admin.get("/processing-runs/summary").json()["runs"] == 3
     assert admin.get(f"/processing-runs/{adm[0]['id']}/verify").json()["ok"] is True

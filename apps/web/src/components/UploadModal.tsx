@@ -12,7 +12,8 @@ export const KINDS: [string, string][] = [
   ["fw_log", "방화벽 로그"], ["db_audit", "DB 감사"], ["auto", "자동 감지"],
 ];
 
-export function UploadModal({ kind: k0, invId, initialFiles, onClose }: { kind?: string; invId?: string; initialFiles?: File[]; onClose: () => void }) {
+export function UploadModal({ kind: k0, invId, initialFiles, onClose, hunt }: { kind?: string; invId?: string; initialFiles?: File[]; onClose: () => void;
+  /** Opened as "새 헌팅": the title is generated and the analyst lands on the hunt's activities. */ hunt?: boolean }) {
   const [kind, setKind] = useState(k0 || "auto");
   const [files, setFiles] = useState<File[]>(initialFiles || []);
   const [target, setTarget] = useState<string>(invId || "new");
@@ -61,13 +62,14 @@ export function UploadModal({ kind: k0, invId, initialFiles, onClose }: { kind?:
       let id = target;
       if (target === "new") {
         if (!org) throw new Error("새 조사는 관계사를 선택해야 합니다. 조사 기간은 조사 화면 위쪽에서 지정할 수 있습니다.");
-        const investigation = await api.post("/investigations", { title: title || `${files.length}개 파일 · ${new Date().toLocaleString("ko-KR")}`, ...(org ? { org_unit_id: org } : {}) });
+        const investigation = await api.post("/investigations", { title: title || (hunt ? `${(orgs.data || []).find((o: any) => o.id === org)?.display_name || ""} 헌팅 · ${new Date().toLocaleDateString("ko-KR")}`.trim()
+          : `${files.length}개 파일 · ${new Date().toLocaleString("ko-KR")}`), ...(org ? { org_unit_id: org } : {}) });
         id = investigation.id;
       }
       const hasContext = target !== "new" && (profile || subjectOrg || subjectStatus !== "unknown" || basis || scope !== "unknown" || collectionFilter || loss !== "unknown");
       const context = hasContext ? { device_profile_version_id: profile || null, subject: { org_unit_id: subjectOrg || null, status: subjectStatus, basis: basis.trim() }, collection: { scope, filter: collectionFilter, loss } } : undefined;
       const result = await uploadFiles(id, kind, files, setProg, undefined, context);
-      onClose(); nav(`/jobs/${result.jobId}`);
+      onClose(); nav(hunt ? `/inv/${id}?tab=activities` : `/jobs/${result.jobId}`);
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   return <>

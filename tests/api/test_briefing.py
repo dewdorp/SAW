@@ -108,7 +108,10 @@ def test_board_shows_everything_to_the_manager_and_only_own_work_to_analysts(app
     a = analyst.get("/board").json()
     assert a["scope"] == "mine" and [r["display_id"] for r in a["rows"]] == [mine["display_id"]]
     make_user("adm", ["admin"])
-    assert Api(app, "adm").get("/board").json()["rows"] == []        # administrators do not see case content
+    adm = Api(app, "adm").get("/board").json()                      # the administrator can use every function
+    assert adm["scope"] == "all" and {r["display_id"] for r in adm["rows"]} >= {mine["display_id"], theirs["display_id"]}
+    make_user("vw", ["viewer"])
+    assert Api(app, "vw").get("/board").json()["rows"] == []         # a viewer who is on no investigation sees none
 
 
 def test_wording_helpers():

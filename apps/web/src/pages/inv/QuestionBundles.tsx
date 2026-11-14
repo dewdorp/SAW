@@ -22,7 +22,7 @@ const SCOPES: Record<string, string> = { investigation: "이번 조사", affilia
 type Param = { name: string; label: string; type: string; default: any; help?: string; min?: number; max?: number; unit?: string; choices?: [string, string][] };
 
 /** One input per condition, typed by the server's definition (the same definition that runs and is saved). */
-function ParamInput({ p, value, onChange }: { p: Param; value: any; onChange: (v: any) => void }) {
+export function ParamInput({ p, value, onChange }: { p: Param; value: any; onChange: (v: any) => void }) {
   const label = <span className="small"><b>{p.label}</b>{p.help ? <span className="muted"> — {p.help}</span> : null}</span>;
   if (p.type === "int" || p.type === "float") {
     return <label className="col" style={{ gap: 2 }}>{label}<span className="row" style={{ gap: 4 }}>

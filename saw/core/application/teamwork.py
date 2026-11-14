@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from saw.core.application import audit
 from saw.core.application.investigations import Forbidden, NotFound, require
 from saw.core.domain.enums import Role
-from saw.core.security.authz import Principal
+from saw.core.security.authz import Principal, is_lead
 from saw.storage.db import utcnow
 from saw.storage.models import Check, Finding, Investigation, InvestigationMember, Job, Support, User
 
@@ -40,12 +40,12 @@ def is_helper(s: Session, inv_id: str, user_id: str) -> bool:
 
 def request(s: Session, p: Principal, inv_id: str, question: str, scope_note: str, helper_id: str) -> Support:
     inv = require(s, p, "investigation.write", inv_id)
-    if inv.owner_id != p.user_id and Role.SOC_MANAGER not in p.roles:
+    if inv.owner_id != p.user_id and not is_lead(p):
         raise ValueError("지원 요청은 조사 담당자나 관제 매니저만 할 수 있습니다")
     if len(question.strip()) < 5:
         raise ValueError("지원자가 따로 확인할 수 있는 질문을 한 줄로 적어 주세요")
     u = s.get(User, helper_id)
-    if u is None or u.status != "active" or u.id == inv.owner_id or not {Role(r) for r in u.roles} & {Role.ANALYST, Role.SENIOR_ANALYST, Role.SOC_MANAGER}:
+    if u is None or u.status != "active" or u.id == inv.owner_id or not {Role(r) for r in u.roles} & {Role.ANALYST, Role.SENIOR_ANALYST, Role.SOC_MANAGER, Role.ADMIN}:
         raise ValueError("지원자로 지정할 수 없는 사용자입니다")
     r = Support(investigation_id=inv_id, question=question.strip()[:500], scope_note=scope_note.strip()[:1000],
                 helper_id=u.id, helper_name=u.display_name or u.username, requested_by=p.user_id, requested_by_name=p.username)
@@ -93,7 +93,7 @@ def cancel(s: Session, p: Principal, inv_id: str, support_id: str) -> Support:
     r = _get(s, support_id)
     if r.investigation_id != inv_id:
         raise NotFound("support request not found")
-    if r.requested_by != p.user_id and Role.SOC_MANAGER not in p.roles:
+    if r.requested_by != p.user_id and not is_lead(p):
         raise ValueError("요청한 사람이나 관제 매니저만 취소할 수 있습니다")
     if r.status not in OPEN:
         raise ValueError("이미 끝난 요청입니다")

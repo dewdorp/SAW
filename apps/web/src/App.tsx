@@ -9,6 +9,7 @@ import { Admin } from "./pages/Admin";
 import { AdminData } from "./pages/AdminData";
 import { CaseDetail, Cases } from "./pages/Cases";
 import { Home } from "./pages/Home";
+import { Hunts, Settings } from "./pages/hunt/Hunts";
 import { Investigations } from "./pages/Investigations";
 import { JobDetail, Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
@@ -36,6 +37,9 @@ const Briefing = lazy(() => import("./pages/Briefing").then((m) => ({ default: m
 const Board = lazy(() => import("./pages/Board").then((m) => ({ default: m.Board })));
 const Provenance = lazy(() => import("./pages/Provenance").then((m) => ({ default: m.Provenance })));
 const DiffPage = lazy(() => import("./pages/analyze/DiffPage").then((m) => ({ default: m.DiffPage })));
+const Scenarios = lazy(() => import("./pages/scenario/Scenarios").then((m) => ({ default: m.Scenarios })));
+const Criteria = lazy(() => import("./pages/hunt/Criteria").then((m) => ({ default: m.Criteria })));
+const Assets = lazy(() => import("./pages/asset/Assets").then((m) => ({ default: m.Assets })));
 const Registry = lazy(() => import("./pages/Registry").then((m) => ({ default: m.Registry })));
 export type Me = { id: string; username: string; display_name: string; roles: string[]; permissions: string[] };
 
@@ -58,7 +62,13 @@ export function App() {
     <Shell me={me.data}>
       <Suspense fallback={<Loading />}>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Hunts />} />
+        <Route path="/hunts" element={<Hunts />} />
+        <Route path="/home" element={<Home />} />
+        <Route path="/scenarios" element={<Scenarios />} />
+        <Route path="/criteria" element={<Criteria />} />
+        <Route path="/assets" element={<Assets />} />
+        <Route path="/settings" element={<Settings permissions={me.data.permissions || []} />} />
         <Route path="/analyze" element={<UniversalPage />} />
         <Route path="/analyze/ioc" element={<IocPage />} />
         <Route path="/analyze/http" element={<HttpPage />} />

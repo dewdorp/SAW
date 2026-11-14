@@ -5,6 +5,7 @@ import { conclusion, loadBundledPack, type PracticeCase, type PracticePack, type
 import { notesFor } from "./caseNotes";
 import { Loading, Panel } from "../../components/common";
 import { PageHeader } from "../../components/ui";
+import { FlowCases } from "./FlowCases";
 import { PlatformCases } from "./PlatformCases";
 import "./practice.css";
 
@@ -157,6 +158,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
       <PageHeader eyebrow="NDR · FW 모범 분석" title={item ? `${item.id} · ${item.title}` : "분석 사례집"}
         desc={item ? item.summary : "가상 로그의 어떤 행에서 질문이 나왔는지, 어떤 자료를 대조했고 어디까지 결론을 낼 수 있는지 읽어 보세요."} />
     </div>
+    {!selected && <FlowCases />}
     {selected && <Panel title="플랫폼 분석 따라보기">
       <p>대량 가상 로그를 SAW 화면에서 분석한 사례와 원본 로그를 확인할 수 있습니다.</p>
       <button className="btn sm" onClick={openPlatform}>플랫폼 분석 사례 보기</button>

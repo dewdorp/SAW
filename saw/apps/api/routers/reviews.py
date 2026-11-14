@@ -62,7 +62,7 @@ def support_list(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Dep
     from saw.core.domain.enums import Role
 
     return {"items": teamwork.list_for_investigation(s, inv_id), "me": ctx.principal.user_id,
-            "can_request": inv.owner_id == ctx.principal.user_id or Role.SOC_MANAGER in ctx.principal.roles}
+            "can_request": inv.owner_id == ctx.principal.user_id or bool(ctx.principal.roles & {Role.SOC_MANAGER, Role.ADMIN})}
 
 
 @router.post("/investigations/{inv_id}/support", status_code=201)

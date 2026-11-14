@@ -393,6 +393,15 @@ def _finish_relational(s: Session, op: DataDeletion) -> None:
     from saw.event_generations.models import AnalysisRunGeneration
     s.execute(delete(AnalysisRunGeneration).where(AnalysisRunGeneration.run_id.in_(run_ids)))
     s.execute(delete(AnalysisRun).where(AnalysisRun.investigation_id == iid))
+    # Flow runs and judgements are this investigation's own results; the reusable knowledge stays.
+    from saw.flows.models import FlowJudgement, FlowRun
+    s.execute(delete(FlowJudgement).where(FlowJudgement.investigation_id == iid))
+    s.execute(delete(FlowRun).where(FlowRun.investigation_id == iid))
+    from saw.hunts.models import HuntReview, HuntRun
+    s.execute(delete(HuntReview).where(HuntReview.investigation_id == iid))
+    s.execute(delete(HuntRun).where(HuntRun.investigation_id == iid))
+    from saw.llm.investigator import AiInvestigation
+    s.execute(delete(AiInvestigation).where(AiInvestigation.investigation_id == iid))
     fids = select(Finding.id).where(Finding.investigation_id == iid)
     s.execute(delete(FindingFeedback).where(FindingFeedback.finding_id.in_(fids)))
     for model in (Finding, Pattern, ParameterProfile, Entity, Relation, AttackStory, Correlation, LlmInteraction):
