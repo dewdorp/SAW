@@ -28,6 +28,24 @@ describe("Shell (sidebar layout)", () => {
     expect(screen.getByText("관리·감사")).toBeTruthy();
   });
 
+  it("opens the casebook from the sidebar", () => {
+    renderUI(<Shell me={ME}><div /></Shell>, { route: "/inv/abc" });
+    const link = within(screen.getByLabelText("주 메뉴")).getByRole("link", { name: "분석 사례집" });
+    expect(link.getAttribute("href")).toBe("/casebook");
+    fireEvent.click(link);
+    expect(document.querySelector(".crumb")!.textContent).toBe("분석 사례집");
+  });
+
+  it("finds and opens the casebook through menu search", async () => {
+    renderUI(<Shell me={ME}><div /></Shell>);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const dialog = within(await screen.findByRole("dialog", { name: "Command palette" }));
+    fireEvent.change(dialog.getByPlaceholderText("메뉴 또는 조사 이름 검색…"), { target: { value: "분석 사례집" } });
+    fireEvent.click(dialog.getByText("분석 사례집"));
+    expect(document.querySelector(".crumb")!.textContent).toBe("분석 사례집");
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+  });
+
   it("auto-collapses on the investigation workbench, and remembers an explicit choice", () => {
     const { unmount } = renderUI(<Shell me={ME}><div /></Shell>, { route: "/inv/abc" });
     expect(app().classList.contains("collapsed")).toBe(true);

@@ -5,14 +5,37 @@ import { PracticeCases } from "./PracticeCases";
 import type { PracticePack } from "./casebookData";
 import { notesFor } from "./caseNotes";
 import data from "./practice-cases.json";
+import workedIndex from "../../../public/reference-data/platform-cases/index.json";
+import worked60 from "../../../public/reference-data/platform-cases/W60.json";
 
 const pack = data as unknown as PracticePack;
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function visit(path = "/casebook", loadPack = async () => pack) {
   return render(<MemoryRouter initialEntries={[path]}><PracticeCases loadPack={loadPack} /></MemoryRouter>);
 }
 
 describe("분석 사례집", () => {
+  it("기존 C 사례에서 플랫폼 사례를 열고 W60 직접 링크와 조사 복귀 경로를 유지한다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      const body = input.endsWith("/index.json") ? workedIndex
+        : input.endsWith("/W60.json") ? worked60 : null;
+      return new Response(JSON.stringify(body), { status: body ? 200 : 404,
+        headers: { "content-type": "application/json" } });
+    }));
+    visit("/casebook?case=C010&worked=W60&investigation=inv_77");
+    expect(await screen.findByRole("heading", { name: /C010.*같은 포트/ })).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "다른 사례" }), { target: { value: "C011" } });
+    expect(await screen.findByRole("heading", { name: /C011/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "플랫폼 분석 사례 보기" }));
+    expect(await screen.findByRole("heading", { name: `W60 · ${worked60.title}` })).toBeTruthy();
+    expect(screen.getByText(/전체 60건 중 60건/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "실제 조사로 돌아가기" }).getAttribute("href")).toBe("/inv/inv_77");
+    expect(screen.getByRole("link", { name: "이 사례 원본 ZIP 받기" }).getAttribute("href"))
+      .toBe("/reference-data/platform-cases/W60.zip");
+    expect(screen.queryByRole("heading", { name: /C011/ })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "분석 사례집" }).closest("[tabindex='-1']"));
+  });
+
   it("직접 링크에서 증거·질문·정상 대안·범위가 있는 초기 결론을 즉시 읽는다", async () => {
     visit("/practice?case=C010&investigation=inv_77");
     expect(await screen.findByRole("heading", { name: /C010.*같은 포트/ })).toBeTruthy();
