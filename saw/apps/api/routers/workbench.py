@@ -166,6 +166,30 @@ def scope_summary(inv_id: str, body: FiltersIn, ctx: AuthContext = Depends(auth)
     return build(s, inv, body.filters, body.time)
 
 
+@router.get("/field-meanings")
+def field_meanings(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    """Per export column: meaning, how this investigation's analysis uses it, and how many records carry it."""
+    from saw.core.application.field_meanings import build
+
+    _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    return build(inv_id)
+
+
+@router.get("/question-bundles")
+def question_bundles(inv_id: str, sensitivity: str = "normal", ctx: AuthContext = Depends(auth),
+                     s: Session = Depends(db, scope="function")):
+    """Investigation questions computed from the logs themselves: no policy or scenario to write first."""
+    from saw.core.application.investigations import period_window
+    from saw.core.application.question_bundles import build
+
+    inv = _read(s, ctx, inv_id)
+    require_investigation_results(s, ctx.principal, inv_id)
+    if sensitivity not in ("low", "normal", "high"):
+        raise HTTPException(status_code=422, detail="sensitivity must be low, normal or high")
+    return build(inv, sensitivity=sensitivity, time=period_window(inv))
+
+
 @router.post("/statistics")
 def statistics(inv_id: str, body: StatisticsIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     _read(s, ctx, inv_id)

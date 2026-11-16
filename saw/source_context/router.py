@@ -40,6 +40,17 @@ def list_orgs(after: str | None = None, limit: int = Query(100, ge=1, le=200),
     return [org_out(r) for r in service.list_orgs(s, ctx.principal, after=after, limit=limit)]
 
 
+@router.get("/investigations/{inv_id}/profile-templates")
+def profile_templates(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return {"items": service.list_templates(s, ctx.principal, inv_id)}
+
+
+@router.post("/investigations/{inv_id}/devices/from-template", status_code=201)
+def device_from_template(inv_id: str, body: dict, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return service.device_from_template(s, ctx.principal, inv_id, str(body.get("profile_version_id") or ""),
+                                        str(body.get("display_name") or "")[:128])
+
+
 @router.post("/investigations/{inv_id}/devices", status_code=201)
 def create_device(inv_id: str, body: DeviceInput, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     return device_out(service.create_device(s, ctx.principal, inv_id, body))

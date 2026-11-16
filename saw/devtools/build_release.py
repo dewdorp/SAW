@@ -15,6 +15,7 @@ PUBLIC_DATA = ('data/mitre/ATTACK-LICENSE.txt','data/mitre/enterprise-attack.com
 PUBLIC_DOCS = (
  'docs/ANALYST-WORKFLOW-GUIDE-20261029.md',
  'docs/verification/analyst-fixes-20261030.md',
+ 'docs/verification/ndr-fw-fields-20261030.md',
  'docs/RECURRING-SECURITY-CSV-GUIDE-20261025.md',
  'docs/samples/security-csv/fw-mixed-devices.csv',
  'docs/samples/security-csv/ndr-potential-chain.csv',

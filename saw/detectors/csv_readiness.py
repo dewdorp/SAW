@@ -6,7 +6,8 @@ from ipaddress import ip_address
 
 from saw.core.schemas.query import Filter
 
-PARSERS = {"ko_fw_csv": "fw", "ko_ndr_csv": "ndr"}
+# Korean and English exports of the same kinds share one readiness view.
+PARSERS = {"ko_fw_csv": "fw", "ko_ndr_csv": "ndr", "en_fw_csv": "fw", "en_ndr_http_csv": "ndr"}
 MAX_RECORDS = 100_000
 MAX_DEVICES = 1000
 FIELDS = ("timestamp", "source_ip", "destination_ip", "opaque_destination", "http_request",
@@ -47,7 +48,7 @@ def inspect_events(events, *, max_records=MAX_RECORDS, cancelled=None):
             group["records"] += 1
             f = group["fields"]
             ext = (event.get("ext") or {}).get("security_csv") or {}
-            device = ext.get("장비IP")
+            device = ext.get("장비IP") or ext.get("_device_name") or ext.get("_device_ip")
             if isinstance(device, str) and _present(device):
                 if len(group["devices"]) < MAX_DEVICES or device in group["devices"]:
                     group["devices"].add(device)
@@ -61,7 +62,9 @@ def inspect_events(events, *, max_records=MAX_RECORDS, cancelled=None):
             f["http_request"] += request_observed
             if request_observed:
                 source_request = ext.get("요청헤더")
-                if isinstance(source_request, str) and _present(source_request):
+                if not _present(source_request) and _present(ext.get("path")):
+                    f["http_request_summary"] += 1  # method and path columns; no HTTP version is recorded
+                elif isinstance(source_request, str) and _present(source_request):
                     first = source_request.split("\n", 1)[0].removesuffix("\r").strip(" ")
                     key = "http_request_line" if first.rpartition(" ")[-1].startswith("HTTP/") else "http_request_summary"
                     f[key] += 1

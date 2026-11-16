@@ -7,7 +7,7 @@ import { entityKey, useInv } from "../../context/invContext";
 import { api } from "../../lib/api";
 import { fmtNum, fmtTime } from "../../lib/format";
 
-const ALL_COLS = ["timestamp", "data_source", "src_ip", "src_cloud", "method", "uri", "uri_template", "status_code", "bytes_out", "user_agent", "ua_class", "domain", "dst_ip", "dst_port", "user", "tags", "source_file"];
+const ALL_COLS = ["timestamp", "data_source", "src_ip", "src_cloud", "method", "hostname", "uri", "uri_template", "status_code", "bytes_out", "bytes_in", "user_agent", "ua_class", "domain", "dst_ip", "dst_port", "protocol", "enforcement_action", "user", "tags", "source_file"];
 const DEFAULT = ["timestamp", "data_source", "src_ip", "method", "uri", "status_code", "bytes_out", "user_agent"];
 
 // The table keeps what it has loaded in memory. Scrolling through millions of events would grow without limit, so
@@ -67,6 +67,9 @@ export function RawTab({ inv }: { inv: string }) {
       <div className="row wrap small">
         <b>원본 로그</b><span className="muted">{fmtNum(rows.length)}건 불러옴{q.hasNextPage ? " · 다음 기록 있음" : ""} · 민감값 가림 · 열 제목을 누르면 상위 값</span>
         <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>시간 {sort === "asc" ? "↑" : "↓"}</button>
+        {/* Default columns per export kind; every original column stays reachable in the record detail. */}
+        <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "hostname", "method", "uri", "status_code", "bytes_out", "bytes_in"])}>NDR 기본 열</button>
+        <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "dst_port", "protocol", "enforcement_action", "bytes_out", "bytes_in"])}>FW 기본 열</button>
         <details><summary className="btn sm">표시할 열</summary><div className="panel pb" style={{ position: "absolute", zIndex: 5 }}>{ALL_COLS.map((c) => <label key={c} className="row small"><input type="checkbox" checked={cols.includes(c)} onChange={(e) => setCols(e.target.checked ? [...cols, c] : cols.filter((x) => x !== c))} />{c}</label>)}</div></details>
         <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">불러온 행 CSV 내보내기 (가림)</button>
         <button className="btn sm" disabled={!rows.length} onClick={() => setChecking(true)} title="지금 검색 결과에 대해 무엇을 확인했는지 남깁니다 (일부만 봤다면 표본으로)">✓ 검색 결과 확인 기록</button>

@@ -142,6 +142,50 @@ def list_profiles(s: Session, p: Principal, device_id: str, *, before_version: i
     return list(s.scalars(q))
 
 
+def list_templates(s: Session, p: Principal, inv_id: str, limit: int = 50) -> list[dict]:
+    """Confirmed device profiles of the same affiliate from investigations this user can read, newest first."""
+    inv = investigations.require(s, p, "investigation.read", inv_id)
+    readable = [i for i in investigations.list_for(s, p, 500, org_unit_id=inv.org_unit_id) if i.id != inv_id]
+    out = []
+    for other in readable:
+        for dev in s.scalars(select(Device).where(Device.investigation_id == other.id)):
+            row = s.scalar(select(DeviceProfileVersion).where(DeviceProfileVersion.device_id == dev.id)
+                           .order_by(DeviceProfileVersion.version.desc()).limit(1))
+            if row is None:
+                continue
+            payload = row.payload or {}
+            out.append({"profile_version_id": row.id, "device_name": dev.display_name, "investigation_title": other.title,
+                        "investigation_id": other.id, "version": row.version, "sha256": row.sha256,
+                        "vendor": payload.get("vendor", ""), "product": payload.get("product", ""),
+                        "functions": payload.get("functions", []),
+                        "verified": {"time": (payload.get("time") or {}).get("verified") is True,
+                                     "counters": (payload.get("measurement_profile") or {}).get("verified") is True,
+                                     "action": payload.get("action_verified") is True},
+                        "created_at": row.created_at})
+    return sorted(out, key=lambda x: str(x["created_at"]), reverse=True)[:limit]
+
+
+def device_from_template(s: Session, p: Principal, inv_id: str, profile_version_id: str, display_name: str) -> dict:
+    """A new device and profile version in this investigation, copied from a confirmed template.
+
+    The copy is independent: later edits of either side never change the other, and evidence already
+    attached elsewhere keeps its own frozen snapshot. A template of another affiliate is refused.
+    """
+    inv = investigations.require(s, p, "investigation.write", inv_id)
+    source = s.get(DeviceProfileVersion, profile_version_id)
+    if source is None:
+        raise investigations.NotFound("profile template not found")
+    source_dev = _device(s, p, source.device_id, "investigation.read")
+    source_inv = s.get(Investigation, source_dev.investigation_id)
+    if (source_inv.org_unit_id or None) != (inv.org_unit_id or None):
+        raise ValueError("\ub2e4\ub978 \uad00\uacc4\uc0ac\uc758 \uc7a5\ube44 \ud15c\ud50c\ub9bf\uc740 \uc4f8 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \uc774 \uad00\uacc4\uc0ac\uc758 \uc7a5\ube44\ub97c \ub4f1\ub85d\ud558\uc138\uc694.")
+    device = create_device(s, p, inv_id, {"display_name": display_name or source_dev.display_name})
+    profile = create_profile(s, p, device.id, DeviceProfileInput.model_validate(source.payload))
+    _audit(s, p, "profile.from_template", profile.id, inv_id, {"template": source.id, "template_sha256": source.sha256})
+    return {"device_id": device.id, "profile_version_id": profile.id, "sha256": profile.sha256,
+            "template_profile_version_id": source.id}
+
+
 def _evidence(s: Session, p: Principal, evidence_id: str, permission: str):
     row = s.get(Evidence, evidence_id)
     if row is None:

@@ -119,6 +119,7 @@ it("creates a new investigation with an organization while keeping unconfigured 
 it("shows recurring CSV guidance before upload while keeping context confirmation explicit", () => {
   routes(); renderUI(ui());
   expect(screen.getByText(/FW 16개·NDR 19개 필수 헤더/)).toBeTruthy();
+  expect(screen.getByText(/영문 헤더 NDR HTTP/)).toBeTruthy();
   expect(screen.getByText(/UTF-8·CP949/)).toBeTruthy();
   expect(screen.getByText(/열 순서 변경과 추가 열/)).toBeTruthy();
   expect(screen.getByText(/최대 199열/)).toBeTruthy();
