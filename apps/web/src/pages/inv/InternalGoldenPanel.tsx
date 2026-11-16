@@ -7,6 +7,15 @@ import { fmtTime } from "../../lib/format";
 export const JUDGEMENTS: [string, string][] = [["", "미정"], ["normal", "정상 업무로 확인"], ["attack_attempt", "공격 시도 확인(성공 미확인)"],
   ["compromise_confirmed", "침해·실제 영향 확인"], ["insufficient_evidence", "증거 부족 · 추가 확인 필요"], ["data_quality_limited", "데이터 품질로 판단 제한"]];
 const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+const LIST_FIELDS = ["initial_logs", "initial_evidence_refs", "observed_facts", "questions", "followups", "later_logs",
+  "later_evidence_refs", "later_facts", "unresolved"];
+// Versions saved before a field existed still open: missing lists are shown empty, never as an error.
+// F12: every section of a version is compared, not only the final judgement.
+const SECTIONS: [string, string][] = [["initial_logs", "초기 로그"], ["initial_evidence_refs", "최초 근거"], ["observed_facts", "관찰 사실"],
+  ["initial_judgement", "최초 판단"], ["questions", "질문"], ["followups", "확인 요청·회신"], ["later_facts", "후속 변경"],
+  ["later_evidence_refs", "후속 근거"], ["alert_meanings", "공격명 의미 버전"], ["final_judgement", "최종 판단"], ["unresolved", "미해결"], ["notes", "메모"]];
+const changedSections = (old: any, now: any) => SECTIONS.filter(([k]) => JSON.stringify(old?.[k] ?? null) !== JSON.stringify(now?.[k] ?? null));
+const normalized = (c: any) => ({ ...c, ...Object.fromEntries(LIST_FIELDS.map((k) => [k, c?.[k] ?? []])), provenance: c?.provenance ?? {} });
 
 function Judgement({ label, value, onChange }: { label: string; value: any; onChange: (v: any) => void }) {
   return (
@@ -27,11 +36,18 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
   const [content, setContent] = useState<any>(null);
   const [note, setNote] = useState("");
   const [viewing, setViewing] = useState<any>(null);
-  useEffect(() => { setContent(current.data?.record?.content ? structuredClone(current.data.record.content) : null); }, [current.data]);
-  const draft = useMutation({ mutationFn: () => api.get(`/investigations/${inv}/internal-golden/draft`), onSuccess: (r: any) => setContent(r.content) });
+  // The version this screen started editing from: a later save by someone else is a conflict, not an overwrite.
+  const [baseVersion, setBaseVersion] = useState<number | null>(null);
+  useEffect(() => {
+    const rec = current.data?.record;
+    setContent(rec?.content ? normalized(structuredClone(rec.content)) : null);
+    setBaseVersion(rec?.version ?? null);
+  }, [current.data]);
+  const draft = useMutation({ mutationFn: () => api.get(`/investigations/${inv}/internal-golden/draft`), onSuccess: (r: any) => setContent(normalized(r.content)) });
   const save = useMutation({
-    mutationFn: () => api.post(`/investigations/${inv}/internal-golden`, { content, change_note: note, expected_version: current.data?.record?.version ?? null }),
-    onSuccess: () => { setNote(""); qc.invalidateQueries({ queryKey: ["internal-golden", inv] }); },
+    mutationFn: () => api.post(`/investigations/${inv}/internal-golden`, { content, change_note: note, expected_version: baseVersion }),
+    // The saved version is the new base at once, so an immediate second save is checked against it.
+    onSuccess: (saved: any) => { setNote(""); setBaseVersion(saved?.version ?? null); qc.invalidateQueries({ queryKey: ["internal-golden", inv] }); },
   });
   const openVersion = useMutation({ mutationFn: (v: number) => api.get(`/knowledge/internal-golden/${current.data.record.id}?version=${v}`), onSuccess: setViewing });
   if (current.isLoading) return <Loading />;
@@ -47,6 +63,7 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
         {!content && <div className="row" style={{ marginTop: 8 }}><button className="btn primary" onClick={() => draft.mutate()} disabled={draft.isPending}>조사 내용으로 초안 만들기</button></div>}
         <ErrorBox error={draft.error || current.error} />
       </Panel>
+      {record?.restricted && <div className="small" role="alert">{record.restricted_reason} 이 버전의 내용은 볼 수 없습니다.</div>}
       {content && (
         <>
           <Panel title="① 조사 범위와 초기 로그 (처음 받은 자료)">
@@ -57,7 +74,10 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
           </Panel>
           <Panel title="② 당시 관찰된 사실과 최초 판단·질문">
             <textarea className="input" aria-label="관찰된 사실" rows={5} value={content.observed_facts.join("\n")} onChange={(e) => set("observed_facts", lines(e.target.value))} />
-            <Judgement label="최초 판단" value={content.initial_judgement} onChange={(v) => set("initial_judgement", v)} />
+            {content.provenance?.cutoff
+              ? <div className="small"><b>최초 판단</b> {JUDGEMENTS.find(([k]) => k === content.initial_judgement.status)?.[1] || "기록 없음"} — {content.initial_judgement.rationale || "근거 없음"}
+                  <div className="muted">첫 확인 요청({fmtTime(content.provenance.cutoff)}) 시점의 확인 기록으로 고정됩니다. 그 뒤에 바뀐 판단은 ③ 후속 내용과 ④ 최종 판단에 남습니다.</div></div>
+              : <Judgement label="최초 판단" value={content.initial_judgement} onChange={(v) => set("initial_judgement", v)} />}
             <textarea className="input" aria-label="추가 질문" rows={3} placeholder="추가로 확인해야 했던 질문(한 줄에 하나)" value={content.questions.join("\n")} onChange={(e) => set("questions", lines(e.target.value))} />
           </Panel>
           <Panel title="③ 후속 증거와 회신 (나중에 받은 자료 — 최초 분석의 입력이 아닙니다)">
@@ -69,6 +89,15 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
                 <div>결과: {f.outcome || "-"}{f.remaining?.length ? <> · 남은 의문: {f.remaining.join("; ")}</> : null}</div>
               </div>
             ))}
+            {(content.later_facts.length > 0 || content.later_logs.length > 0 || content.later_evidence_refs.length > 0) && (
+              <div className="small" style={{ marginTop: 6 }}>
+                <b>첫 확인 요청 이후에 바뀌거나 추가된 내용</b>
+                <ul>{content.later_facts.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
+                {content.later_logs.length > 0 && <div>추가 로그 파일 {content.later_logs.length}개: {content.later_logs.map((f: any) => f.file).join(", ")}</div>}
+                {content.later_evidence_refs.length > 0 && <div>후속 근거 기록 {content.later_evidence_refs.length}건</div>}
+              </div>
+            )}
+            {content.provenance?.hidden_followups > 0 && <div className="small muted">열람 권한이 없는 조사를 근거로 쓴 확인 요청 {content.provenance.hidden_followups}건은 포함하지 않았습니다.</div>}
             <button className="btn sm" onClick={() => draft.mutate()} title="확인 요청·회신·판단을 조사에서 다시 읽어 초안을 새로 채웁니다(저장 전까지 반영되지 않음)">조사 내용으로 다시 채우기</button>
           </Panel>
           <Panel title="④ 최종 판단과 끝내 확인하지 못한 사항">
@@ -85,7 +114,7 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
           </Panel>
           <div className="row wrap" style={{ gap: 8 }}>
             <input className="input" aria-label="변경 메모" placeholder="무엇을 바꿨는지(선택)" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 280 }} />
-            <button className="btn primary" disabled={save.isPending || !content.title} onClick={() => save.mutate()}>{record ? `저장 (v${record.version + 1})` : "골든셋으로 저장"}</button>
+            <button className="btn primary" disabled={save.isPending || !content.title || (!!record && baseVersion !== record.version)} onClick={() => save.mutate()}>{record ? `저장 (v${record.version + 1})` : "골든셋으로 저장"}</button>
             {save.isSuccess && <span className="small">저장했습니다.</span>}
           </div>
           <ErrorBox error={save.error} />
@@ -95,11 +124,22 @@ export function InternalGoldenPanel({ inv }: { inv: string }) {
         <Panel title={`변경 이력 (현재 v${record.version})`}>
           {record.versions.map((v: any) => (
             <div key={v.version} className="row small" style={{ gap: 8 }}>
-              <span>v{v.version}</span><span className="muted">{fmtTime(v.created_at)}</span><span className="grow">{v.change_note || "메모 없음"}</span>
-              <button className="btn ghost sm" onClick={() => openVersion.mutate(v.version)}>보기</button>
+              <span>v{v.version}</span><span className="muted">{fmtTime(v.created_at)}</span><span className="grow">{v.restricted ? "열람 권한 없는 근거 포함" : v.change_note || "메모 없음"}</span>
+              <button className="btn ghost sm" disabled={v.restricted} onClick={() => openVersion.mutate(v.version)}>보기</button>
             </div>
           ))}
-          {viewing && <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>v{viewing.shown_version} 최종 판단: {viewing.content.final_judgement.status || "미정"} — {viewing.content.final_judgement.rationale}</pre>}
+          {viewing && <div className="small" style={{ marginTop: 6 }}>
+            <b>v{viewing.shown_version}과 현재 v{record.version} 비교</b>
+            {(() => { const diff = changedSections(viewing.content, record.content); return diff.length
+              ? <ul>{diff.map(([k, label]) => <li key={k}>{label}: 바뀜{Array.isArray(viewing.content?.[k]) ? ` (${viewing.content[k].length}건 → ${(record.content?.[k] || []).length}건)` : ""}</li>)}</ul>
+              : <div className="muted">내용이 같습니다.</div>; })()}
+            <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto" }}>v{viewing.shown_version} 최종 판단: {viewing.content.final_judgement?.status || "미정"} — {viewing.content.final_judgement?.rationale}{"\n"}최초 근거: {(viewing.content.initial_evidence_refs || []).join(", ") || "없음"}</pre>
+          </div>}
+          <div className="row wrap small" style={{ gap: 6, marginTop: 8 }}>
+            <span className="muted">평가용 내보내기(볼 수 있는 저장본 전체, 학습·평가를 자동 실행하지 않음):</span>
+            <button className="btn sm" onClick={() => api.download("/knowledge/internal-golden-export?audience=agent", "agent-input.jsonl")}>최초 입력만 (agent-input)</button>
+            <button className="btn sm" onClick={() => api.download("/knowledge/internal-golden-export?audience=evaluator", "evaluator-answer.jsonl")}>정답·후속 자료 (evaluator-answer)</button>
+          </div>
         </Panel>
       )}
     </div>

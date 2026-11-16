@@ -101,10 +101,17 @@ class BaseParser:
     def reset(self) -> None:
         """Reset per-file state (stateful parsers)."""
 
+    def safe_parse_line(self, line: str) -> ParseResult:
+        """One malformed record fails alone, with its reason; the records around it keep parsing."""
+        try:
+            return self.parse_line(line)
+        except (ValueError, TypeError, OverflowError, ArithmeticError, KeyError, IndexError, UnicodeError) as exc:
+            return Failed(f"이 행을 해석하지 못했습니다({type(exc).__name__}): {str(exc)[:200]}")
+
     def parse(self, lines: Iterator[RawLine]) -> Iterator[tuple[RawLine, ParseResult]]:
         self.reset()
         for rl in lines:
             if len(rl.text) > LINE_MAX:
                 yield rl, Failed("line exceeds 1 MB limit")
                 continue
-            yield rl, self.parse_line(rl.text)
+            yield rl, self.safe_parse_line(rl.text)

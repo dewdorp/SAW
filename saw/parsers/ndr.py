@@ -226,6 +226,6 @@ class NdrMetaCsvParser(BaseParser):
                 else:
                     yield rl, self._response_only(rec)
             else:
-                yield rl, self.parse_line(rl.text)
+                yield rl, self.safe_parse_line(rl.text)
         for q in pending.values():
             yield from q

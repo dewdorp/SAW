@@ -86,7 +86,7 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, beha
         Object.assign(body, { target_type: target.type, target_key: target.key, target_label: target.label,
           time_start: target.time?.[0] || null, time_end: target.time?.[1] || null, evidence: guidance || behavior ? selectedEvidence : target.evidence || [] });
         if (target.set && !behavior) body.scope = coverage === "sample"
-          ? { coverage, query: target.set.query, total: target.set.total, checked: sample, event_ids: target.set.loaded.slice(0, sample) }
+          ? { coverage, query: target.set.query, total: target.set.total, checked: sample, loaded: target.set.loaded.length, event_ids: target.set.loaded.slice(0, sample) }
           : { coverage: "all", query: target.set.query, total: target.set.total, checked: target.set.total, loaded: target.set.loaded.length };
       }
       return edit ? api.put(`/investigations/${inv}/checks/${edit.id}`, body) : api.post(`/investigations/${inv}/checks`, body);
@@ -144,7 +144,8 @@ export function CheckDialog({ inv, target, edit, guidance: initialGuidance, beha
           <div className="col" style={{ gap: 4 }}>
             <div className="small muted">어디까지 봤나요? (검색 결과 {target.set.total != null ? `${fmtNum(target.set.total)}건` : "건수 미확인"})</div>
             <label className="row small"><input type="radio" name="ck-c" checked={coverage === "sample"} onChange={() => setCoverage("sample")} /> 일부만 봤음(표본)
-              <input className="input" type="number" min={1} aria-label="표본 건수" style={{ width: 80 }} value={sample} onChange={(e) => setSample(Math.max(1, Number(e.target.value) || 1))} />건</label>
+              <input className="input" type="number" min={1} max={Math.max(1, target.set.loaded.length)} aria-label="표본 건수" style={{ width: 80 }} value={sample} onChange={(e) => setSample(Math.min(Math.max(1, target.set!.loaded.length), Math.max(1, Number(e.target.value) || 1)))} />건
+              <span className="muted">(화면에 불러온 {fmtNum(target.set.loaded.length)}건 안에서)</span></label>
             {(() => {
               const partial = target.set.total == null || target.set.loaded.length < target.set.total;
               return <label className="row small" title={partial ? "불러온 기록이 검색 결과 전체보다 적습니다" : undefined}>

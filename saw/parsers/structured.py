@@ -338,7 +338,7 @@ class CsvParser(BaseParser):
             elif rl.text.count('"') % 2:
                 pending, size = [rl], len(rl.text)
             else:
-                yield rl, (self.parse_line(rl.text) if len(rl.text) <= LINE_MAX else Failed("line exceeds 1 MB limit"))
+                yield rl, (self.safe_parse_line(rl.text) if len(rl.text) <= LINE_MAX else Failed("line exceeds 1 MB limit"))
                 continue
             text = "\n".join(x.text for x in pending)
             if text.count('"') % 2 == 0:
@@ -355,12 +355,12 @@ class CsvParser(BaseParser):
 
     def _plain(self, rest: list[RawLine]) -> Iterator[tuple[RawLine, ParseResult]]:
         for rl in rest:  # end of file inside a stray quote: the remaining lines are ordinary rows
-            yield rl, self.parse_line(rl.text)
+            yield rl, self.safe_parse_line(rl.text)
 
     def _record(self, parts: list[RawLine], text: str) -> tuple[RawLine, ParseResult]:
         first, last = parts[0], parts[-1]
         end = last.offset + (last.length if last.length >= 0 else len(last.text.encode("utf-8")))
-        return RawLine(text, first.offset, first.line_no, end - first.offset), self.parse_line(text)
+        return RawLine(text, first.offset, first.line_no, end - first.offset), self.safe_parse_line(text)
 
 
 # A key starts at the line start or after a separator. Without that anchor a long run of word characters

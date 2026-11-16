@@ -35,7 +35,7 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
         finally:
             container.close(captured)
 
-    app = FastAPI(title="SAW API", version="0.2.0", openapi_url="/api/v1/openapi.json",
+    app = FastAPI(title="SAW API", version="0.2.1", openapi_url="/api/v1/openapi.json",
                   docs_url="/api/v1/docs", lifespan=lifespan)
 
     @app.middleware("http")

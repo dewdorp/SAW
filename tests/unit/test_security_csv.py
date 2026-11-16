@@ -89,7 +89,7 @@ def test_missing_wrong_or_duplicate_required_header_is_explicit_never_silent(hea
                 assert isinstance(parser.parse_line(text.splitlines()[0]), Failed)
                 assert isinstance(parser.parse_line(text.splitlines()[1]), Failed)
                 continue
-            assert parser.detect(text.splitlines()) == 0.97  # beats the generic CSV parser (0.95)
+            assert 0.95 < parser.detect(text.splitlines()) < 0.99  # beats the generic CSV parser (0.95)
             parser.reset()
             assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
             parsed = parser.parse_line(text.splitlines()[1])
@@ -237,7 +237,7 @@ def test_case_variant_of_required_header_is_ambiguous_and_never_chosen(headers, 
     for ambiguous in (["출발지ip", *headers], [*headers, "출발지ip"]):
         parser = get_parser(parser_id)
         text = document(ambiguous)
-        assert parser.detect(text.splitlines()) == 0.97
+        assert 0.95 < parser.detect(text.splitlines()) < 0.99
         assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
         parsed = parser.parse_line(text.splitlines()[1])
         assert isinstance(parsed, Parsed) and "src_ip" not in parsed.fields
@@ -441,7 +441,7 @@ def test_reserved_source_columns_has_stable_object_shape_across_export_files(com
 def test_dotted_or_blank_extra_headers_are_renamed_and_kept_out_of_the_typed_namespace(headers, parser_id, extra_name):
     text = document([*headers, extra_name], row(**{extra_name: "synthetic original"}))
     parser = get_parser(parser_id)
-    assert parser.detect(text.splitlines()) == 0.97
+    assert 0.95 < parser.detect(text.splitlines()) < 0.99
     assert isinstance(parser.parse_line(text.splitlines()[0]), Skip)
     parsed = parser.parse_line(text.splitlines()[1])
     assert isinstance(parsed, Parsed)

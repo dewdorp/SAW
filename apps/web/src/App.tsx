@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useSyncExternalStore } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { Shell } from "./components/Shell";
 import { Loading } from "./components/common";
 import { api } from "./lib/api";
@@ -20,6 +20,11 @@ import { PayloadPage } from "./pages/analyze/PayloadPage";
 import { UniversalPage } from "./pages/analyze/UniversalPage";
 
 const Workbench = lazy(() => import("./pages/inv/Workbench").then((m) => ({ default: m.Workbench })));
+// A new investigation id mounts a fresh workbench: no selection, draft or dialog of the previous one survives.
+function KeyedWorkbench() {
+  const { id = "" } = useParams();
+  return <Workbench key={id} />;
+}
 const Hunting = lazy(() => import("./pages/Hunting").then((m) => ({ default: m.Hunting })));
 const Detections = lazy(() => import("./pages/Detections").then((m) => ({ default: m.Detections })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then((m) => ({ default: m.Knowledge })));
@@ -59,7 +64,7 @@ export function App() {
         <Route path="/analyze/diff" element={<DiffPage />} />
         <Route path="/analyze/log" element={<LogPage />} />
         <Route path="/investigations" element={<Investigations />} />
-        <Route path="/inv/:id" element={<Workbench />} />
+        <Route path="/inv/:id" element={<KeyedWorkbench />} />
         <Route path="/inv/:id/report" element={<Briefing />} />
         <Route path="/board" element={<Board />} />
         <Route path="/jobs" element={<Jobs />} />

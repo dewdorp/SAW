@@ -303,6 +303,39 @@ def _signature_scopes(det, ctx, pinset):
     return findings
 
 
+# Records outside any registered device context cannot be read by the WAF/IPS/DDoS/NDR observers: each one is
+# counted as missing or unverified and skipped. Counting them is enough, instead of copying and reading every row.
+COUNT_UNRESOLVED_DEVICE_SCOPES = True
+
+
+def _unresolved_device_report(det, ctx, scope, pin, max_records, max_results):
+    """The exact report a full pass over an unregistered (group) scope would produce, from counts; None if unsure."""
+    from saw.observation.device import DEVICE_VERSION, analyze_device
+
+    if det.id == "fw.observation" or scope.get("kind") != "group" or _exclusions(pin["policy"]):
+        return None
+    store, inv = ctx.events, ctx.investigation_id
+    base = [Filter(field="data_source", op="in", value=sorted(det.data_sources))] + scope_filters(scope)
+    total = store.count(inv, base)
+    if total > max_records or store.count(inv, base + [Filter(field="ext.device_observation.context.resolved", value=True)]):
+        return None
+    current = store.count(inv, base + [Filter(field="ext.device_observation.producer", value="saw"),
+                                       Filter(field="ext.device_observation.version", value=DEVICE_VERSION)])
+    report = analyze_device(det.id, iter(()), runtime_pin=pin, max_records=max_records, max_results=max_results,
+                            cancelled=ctx.params.get("cancelled"))
+    report["counts"]["records"] = total
+    quality = Counter(report.get("quality") or {})
+    if total - current:
+        quality["missing_device_observation"] += total - current
+    if current:
+        quality["unverified_device_context"] += current
+    report["quality"] = dict(sorted(quality.items()))
+    if total and report["status"] in {"completed_no_match", "partial", "insufficient_data"}:
+        report["status"] = "insufficient_data"
+        report["limits"]["coverage_complete"] = False
+    return report
+
+
 def run_device_scopes(det, ctx, pinset):
     """Execute each exact pinned context once; callers cannot supply live policy values."""
     pinset = deepcopy(pinset)
@@ -330,6 +363,12 @@ def run_device_scopes(det, ctx, pinset):
         if pin["policy"].get("spec_sha256") not in (None, spec["sha256"]):
             raise ValueError("runtime_spec_changed")
         values = validate_values(spec, pin["policy"].get("values", {}))
+        quick = (_unresolved_device_report(det, ctx, scope, pin, ctx.params.get("device_max_records", 1_000_000), max_results)
+                 if COUNT_UNRESOLVED_DEVICE_SCOPES and values["enabled"] else None)
+        if quick is not None:
+            reports.append(quick)
+            used.append(pin)
+            continue
         with ScopedEventStore(ctx.events, ctx.investigation_id,
                 branches=_branches(ctx.events, ctx.investigation_id, scope, det.id == "ips.observation"),
                 exclude_groups=_exclusions(pin["policy"]), cancelled=ctx.params.get("cancelled"),

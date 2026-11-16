@@ -45,9 +45,10 @@ def test_reply_without_any_scope_cannot_be_matched():
 
 
 def test_evidence_from_another_investigation_or_outside_the_period_is_flagged():
-    inside = {"investigation_id": "inv-1", "timestamp": "2026-10-13T01:01:00Z"}
-    outside = {"investigation_id": "inv-1", "timestamp": "2026-10-14T01:01:00Z"}
-    foreign = {"investigation_id": "inv-2", "timestamp": "2026-10-13T01:01:00Z"}
+    asked = {"src_ip": "198.51.100.23", "dst_ip": "10.20.1.10", "dst_port": 443}
+    inside = {"investigation_id": "inv-1", "timestamp": "2026-10-13T01:01:00Z", **asked}
+    outside = {"investigation_id": "inv-1", "timestamp": "2026-10-14T01:01:00Z", **asked}
+    foreign = {"investigation_id": "inv-2", "timestamp": "2026-10-13T01:01:00Z", **asked}
     assert run(scope(), [inside])["result"] == "matches"
     assert run(scope(), [inside, outside])["result"] == "partial"
     assert run(scope(), [outside])["result"] == "mismatch"

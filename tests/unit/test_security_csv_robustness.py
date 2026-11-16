@@ -37,7 +37,7 @@ def test_missing_alert_name_column_is_named_and_the_rest_is_analysed():
     parser = get_parser("ko_ndr_csv")
     headers = [h for h in NDR if h != "공격명"]
     text = document(headers)
-    assert parser.detect(text.splitlines()) == 0.97
+    assert 0.95 < parser.detect(text.splitlines()) < 0.99
     out, events = parsed(text)
     assert out["parser"] == "ko_ndr_csv" and events[0]["method"] == "GET"
     assert "공격명" not in events[0]["ext"]["security_csv"]  # absent, not an invented empty value

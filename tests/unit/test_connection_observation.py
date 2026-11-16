@@ -96,7 +96,8 @@ def test_total_counters_without_record_kind_column_are_finished_sessions():
     assert report["sessions"][0]["src_to_dst_bytes"] == 3000000000
     assert "missing_session_end" not in report["quality"]
     assert any(c["kind"] == "transfer_asymmetry" for c in report["candidates"])
-    # Regular one-row connections are each a new connection, so a fixed-interval series is a beacon candidate.
+    # Regular one-row connections whose time is a verified start: a fixed-interval series is a beacon candidate.
+    ctx["profile"]["time"]["role"] = "start"
     beacon = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n" + "\n".join(
         f"2026-10-20T0{h}:00:00Z,10.0.0.1,192.0.2.1,443,allow,512,512" for h in range(6)))
     assert any(c["kind"] == "beacon" for c in analyze(iter(beacon), context_snapshot=ctx)["candidates"])
@@ -562,3 +563,60 @@ def test_unverified_or_non_occurrence_profile_does_not_rewrite_indexed_time(mode
     assert row["timestamp"] == "2026-10-20T00:00:00.000Z"
     assert row["timestamp_raw"] == "2026-10-20 09:00:00"
     assert row["ext"]["observation"]["timestamp_basis"] == "parser_or_upload_default"
+
+
+def _total_ctx(role="occurred", duration=False):
+    ctx = context("total")
+    del ctx["profile"]["source_fields"]["record_kind"]
+    ctx["profile"]["time"] = {"verified": True, "role": role, "precision": "seconds"}
+    if duration:
+        ctx["profile"]["source_fields"]["duration"] = "duration"
+        ctx["profile"]["measurement_profile"]["duration_unit"] = "seconds"
+    return ctx
+
+
+def test_whole_session_rows_never_use_an_end_time_as_the_start_of_a_period():
+    """PPA-04: regular end times with irregular durations are not regular new connections."""
+    _, analyze = api()
+    # Ends every hour on the hour, but the sessions lasted 10s, 1300s, 40s, 2900s, 5s, 700s: starts are irregular.
+    durations = [10, 1300, 40, 2900, 5, 700]
+    rows = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received,duration\n" + "\n".join(
+        f"2026-10-20T0{h}:00:00Z,10.0.0.1,192.0.2.1,443,allow,512,512,{d}" for h, d in enumerate(durations)))
+    with_duration = analyze(iter(rows), context_snapshot=_total_ctx("end", duration=True))
+    assert not any(c["kind"] == "beacon" for c in with_duration["candidates"])
+    assert with_duration["quality"].get("start_time_estimated") == len(durations)
+    # Without a duration an end (or unspecified) time cannot place the start: no periodic-start claim at all.
+    unknown = analyze(iter(rows), context_snapshot=_total_ctx("occurred"))
+    assert not any(c["kind"] == "beacon" for c in unknown["candidates"])
+    assert unknown["quality"].get("start_time_unknown") == len(durations)
+    # A verified start time is a start time.
+    starts = analyze(iter(rows), context_snapshot=_total_ctx("start"))
+    assert any(c["kind"] == "beacon" for c in starts["candidates"])
+
+
+def test_grouped_and_plain_byte_counts_mean_the_same_transfer():
+    """PPA-05: "60,000,000" and "60000000" are one number for every step, so the transfer candidate is the same."""
+    _, analyze = api()
+    found = []
+    for sent in ("60000000", '"60,000,000"'):
+        rows = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n"
+                          f"2026-10-20T00:00:00Z,10.0.0.1,192.0.2.1,443,allow,{sent},1000")
+        report = analyze(iter(rows), context_snapshot=_total_ctx("start"))
+        found.append(([c["kind"] for c in report["candidates"]], report["sessions"][0]["src_to_dst_bytes"]))
+    assert found[0] == found[1] == (["transfer_asymmetry"], 60000000)
+
+
+def test_a_candidate_keeps_all_its_records_targets_and_times_when_it_becomes_a_finding():
+    """PPA-06: 30 periodic connections were recorded as 20 events with no target or time."""
+    from saw.detectors.firewall_observation import FirewallObservation
+
+    _, analyze = api()
+    rows = parsed_csv("timestamp,src_ip,dst_ip,dst_port,action,sent,received\n" + "\n".join(
+        f"2026-10-20T{h // 60:02d}:{h % 60:02d}:00Z,10.0.0.1,192.0.2.1,443,allow,512,512" for h in range(0, 30 * 10, 10)))
+    report = analyze(iter(rows), context_snapshot=_total_ctx("start"))
+    beacon = next(c for c in report["candidates"] if c["kind"] == "beacon")
+    assert beacon["scope"]["records"] == 30 and beacon["scope"]["representative_refs"] == 20
+    finding = FirewallObservation().draft(beacon)
+    assert finding.total_events == 30 and len(finding.sample_event_ids) == 20
+    assert finding.entities == ["ip:10.0.0.1", "ip:192.0.2.1"]
+    assert finding.time_start.startswith("2026-10-20T00:00:00") and finding.time_end.startswith("2026-10-20T04:50:00")

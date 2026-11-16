@@ -296,3 +296,18 @@ def test_behavior_mixed_guidance_keeps_both_methodologies(analyst, manager):
         kinds = {s.get(GoldenBlob, sha).content["schema"] for sha in golden["input"]["observations"]}
         assert kinds == {"saw.golden.observation.v1", "saw.golden.behavior-observation.v1"}
         assert len(s.get(GoldenVersion, golden["id"]).metadata_json["methodologies"]) == 2
+
+
+def test_a_run_stopped_at_its_input_limit_says_how_much_of_the_scope_it_analysed(analyst, monkeypatch):
+    """PPA-07: a capped run finished but covered part of the scope; result and job must say so."""
+    from saw.behavior import worker
+    monkeypatch.setattr(worker, "MAX_EVENTS", 10)
+    inv = make_case(analyst, 35)
+    response = analyst.post(f"/investigations/{inv['id']}/behavior", json={"ips": [IP]})
+    job = analyst.get(f"/jobs/{response.json()['id']}").json()
+    stage = job["stages"]["behavior_result"]
+    assert stage["coverage"] == "partial" and stage["processed"] == 10 and stage["target_total"] == 35
+    assert stage["reason"] == "max_events"
+    result = analyst.get(f"/investigations/{inv['id']}/behavior/{stage['id']}").json()
+    execution = result["result"]["observations"]["execution"]
+    assert execution["coverage"] == "partial" and execution["target_total"] == 35
