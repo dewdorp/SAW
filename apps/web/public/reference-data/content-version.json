@@ -1,6 +1,6 @@
 {
   "version": "2026.11.13",
-  "app": "0.2.6",
+  "app": "0.2.7",
   "casebook": { "cases": 60, "first": "W01", "last": "W60" },
   "flow_cases": { "cases": 7, "first": "F01", "last": "F07", "archive": "flow-sample.zip" },
   "practice": { "cases": 100, "first": "C001", "last": "C100" },
