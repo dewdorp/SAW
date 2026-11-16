@@ -379,3 +379,40 @@ class EnFirewallCsvParser(_SecurityCsvParser):
         yield from super().parse(lines)
         self.warnings = [*self.warnings, _EN_NOTES["fw_bytes"]]
 
+
+
+COOKIE_HIDDEN = "[가림]"
+
+
+def cookie_column(header_line: str) -> tuple[int, str] | None:
+    """Where an English NDR export keeps its request cookie: (column index, delimiter), or None."""
+    text = _FIELDS_MARKER.sub("", header_line.lstrip("\ufeff"))
+    delimiter = "\t" if "\t" in text else ","
+    try:
+        names = [x.strip().lower() for x in next(csv.reader([text], delimiter=delimiter))]
+    except (csv.Error, StopIteration):
+        return None
+    return (names.index("req_cookie"), delimiter) if "req_cookie" in names else None
+
+
+def hide_cookie_values(line: str, column: tuple[int, str]) -> str:
+    """The line with only cookie names left in its cookie column; a line that cannot be read is withheld."""
+    index, delimiter = column
+    try:
+        row = next(csv.reader([line], delimiter=delimiter))
+    except (csv.Error, StopIteration):
+        return "[쿠키 열을 확인하지 못해 이 줄을 가렸습니다]"
+    if len(row) <= index:
+        return line if "=" not in line else "[쿠키 열을 확인하지 못해 이 줄을 가렸습니다]"
+    row[index] = "; ".join(f"{part.split('=', 1)[0].strip()}={COOKIE_HIDDEN}" for part in row[index].split(";")
+                           if part.strip()) if row[index].strip() else ""
+    out = io.StringIO()
+    csv.writer(out, delimiter=delimiter, lineterminator="").writerow(row)
+    return out.getvalue()
+
+
+def hide_named_cookies(text: str, names: list[str]) -> str:
+    """Values of the named cookies hidden in free text (the header is not known here, the names are)."""
+    for name in names:
+        text = re.sub(rf"(?<![\w.\-]){re.escape(name)}=[^;,\"\s]*", f"{name}={COOKIE_HIDDEN}", text)
+    return text

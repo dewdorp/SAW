@@ -36,6 +36,8 @@ from saw.followups.router import router as followups_router
 
 from saw.internal_kb.router import router as internal_kb_router
 
-ROUTERS = [internal_kb_router, followups_router, analysis_runs_router, source_context_router, behavior_router, content_packages_router, guidance.router, golden.router, auth.router, admin.router, admin_data.router, investigations.router, analyze.router, evidence.router, workbench.router,
+from saw.question_presets.router import router as question_presets_router
+
+ROUTERS = [question_presets_router, internal_kb_router, followups_router, analysis_runs_router, source_context_router, behavior_router, content_packages_router, guidance.router, golden.router, auth.router, admin.router, admin_data.router, investigations.router, analyze.router, evidence.router, workbench.router,
            cases.router, attack.router, network.router, forensics.router, knowledge.router, connectors.router, ai.router, hunting.router, detection.router,
            parser_library.router, provenance.router, briefing.router, checks.router, reviews.router, local_models.router]

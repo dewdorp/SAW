@@ -40,6 +40,15 @@ class SignatureIn(Strict):
     benign_cases: list[Line] = Field(default_factory=list, max_length=50)
     false_positive_cases: list[Line] = Field(default_factory=list, max_length=50)
     checks: list[Line] = Field(default_factory=list, max_length=50)
+    # What the alert observes and cannot prove, the device's own action values, the follow-up data it calls for
+    # and the investigation questions it feeds (Q01..Q10). An empty list means "not written yet", not "none".
+    log_source: Short = ""
+    action_values: list[Annotated[str, Field(max_length=128)]] = Field(default_factory=list, max_length=20)
+    observes: list[Line] = Field(default_factory=list, max_length=30)
+    cannot_prove: list[Line] = Field(default_factory=list, max_length=30)
+    followup_data: list[Line] = Field(default_factory=list, max_length=30)
+    linked_questions: list[Annotated[str, Field(pattern=r"^Q(0[1-9]|10)$")]] = Field(default_factory=list, max_length=10)
+    scope_note: Line = ""  # an affiliate-specific exception, kept apart from the common meaning
 
     @model_validator(mode="after")
     def confirmed_has_meaning(self):

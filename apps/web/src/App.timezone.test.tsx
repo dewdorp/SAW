@@ -106,5 +106,5 @@ it("keeps analysis visible first in a narrow window while allowing evidence cont
   expect(screen.queryByRole("complementary", { name: "컨텍스트" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "증거·필터 보기" }));
   expect(screen.getByRole("complementary", { name: "증거와 필터" })).toBeTruthy();
-  expect(screen.getByRole("tab", { name: "로그 통계" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "트래픽 개요" })).toBeTruthy();
 });

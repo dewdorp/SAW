@@ -10,8 +10,8 @@ import { fmtNum, fmtTime } from "../../lib/format";
 const ALL_COLS = ["timestamp", "data_source", "src_ip", "src_cloud", "method", "hostname", "uri", "uri_template", "status_code", "bytes_out", "bytes_in", "user_agent", "ua_class", "domain", "dst_ip", "dst_port", "protocol", "enforcement_action", "user", "tags", "source_file"];
 const DEFAULT = ["timestamp", "data_source", "src_ip", "method", "uri", "status_code", "bytes_out", "user_agent"];
 
-// The table keeps what it has loaded in memory. Scrolling through millions of events would grow without limit, so
-// loading stops here and the analyst narrows the question (time range, filter, sort order) instead.
+// The table keeps one section of the result in memory. Past it the analyst moves to the next section (the
+// previous one is released) or exports the whole result on the server; the browser never holds everything.
 export const MAX_LOADED = 20_000;
 
 function loadCols(): string[] {
@@ -28,11 +28,17 @@ export function RawTab({ inv }: { inv: string }) {
   const parent = useRef<HTMLDivElement>(null);
   useEffect(() => { try { localStorage.setItem("saw.rawcols", JSON.stringify(cols)); } catch { /* ignore */ } }, [cols]);
   const body = { filters: ctx.filters, time: ctx.time, sort };
+  // Sections: each starts at a cursor; moving on keeps only the cursors of earlier sections, not their rows.
+  const [sections, setSections] = useState<(string | null)[]>([null]);
+  const start = sections[sections.length - 1];
+  useEffect(() => { setSections([null]); }, [JSON.stringify(body)]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useInfiniteQuery({
-    queryKey: ["raw", inv, body],
+    queryKey: ["raw", inv, body, start],
     queryFn: ({ pageParam }) => api.post(`/investigations/${inv}/query/events`, { ...body, limit: 500, cursor: pageParam }),
-    initialPageParam: null as string | null, getNextPageParam: (l: any) => l.next_cursor,
+    initialPageParam: start, getNextPageParam: (l: any) => l.next_cursor,
   });
+  const all = useQuery({ queryKey: ["rawcount", inv, body.filters, body.time], queryFn: () => api.post(`/investigations/${inv}/query/aggregate`, { filters: ctx.filters, time: ctx.time, agg: { type: "count" } }) });
+  const totalCount: number | null = all.data?.value ?? all.data?.count ?? null;
   // The time column has no "top values": it shows records per day (Asia/Seoul) and narrows by a day range,
   // so no filter ever compares the timestamp with another column's value.
   const isTime = head === "timestamp";
@@ -51,7 +57,19 @@ export function RawTab({ inv }: { inv: string }) {
   const sel = entityKey(ctx.selection);
   const marks = useMarks(inv);
   const [checking, setChecking] = useState(false);
-  const total = useQuery({ queryKey: ["rawcount", inv, body.filters, body.time], enabled: checking, queryFn: () => api.post(`/investigations/${inv}/query/aggregate`, { filters: ctx.filters, time: ctx.time, agg: { type: "count" } }) });
+  const total = all;
+  const before = (sections.length - 1) * MAX_LOADED;
+  const nextSection = () => { const last = (q.data?.pages || []).slice(-1)[0]?.next_cursor; if (last) setSections([...sections, last]); };
+  const [exporting, setExporting] = useState<string | null>(null);
+  const exportAll = async () => {
+    setExporting("서버에서 전체 결과를 만드는 중…");
+    try {
+      const r = await api.downloadPost(`/investigations/${inv}/query/events/export`, { filters: ctx.filters, time: ctx.time, columns: cols }, `saw_events_${inv.slice(0, 8)}_all.csv`);
+      setExporting(r.headers.get("x-saw-truncated") === "true"
+        ? `전체 ${fmtNum(Number(r.headers.get("x-saw-total")))}건 중 ${fmtNum(Number(r.headers.get("x-saw-rows")))}건까지만 내보냈습니다(서버 한도). 조건을 나눠 내보내세요.`
+        : `조건에 맞는 전체 ${fmtNum(Number(r.headers.get("x-saw-rows")))}건을 내보냈습니다.`);
+    } catch (e) { setExporting(`내보내기 실패: ${(e as Error).message}`); }
+  };
   const parentMarks = (e: any) => [e.src_ip && marks.data?.entities[`ip:${e.src_ip}`], e.dst_ip && marks.data?.entities[`ip:${e.dst_ip}`], e.domain && marks.data?.entities[`domain:${String(e.domain).toLowerCase()}`]].flatMap((x) => x || []);
   const exportCsv = () => {
     const esc = (x: unknown) => { let s = String(x ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // CSV injection guard
@@ -65,16 +83,23 @@ export function RawTab({ inv }: { inv: string }) {
   return (
     <div className="col" style={{ height: "100%" }}>
       <div className="row wrap small">
-        <b>원본 로그</b><span className="muted">{fmtNum(rows.length)}건 불러옴{q.hasNextPage ? " · 다음 기록 있음" : ""} · 민감값 가림 · 열 제목을 누르면 상위 값</span>
+        <b>원본 로그</b><span className="muted" role="status">조건에 맞는 전체 {totalCount == null ? "…" : fmtNum(totalCount)}건 · 화면 {fmtNum(before + (rows.length ? 1 : 0))}~{fmtNum(before + rows.length)}번째{q.hasNextPage ? " · 다음 기록 있음" : ""} · 민감값 가림 · 열 제목을 누르면 상위 값</span>
         <button className="btn sm" onClick={() => setSort(sort === "asc" ? "desc" : "asc")}>시간 {sort === "asc" ? "↑" : "↓"}</button>
         {/* Default columns per export kind; every original column stays reachable in the record detail. */}
         <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "hostname", "method", "uri", "status_code", "bytes_out", "bytes_in"])}>NDR 기본 열</button>
         <button className="btn sm" onClick={() => setCols(["timestamp", "src_ip", "dst_ip", "dst_port", "protocol", "enforcement_action", "bytes_out", "bytes_in"])}>FW 기본 열</button>
         <details><summary className="btn sm">표시할 열</summary><div className="panel pb" style={{ position: "absolute", zIndex: 5 }}>{ALL_COLS.map((c) => <label key={c} className="row small"><input type="checkbox" checked={cols.includes(c)} onChange={(e) => setCols(e.target.checked ? [...cols, c] : cols.filter((x) => x !== c))} />{c}</label>)}</div></details>
-        <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">불러온 행 CSV 내보내기 (가림)</button>
+        <button className="btn sm" onClick={exportCsv} title="화면에 불러온 행만 내보냅니다">화면의 행만 CSV (가림)</button>
+        <button className="btn sm" onClick={exportAll} disabled={!!exporting && exporting.endsWith("…")} title="조건에 맞는 모든 기록을 서버에서 CSV로 만듭니다">조건 전체 결과 CSV (서버, 가림)</button>
         <button className="btn sm" disabled={!rows.length} onClick={() => setChecking(true)} title="지금 검색 결과에 대해 무엇을 확인했는지 남깁니다 (일부만 봤다면 표본으로)">✓ 검색 결과 확인 기록</button>
       </div>
-      {capped && <div className="error small" role="status">화면에는 {fmtNum(MAX_LOADED)}건까지만 불러옵니다(브라우저 메모리 보호). 더 있는 이벤트는 시간 범위·필터로 좁히거나 시간 정렬(↑↓)을 바꿔서 보세요.</div>}
+      {exporting && <div className="small" role="status">{exporting}</div>}
+      {(capped || sections.length > 1) && (
+        <div className="row wrap small" role="status" style={{ gap: 6 }}>
+          <span className="error">한 번에 {fmtNum(MAX_LOADED)}건씩 봅니다(브라우저 메모리 보호). 다른 구간으로 넘어가면 지금 구간은 화면에서 내려갑니다.</span>
+          <button className="btn sm" disabled={sections.length < 2} onClick={() => setSections(sections.slice(0, -1))}>← 이전 {fmtNum(MAX_LOADED)}건</button>
+          <button className="btn sm" disabled={!capped} onClick={nextSection}>다음 {fmtNum(MAX_LOADED)}건 →</button>
+        </div>)}
       {head && (
         <div className="panel"><div className="ph"><span className="grow">{isTime ? "날짜별 기록 수 · 시간" : `상위 값 · ${head}`}</span><button className="btn ghost sm" onClick={() => setHead(null)}>✕</button></div>
           {isTime && <div className="pb">{perDay.map(([day, n]) => (

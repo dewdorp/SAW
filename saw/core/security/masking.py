@@ -145,6 +145,13 @@ def mask_event(ev: dict) -> tuple[dict, list[str]]:
                 return r.text
             return o
         out["ext"] = walk(out["ext"])
+    names = ((ev.get("ext") or {}).get("security_csv") or {}).get("req_cookie_names") or []
+    if names and isinstance(out.get("raw_event"), str):
+        # An NDR export's cookie column holds bare "name=value" pairs the text rules above cannot see.
+        from saw.parsers.security_csv import hide_named_cookies
+
+        out["raw_event"] = hide_named_cookies(out["raw_event"], [str(n) for n in names])
+        kinds.add("cookie")
     if kinds:
         out["_masked"] = sorted(kinds)
     return out, sorted(kinds)

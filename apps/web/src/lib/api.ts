@@ -37,6 +37,25 @@ export const api = {
   patch: <T = any>(url: string, body: unknown) => req<T>("PATCH", url, body),
   putRaw: <T = any>(url: string, data: BodyInit) => req<T>("PUT", url, undefined, data),
   text: (url: string) => req<string>("GET", url, undefined, undefined, "text"),
+  /** POST a request whose response is a file (e.g. a server-side export) and hand it to the browser. */
+  downloadPost: async (url: string, body: unknown, fallbackName: string): Promise<Response> => {
+    const r = await fetch("/api/v1" + url, { method: "POST", credentials: "same-origin", body: JSON.stringify(body),
+      headers: { "content-type": "application/json", "x-csrf-token": csrf() } });
+    if (r.status === 401) window.dispatchEvent(new CustomEvent("saw:unauthorized"));
+    if (!r.ok) {
+      const ct = r.headers.get("content-type") || "";
+      const d = ct.includes("json") ? await r.json() : { detail: await r.text() };
+      throw new ApiError(r.status, d.detail || r.statusText);
+    }
+    const name = /filename="?([^";]+)"?/.exec(r.headers.get("content-disposition") || "")?.[1] || fallbackName;
+    const href = URL.createObjectURL(await r.clone().blob());
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(href), 5000);
+    return r;
+  },
   /** GET a binary response and hand it to the browser as a file download. */
   download: async (url: string, fallbackName: string): Promise<Response> => {
     const r = await fetch("/api/v1" + url, { credentials: "same-origin" });

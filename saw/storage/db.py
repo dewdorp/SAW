@@ -66,6 +66,7 @@ def load_models() -> None:
     from saw.llm import model_packs as _lm  # noqa: F401
     from saw.llm import service as _llm  # noqa: F401
     from saw.parsers import library as _pl  # noqa: F401
+    from saw.question_presets import models as _qp  # noqa: F401
     from saw.reports import models as _rp  # noqa: F401
     from saw.source_context import models as _sc  # noqa: F401
     from saw.storage import models  # noqa: F401

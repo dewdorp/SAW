@@ -138,3 +138,19 @@ def test_a_meaning_applies_only_to_the_same_device_and_validity_period(senior):
     assert b["registry"] == "confirmed" and b["applied"]["meaning"] == "B: brute force counter"
     assert b["applied"]["version"] == 1
     assert next(x for x in out if x["vendor"] == "Vendor A")["registry"] == "needs_confirmation"
+
+
+def test_an_alert_meaning_records_what_it_observes_cannot_prove_and_which_questions_it_feeds(senior):
+    body = {"vendor": "가상벤더", "product": "WAF", "original_name": "SYNTH-SQLI-PROBE", "signature_id": "9001",
+            "meaning": "요청 값에 SQL 구문 형태", "log_source": "WAF 차단 로그", "action_values": ["block", "alert"],
+            "observes": ["요청 값의 구문 형태"], "cannot_prove": ["DB에서 실행됐는지", "데이터가 나갔는지"],
+            "followup_data": ["애플리케이션 오류 로그", "DB 감사 로그"], "linked_questions": ["Q02", "Q09"],
+            "scope_note": "가상 관계사 A는 점검 서버 예외"}
+    created = senior.post("/knowledge/device-signatures", json=body)
+    assert created.status_code == 201, created.text
+    row = next(x for x in senior.get("/knowledge/device-signatures", params={"q": "SYNTH-SQLI-PROBE"}).json()["items"]
+               if x["id"] == created.json()["id"])
+    for key in ("log_source", "action_values", "observes", "cannot_prove", "followup_data", "linked_questions", "scope_note"):
+        assert row[key] == body[key], key
+    bad = senior.post("/knowledge/device-signatures", json={**body, "original_name": "SYNTH-2", "linked_questions": ["Q11"]})
+    assert bad.status_code == 422

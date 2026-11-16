@@ -474,7 +474,13 @@ def file_sample(ev_id: str, fid: str, lines: int = 50, ctx: AuthContext = Depend
                                               256 * 1024)
     enc = sniff_encoding(head)
     text = head[: head.rfind(b"\n") + 1 or len(head)].decode(enc, errors="replace").lstrip("\ufeff")
-    out = [mask_text(x.rstrip("\r")).text for x in text.split("\n")[: max(1, min(lines, 200))]]
+    rows = [x.rstrip("\r") for x in text.split("\n")[: max(1, min(lines, 200))]]
+    from saw.parsers.security_csv import cookie_column, hide_cookie_values
+
+    column = cookie_column(rows[0]) if rows else None
+    if column:  # an NDR export's cookie values stay out of previews; the names remain
+        rows = rows[:1] + [hide_cookie_values(x, column) if x else x for x in rows[1:]]
+    out = [mask_text(x).text for x in rows]
     return {"file": f.display_name, "encoding": enc, "lines": out}
 
 

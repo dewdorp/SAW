@@ -190,6 +190,27 @@ def _existing(inv_id: str, ids: list[str]) -> int:
     return container.get().events.count(inv_id, [Filter(field="event_id", op="in", value=sorted(set(ids)))], None)
 
 
+ORIGIN_KEYS = {"kind", "bundle", "title", "description", "parameters", "preset", "scope", "completeness",
+               "partial_reasons", "item", "questions"}
+ITEM_KEYS = {"title", "observed", "basis", "records", "unknown", "normal_possibilities", "next_questions", "time", "strength"}
+
+
+def _origin(origin: Any, inv_id: str) -> dict:
+    """Where a check came from: the question, its exact condition and run scope, and the whole item it records."""
+    import json
+
+    if not isinstance(origin, dict) or origin.get("kind") != "question":
+        raise ValueError("확인 기록의 출처 형식이 올바르지 않습니다")
+    clean = {k: v for k, v in origin.items() if k in ORIGIN_KEYS}
+    clean["item"] = {k: v for k, v in (origin.get("item") or {}).items() if k in ITEM_KEYS}
+    scope = clean.get("scope") or {}
+    if scope.get("investigation_id") not in (None, inv_id):
+        raise ValueError("다른 조사에서 계산한 질문 결과는 이 조사의 확인 기록으로 남길 수 없습니다")
+    if len(json.dumps(clean, ensure_ascii=False, default=str)) > 32_000:
+        raise ValueError("확인 기록의 출처 내용이 너무 깁니다")
+    return clean
+
+
 def _clean(data: dict, inv_id: str) -> dict[str, Any]:
     tt = str(data.get("target_type") or "")
     if tt not in TARGETS:
@@ -243,6 +264,8 @@ def _clean(data: dict, inv_id: str) -> dict[str, Any]:
         checked = total if seen is not None else None
     scope = {"coverage": coverage, "checked": int(checked) if checked is not None else (len(ids) or None),
              "total": int(total) if total is not None else None, "query": query, "event_ids": ids}
+    if scope_in.get("origin"):
+        scope["origin"] = _origin(scope_in["origin"], inv_id)
     if tt == "set":
         scope.update(loaded=int(loaded) if loaded is not None else None, kept_refs=len(ids))
     return {"target_type": tt, "target_key": key[:512], "target_label": str(data.get("target_label") or key)[:512],
