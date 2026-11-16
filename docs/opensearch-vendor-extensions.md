@@ -6,7 +6,7 @@ The following fixed namespaces retain ordinary typed object mappings:
 
 | Origin | Namespaces | Existing dependencies |
 |---|---|---|
-| Built-in parsers | `apache`, `cloudflare`, `csv`, `iis`, `json`, `kv`, `ndr`, `nginx`, `security_csv`, `suricata`, `syslog`, `waf`, `zeek` | Parser products in `saw/parsers`; `ext.zeek.duration` numeric range, Zeek service/category aggregations, Suricata signature ID grouping, syslog detectors |
+| Built-in parsers | `apache`, `cloudflare`, `csv`, `haproxy`, `iis`, `json`, `kv`, `ndr`, `nginx`, `security_csv`, `suricata`, `syslog`, `waf`, `web_json`, `zeek` | Parser products in `saw/parsers`; `ext.zeek.duration` numeric range, Zeek service/category aggregations, Suricata signature ID grouping, syslog detectors |
 | Producer metadata | `observation`, `saw_observation`, `device_observation`, `connector` | Scoped network/context filters, observed counters, device metrics, parser observations, connector source linkage |
 | Supported mock connector | `fw`, `ips`, `vpn` | Firewall action, IPS signature/action, VPN outcome |
 

@@ -26,12 +26,22 @@ from saw.parsers.structured import (
     KeyValueParser,
     SyslogParser,
 )
-from saw.parsers.web import ApacheParser, IISParser, NginxParser
+from saw.parsers.web import (
+    ApacheErrorParser,
+    ApacheParser,
+    HAProxyHttpParser,
+    IISParser,
+    NginxErrorParser,
+    NginxParser,
+    VhostCombinedParser,
+    WebJsonAccessParser,
+)
 
 
 def builtin_parsers() -> list[BaseParser]:
     return [KoFirewallCsvParser(), KoNdrCsvParser(), EnFirewallCsvParser(), EnNdrHttpCsvParser(), WafCsvProfileParser(), IpsCsvProfileParser(),
-            DdosCsvProfileParser(), AppEventCsvProfileParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), IISParser(), ZeekJsonParser(), ZeekTsvParser(),
+            DdosCsvProfileParser(), AppEventCsvProfileParser(), NdrMetaCsvParser(), NginxParser(), ApacheParser(), VhostCombinedParser(), IISParser(),
+            HAProxyHttpParser(), WebJsonAccessParser(), ApacheErrorParser(), NginxErrorParser(), ZeekJsonParser(), ZeekTsvParser(),
             SuricataEveParser(), CloudflareParser(), GenericJsonWafParser(),
             GenericWafParser(), JsonLinesParser(), SyslogParser(), CsvParser(), KeyValueParser()]
 

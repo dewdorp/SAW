@@ -357,9 +357,13 @@ class ScriptedClient:
 
     def run(self, ctx: DetectorContext) -> list[FindingDraft]:
         inv = ctx.investigation_id
-        flt = [SRC_WEB, Filter(field="ua_class", op="in", value=["script", "scanner", "empty"])]
-        n = ctx.events.count(inv, flt)
         total = ctx.events.count(inv, [SRC_WEB])
+        # A format without a User-Agent column (common log format, Tomcat default, WebtoB) leaves every record
+        # empty: that is the log, not the client. An empty value counts only when other records carry one.
+        recorded = ctx.events.count(inv, [SRC_WEB, Filter(field="user_agent", op="exists")]) if total else 0
+        classes = ["script", "scanner", "empty"] if recorded else ["script", "scanner"]
+        flt = [SRC_WEB, Filter(field="ua_class", op="in", value=classes)]
+        n = ctx.events.count(inv, flt)
         if n < 100 or not total:
             return []
         uas = ctx.events.aggregate(inv, flt, AggRequest(type="terms", field="user_agent", size=5))["buckets"]

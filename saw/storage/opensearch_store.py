@@ -33,8 +33,8 @@ def index_template(prefix: str = "saw", shards: int = 1, replicas: int = 0, dura
     # Keep typed parser/producer contracts; unknown vendor objects preserve arbitrary JSON.
     # Inventory and query limitations: docs/opensearch-vendor-extensions.md.
     typed_extensions = (
-        "apache", "cloudflare", "csv", "iis", "json", "kv", "ndr", "nginx", "security_csv", "suricata", "syslog", "waf", "zeek",
-        "observation", "saw_observation", "device_observation", "connector", "fw", "ips", "vpn",
+        "apache", "cloudflare", "csv", "haproxy", "iis", "json", "kv", "ndr", "nginx", "security_csv", "suricata", "syslog", "waf",
+        "web_json", "zeek", "observation", "saw_observation", "device_observation", "connector", "fw", "ips", "vpn",
     )
     return {
         "index_patterns": [f"{prefix}-*"],

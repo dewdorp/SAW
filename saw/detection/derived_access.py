@@ -33,6 +33,32 @@ def source_ids(value):
     return result
 
 
+def combined_source_ids(records, limit=500):
+    """Union of source_ids over many records.
+
+    Each record keeps the full single-record bounds; the union keeps the same 500-source bound. Walking
+    a whole list of records as one value would charge every record against one traversal budget, so a
+    large but ordinary investigation failed even though no single record was unusual.
+    """
+    result = set()
+    for record in records:
+        result.update(source_ids(record))
+        if len(result) > limit:
+            raise Forbidden("derived_source_scope_limit")
+    return result
+
+
+def graph_source_ids(graph):
+    """Sources of a story graph, walked per node, edge and correlation."""
+    if not isinstance(graph, dict):
+        return source_ids(graph)
+    parts = [{k: v for k, v in graph.items() if k not in {"nodes", "edges", "correlations"}}]
+    for key in ("nodes", "edges", "correlations"):
+        value = graph.get(key)
+        parts.extend(value if isinstance(value, list) else [value] if value is not None else [])
+    return combined_source_ids(parts)
+
+
 def require_snapshot(s, p, payload):
     ids = source_ids(payload)
     if ids and p is None:

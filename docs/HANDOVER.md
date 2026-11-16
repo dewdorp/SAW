@@ -1,3 +1,15 @@
+## 2026-11-17 웹 서버 로그 붙여넣기 분석·대형 조사 스토리 한도 수정 — 개발 브랜치
+
+- 브랜치 claude/weblog-paste-20261117(main 3fd4d73, v0.2.6 정식 위). 새 매체·릴리스는 만들지 않았다.
+- 스토리 출처 한도: 10만 행 업로드에서 공격 스토리 단계가 `derived_source_scope_limit`로 실패하던 원인은 모든 탐지 결과를 한 값으로 훑은 것이다. 기록마다 따로 훑고 합친 출처는 기존 500개 한도로 묶었다(`combined_source_ids`·`graph_source_ids`). 유사 사례 색인도 같이 고쳤다. 결과 1,000개 조사로 RED → GREEN. 실제 10만 행 업로드 재실행은 하지 않았다.
+- 웹 서버 로그: 새 파서 5개(vhost_combined, HAProxy HTTP, JSON 접근 로그(Nginx JSON·Caddy), Apache 오류 로그(ModSecurity → waf), Nginx 오류 로그). 기존 combined/common(Apache·Nginx·Tomcat·WebtoB·JEUS)·IIS는 그대로. OpenSearch 고정 이름에 haproxy·web_json 추가.
+- 붙여넣기 분석(`/analyze/log`): 웹 기록을 요청 동안만 쓰는 메모리 SQLite에 넣고 조사와 같은 웹 탐지기 10종을 돌린다. 결과마다 한글 제목·판단 근거·다음 확인·근거 줄 번호. 오류 기록 묶음·출발지별 요약. 저장하지 않는다.
+- 사례 WL01~WL11(가상, 시드 생성, `saw/analyzers/weblog_cases.py`): 서버별 10개 + 정상 대조 1개. 화면 "이 사례 넣기" → 바로 분석·"기대한 결과와 같음". 11개 모두 기대 결과와 정확히 같음을 시험으로 확인.
+- 기존 탐지기 수정: User-Agent 열이 없는 형식의 빈 값을 자동화 도구로 세지 않는다(조사에도 적용). 계정 이름 없는 형식에서는 계정 수를 판단하지 않는다(붙여넣기 결과).
+- 시험: 서버 전체 r1(f282b20) 3,138건 중 3,119 통과·19 건너뜀·실패 0·오류 0, 3,144초. 화면 68파일·449건 통과.
+- 경계: 문서용 주소는 내부로 분류돼 "외부 드문 경로" 판단은 사례에 없다. native OpenSearch/PostgreSQL에서 새 파서 자료 저장은 미확인. 사용자 정의 로그 형식은 파서 관리로.
+- 검증: [웹 서버 로그 붙여넣기 검증](docs/verification/weblog-paste-20261117.md). 사용 안내: [SAW 사용 안내](docs/HUNTING-GUIDE.md) 5절. 아래는 당시 이력이다.
+
 ## 2026-11-14 자동 위협헌팅 개편(주 메뉴 3개·헌팅 실행·시나리오·자산·AI 조사) — 0.2.6 정식 릴리스
 
 - 기준 요구는 `SAW_Claude_Implementation_Prompt_20261113`이다. 브랜치 claude/flow-knowledge-20261112(v0.2.5 PR #13 위, PR #14 casebook-access 병합). 브랜치를 push했고 PR [dewdorp/SAW#15](https://github.com/dewdorp/SAW/pull/15)(기준 PR #14 브랜치)를 만들었다. 후보 매체를 만들었다. a21 통과 뒤 사용자 요청으로 프리릴리스 [v0.2.6-pilot.20261114](https://github.com/dewdorp/SAW/releases/tag/v0.2.6-pilot.20261114)(태그 → ac120f8, 자산 6개: ZIP·manifest·해시·운영 업데이트 절차·검증 기록·사용 안내)를 게시했고 원격 크기·SHA-256을 대조했다. 2026-11-17 사용자 요청으로 쌓여 있던 PR #6~#15를 차례로 main에 병합했다(각 PR 기준을 main으로 바꾸고 초안 표시 해제, 병합 커밋 방식, 브랜치는 지우지 않음). main(a536889)의 내용은 claude/flow-knowledge-20261112 끝과 같다. PR #1·#2(초안, 이 흐름 밖)는 그대로 열려 있다. 같은 날 사용자 요청으로 병합된 원격 브랜치 13개와 로컬 브랜치 11개를 지웠고(병합 안 된 PR #1·#2 브랜치와 로컬 practice-integration은 남김), v0.2.6-pilot.20261114를 **운영 설치용 정식(Latest)**으로 바꿨다(매체·자산 그대로, v0.2.3은 일반 릴리스로 남음). 대상 LTSC 2019·관리자 서비스·재부팅·실제 AI 모델은 여전히 미검증이다.

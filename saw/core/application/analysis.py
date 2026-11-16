@@ -472,14 +472,15 @@ def run_story(s: Session, inv_id: str) -> AttackStory:
                 f[k] = f[k].isoformat()
     cors = [{"kind": c.kind, "strength": c.strength, "steps": c.steps, "explanation": c.explanation}
             for c in s.execute(select(Correlation).where(Correlation.investigation_id == inv_id)).scalars()]
-    from saw.detection.derived_access import source_ids
+    from saw.detection.derived_access import combined_source_ids, graph_source_ids
 
     graph = build_story(fs, cors)
-    graph["_source_investigation_ids"] = sorted(source_ids(fs) | source_ids(cors))
+    # Per record: one walk over every finding at once exceeded the traversal bound on large uploads.
+    graph["_source_investigation_ids"] = sorted(combined_source_ids([*fs, *cors]))
     last = s.execute(select(AttackStory).where(AttackStory.investigation_id == inv_id)
                      .order_by(AttackStory.version.desc())).scalars().first()
     if last and last.origin == "analyst":
-        graph["_source_investigation_ids"] = sorted(source_ids(graph) | source_ids(last.graph))
+        graph["_source_investigation_ids"] = sorted(graph_source_ids(graph) | graph_source_ids(last.graph))
         # keep analyst edits: carry pinned/manual nodes forward and flag new auto nodes
         keep = [n for n in last.graph.get("nodes", []) if n.get("origin") == "analyst" or n.get("pinned")]
         known = {fid for n in last.graph.get("nodes", []) for fid in n.get("finding_ids", [])}
