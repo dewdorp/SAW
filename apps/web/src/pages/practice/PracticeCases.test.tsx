@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PracticeCases, type PracticePack, type PracticeStage } from "./PracticeCases";
 
@@ -7,11 +7,12 @@ afterEach(cleanup);
 function stage(id: string, title: string): PracticeStage {
   return {
     id, title, observation: `관측 내용 ${id}`,
-    evidence: [{ id: `행 ${id}`, source: "FW", summary: `근거 ${id}`, fields: { dst_port: 443 } }],
+    evidence: Array.from({length: 5}, (_, i) => ({ id: `행 ${id}-${i}`, source: "FW", summary: i ? `원문 ${id}-${i}` : `근거 ${id}`, fields: { dst_port: 443 } })),
     question: `지금 할 수 있는 판단은? ${id}`,
     options: [
       { id: "A", text: "추가 대조가 필요합니다", explanation: `대상과 시간이 근거입니다 ${id}` },
       { id: "B", text: "이미 전체가 확인됐습니다", explanation: `전체 대상 근거는 없습니다 ${id}` },
+      { id: "C", text: "이전 기간에도 같습니다", explanation: `이전 기간을 확인하지 않았습니다 ${id}` },
     ],
     correctId: "A", rationale: `이 범위에서 가능한 결론 ${id}`, nextCheck: "대상 목록을 대조합니다",
   };
@@ -44,6 +45,41 @@ describe("가상 로그 예제", () => {
     expect(screen.getByText("내 선택: 오답")).toBeTruthy();
     expect(screen.getByText("전체 대상 근거는 없습니다 I1")).toBeTruthy();
     expect(screen.getByText("대상과 시간이 근거입니다 I1")).toBeTruthy();
+  });
+
+  it("질문을 근거 앞에 한 번 표시하고 나머지 대표 행과 개별 필드를 열 수 있다", async () => {
+    await openFirst();
+    const question = screen.getByRole("heading", {name:"지금 할 수 있는 판단은? I1"});
+    expect(screen.getAllByText("지금 할 수 있는 판단은? I1")).toHaveLength(1);
+    expect(question.compareDocumentPosition(screen.getByText("근거 I1")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("원문 I1-4")).toBeNull();
+    const more = screen.getByRole("button", {name:"남은 대표 근거 2개 모두 보기"});
+    fireEvent.click(more);
+    const row = screen.getByText("원문 I1-4").closest("details")!;
+    fireEvent.click(row.querySelector("summary")!);
+    expect(row.open).toBe(true);
+    expect(within(row).getByText("목적지 포트 (dst_port)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:"대표 근거 3개만 보기"}));
+    expect(screen.queryByText("원문 I1-4")).toBeNull();
+  });
+
+  it("채점하면 내 오답과 권장 판단을 먼저 비교하고 다른 보기의 해설을 열 수 있다", async () => {
+    await openFirst();
+    fireEvent.click(screen.getByRole("radio", {name:"이미 전체가 확인됐습니다"}));
+    fireEvent.click(screen.getByRole("button", {name:"정답·해설 보기"}));
+    const result = screen.getByRole("region", {name:"판단 비교"});
+    expect(within(result).getByText("내 선택: 오답")).toBeTruthy();
+    expect(within(result).getByText("이미 전체가 확인됐습니다")).toBeTruthy();
+    expect(within(result).getByText("권장 판단")).toBeTruthy();
+    expect(within(result).getByText("추가 대조가 필요합니다")).toBeTruthy();
+    const other = screen.getByText("다른 보기의 해설 1개").closest("details")!;
+    expect(other.open).toBe(false);
+    fireEvent.click(other.querySelector("summary")!);
+    expect(other.open).toBe(true);
+    expect(within(other).getByText("이전 기간을 확인하지 않았습니다 I1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:"답 다시 고르기"}));
+    expect((screen.getByRole("radio", {name:"이미 전체가 확인됐습니다"}) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole("region", {name:"판단 비교"})).toBeNull();
   });
 
   it("각 추가 자료는 독립적이고, 초기 판단과 다른 단계의 선택이 서로 섞이지 않는다", async () => {

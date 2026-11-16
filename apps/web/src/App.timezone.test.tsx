@@ -76,14 +76,18 @@ it("updates workbench and overview when the time-zone button is toggled without 
   const summary = screen.getByText("분석 개요").parentElement!;
   const kst = "10-05-02:30:09 ~ 10-05-03:49:55";
   const utc = "10-04-17:30:09 ~ 10-04-18:49:55";
-  expect(header.textContent).toContain(kst);
+  expect(header.textContent).toContain("2026-10-05 02:30:09 ~ 03:49:55");
   expect(summary.textContent).toContain(kst);
 
+  expect(screen.queryByRole("complementary", { name: "컨텍스트" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /조사 도구/ }));
+  fireEvent.click(screen.getByRole("button", { name: "조사 안내·참고 보기" }));
+  expect(screen.getByRole("complementary", { name: "컨텍스트" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "조사 안내·참고 숨기기" }));
   fireEvent.click(screen.getByTitle("표시 시간대 전환"));
   expect(screen.getByTitle("표시 시간대 전환").textContent).toContain("UTC");
   await waitFor(() => {
-    expect(header.textContent).toContain(utc);
+    expect(header.textContent).toContain("2026-10-04 17:30:09 ~ 18:49:55");
     expect(summary.textContent).toContain(utc);
   });
   expect(screen.getByRole("button", { name: "조사 안내·참고 보기" })).toBeTruthy();
@@ -91,7 +95,7 @@ it("updates workbench and overview when the time-zone button is toggled without 
   fireEvent.click(screen.getByTitle("표시 시간대 전환"));
   expect(screen.getByTitle("표시 시간대 전환").textContent).toContain("KST");
   await waitFor(() => {
-    expect(header.textContent).toContain(kst);
+    expect(header.textContent).toContain("2026-10-05 02:30:09 ~ 03:49:55");
     expect(summary.textContent).toContain(kst);
   });
   expect(screen.getByRole("button", { name: "조사 안내·참고 보기" })).toBeTruthy();
@@ -104,6 +108,7 @@ it("keeps analysis visible first in a narrow window while allowing evidence cont
   await screen.findByText(/집계 기준: 조사 전체/);
   expect(screen.queryByRole("complementary", { name: "증거와 필터" })).toBeNull();
   expect(screen.queryByRole("complementary", { name: "컨텍스트" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /조사 도구/ }));
   fireEvent.click(screen.getByRole("button", { name: "증거·필터 보기" }));
   expect(screen.getByRole("complementary", { name: "증거와 필터" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "트래픽 개요" })).toBeTruthy();

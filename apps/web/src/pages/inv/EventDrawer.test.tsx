@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInvStore } from "../../context/invContext";
 import { mockApi, renderUI } from "../../test/helpers";
@@ -53,7 +53,26 @@ describe("Event drawer — session stream", () => {
   it("uses Korean tab names", async () => {
     mockApi({ [`GET /investigations/${INV}/events/ev1`]: [200, { event: EVENT, masked_kinds: [], related_findings: [], can_unmask: false }] });
     renderUI(<EventDrawer inv={INV} />);
-    for (const t of ["정규화", "원본", "엔티티", "관련 탐지", "전후 로그"]) expect(await screen.findByRole("button", { name: t })).toBeTruthy();
+    for (const t of ["핵심 필드", "원문", "주소·계정", "관련 탐지", "전후 로그"]) expect(await screen.findByRole("button", { name: t })).toBeTruthy();
+  });
+
+  it("never carries a disclosed raw line or its reason to another event", async () => {
+    const payload = (id:string) => ({ event: {...EVENT, event_id:id, raw_visual:`가린 원문 ${id}`}, masked_kinds:["cookie"], can_unmask:true, related_findings:[] });
+    mockApi({
+      [`GET /investigations/${INV}/events/ev1`]:[200,payload("ev1")],
+      [`GET /investigations/${INV}/events/ev2`]:[200,payload("ev2")],
+      [`POST /investigations/${INV}/events/ev1/unmask`]:[200,{event:{raw_event:"첫 번째 기록 민감값"}}],
+    });
+    renderUI(<EventDrawer inv={INV}/>);
+    fireEvent.click(await screen.findByRole("button",{name:"원문"}));
+    fireEvent.change(await screen.findByLabelText("민감값 열람 사유"),{target:{value:"첫 기록 검증 사유"}});
+    fireEvent.click(screen.getByRole("button",{name:"민감값 열람"}));
+    expect(await screen.findByText("첫 번째 기록 민감값")).toBeTruthy();
+    act(()=>useInvStore.getState().set(INV,{eventId:"ev2"}));
+    fireEvent.click(await screen.findByRole("button",{name:"원문"}));
+    expect(await screen.findByText("가린 원문 ev2")).toBeTruthy();
+    expect(screen.queryByText("첫 번째 기록 민감값")).toBeNull();
+    expect((screen.getByLabelText("민감값 열람 사유") as HTMLInputElement).value).toBe("");
   });
 
   it("links an NDR event to the captured session and opens its packets", async () => {
@@ -69,9 +88,9 @@ describe("Event drawer — session stream", () => {
     renderUI(<EventDrawer inv={INV} />);
     expect(await screen.findByRole("button", { name: "⇄ 스트림 보기" })).toBeTruthy();  // NDR row, packets from the PCAP
     fireEvent.click(await screen.findByRole("button", { name: "연결된 기록 2" }));
-    expect(await screen.findByText("같은 세션")).toBeTruthy();
-    expect(screen.getByText("같은 요청")).toBeTruthy();
-    expect(screen.getByText(/원본 패킷이 있어/)).toBeTruthy();
+    expect(await screen.findByText("주소·포트 일치")).toBeTruthy();
+    expect(screen.getByText("출발지·경로 일치")).toBeTruthy();
+    expect(screen.getByText(/연결 가능한 PCAP이 있습니다/)).toBeTruthy();
     fireEvent.click(screen.getByText("incident.pcap"));
     expect(useInvStore.getState().get(INV).eventId).toBe("p1");
   });

@@ -46,6 +46,14 @@ describe("Home", () => {
     expect(btn.disabled).toBe(false);
   });
 
+  it("starts an NDR or firewall upload using the supported auto kind", () => {
+    renderUI(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "NDR·FW 로그 분석" }));
+    const dialog = screen.getByRole("dialog", { name: "증거 업로드" });
+    expect((within(dialog).getByLabelText("자료 종류") as HTMLSelectElement).value).toBe("auto");
+    expect(within(dialog).getByRole("button", {name:"원본 파일 선택"})).toBeTruthy();
+  });
+
   it("opens the upload dialog from a file quick-start card", () => {
     renderUI(<Home />);
     fireEvent.click(screen.getByRole("button", { name: /PCAP/ }));

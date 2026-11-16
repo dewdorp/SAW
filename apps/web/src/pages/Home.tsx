@@ -54,8 +54,9 @@ export function Home() {
   return (
     <div className="page">
       <PageHeader eyebrow="SOC Analysis Workbench" title="무엇을 분석할까요?"
-        actions={<Link to="/practice" className="btn" title="가상 NDR·FW 로그로 판단하고 정답과 오답의 근거를 비교합니다"><Icon name="book" size={16} /> 가상 로그 예제</Link>}
-        desc="로그·IOC·HTTP 요청·인코딩된 문자열을 붙여넣거나 파일을 올리세요. 결과는 이야기 → 근거 → 원본 순서로 보여 드립니다." />
+        actions={<div className="row wrap"><button className="btn primary" onClick={() => setUpload({ kind: "auto" })}><Icon name="upload" size={16} /> NDR·FW 로그 분석</button>
+          <Link to="/practice" className="btn" title="가상 NDR·FW 로그로 판단하고 정답과 오답의 근거를 비교합니다"><Icon name="book" size={16} /> 가상 로그 예제</Link></div>}
+        desc="NDR·방화벽 로그는 관계사와 파일을 선택하면 형식을 자동으로 확인합니다. IP나 HTTP 요청 한 건은 아래에서 빠르게 분석할 수 있습니다." />
       <div className="stats">
         <Stat label="진행 중인 조사" value={open.length} onClick={() => nav("/investigations")} />
         <Stat label="높은 위험 조사" value={highRisk.length} tone={highRisk.length ? "high" : undefined} onClick={() => nav("/investigations")} />
@@ -100,7 +101,7 @@ export function Home() {
           <div className="dropzone" style={{ marginTop: 12 }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); setUpload({ files: Array.from(e.dataTransfer.files) }); } }}>
-            <Icon name="upload" /> 파일을 여기에 끌어다 놓거나 <a onClick={() => setUpload({})}>파일 선택</a>
+            <Icon name="upload" /> 파일을 여기에 끌어다 놓거나 <button type="button" className="btn sm" onClick={() => setUpload({})}>파일 선택</button>
             <div className="muted small">.gz · .zip 압축 파일 그대로 올릴 수 있습니다</div>
           </div>
         </Panel>

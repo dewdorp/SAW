@@ -1,0 +1,65 @@
+/* Investigation reading surface; uses local system fonts and follows the analyst's theme. */
+.wb { --warn: var(--med); }
+:root[data-theme="light"] .wb { --fg-2: #526174; --accent: #076e64; --accent-2: #075d56; --bad: #ab2f3e; --warn: #805008; --ok: #11613f; }
+.wb .wb-center { grid-template-rows: auto auto minmax(0,1fr); }
+.wb .wb-head { padding: 12px clamp(12px,2vw,30px); }
+.wb .wb-head h2 { overflow-wrap:anywhere; }
+.wb .wb-areas { margin:0; padding:8px 14px; gap:6px; border-bottom:1px solid var(--line); }
+.wb .wb-areas .btn { min-height:36px; font-size:14px; padding-inline:13px; }
+.wb .wb-tools { padding:8px 0; border-block:1px solid var(--line); }
+.wb .wb-scopebar { font-size:13px; }
+.wb .wb-action { min-height:34px; }
+.wb .wb-search { border-left:3px solid var(--accent); padding-left:10px; }
+.wb .tab-body { padding:clamp(10px,1.4vw,20px); }
+.wb .direct-filter { cursor:pointer; font-family:inherit; color:var(--fg); }
+.wb .scope-reading { display:grid; gap:16px; min-width:0; max-width:1500px; margin:0 auto; width:100%; }
+.scope-snapshot { min-width:0; padding:14px 18px; border:1px solid var(--line-2); background:var(--panel); border-radius:var(--r-lg); }
+.scope-snapshot header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.scope-snapshot h2 { font-size:18px; line-height:1.35; }
+.scope-snapshot p { margin:6px 0; }
+.scope-metrics { display:grid; grid-template-columns:minmax(140px,1.25fr) minmax(90px,.75fr) minmax(110px,1fr) minmax(160px,1.3fr); gap:16px; }
+.scope-count, .scope-trend { text-align:left; min-width:0; align-self:stretch; }
+.scope-count > span,.scope-trend > span { display:block; color:var(--fg-1); font-size:13px; font-weight:600; }
+.scope-count strong { font-size:clamp(23px,2.5vw,34px); font-weight:680; line-height:1.35; letter-spacing:-.03em; }
+.scope-count small { margin-left:4px; color:var(--fg-1); font-size:13px; }
+.scope-run b { display:block; font-size:18px; line-height:1.6; }
+.scope-run small { margin:0; display:block; }
+.scope-trend { display:block; background:transparent; color:var(--fg); border:none; border-left:1px solid var(--line); padding:0 0 0 14px; font:inherit; }
+button.scope-trend { cursor:pointer; }
+.scope-trend svg { display:block; width:100%; height:27px; margin:3px 0; }
+.scope-trend small { color:var(--fg-2); font-size:12px; }
+.scope-sources,.scope-issues { display:flex; align-items:baseline; gap:6px 12px; flex-wrap:wrap; }
+.scope-sources { margin-top:10px; color:var(--fg-1); font-size:13px; }
+.scope-sources strong { color:var(--fg); font-weight:600; }
+.scope-issues { width:100%; margin-top:10px; border:1px solid var(--line); border-left:3px solid var(--warn,var(--med)); border-radius:4px; padding:6px 10px; color:var(--fg); background:var(--bg-2); cursor:pointer; text-align:left; }
+.scope-issues b { color:var(--warn,var(--med)); }
+.scope-more { margin-left:auto; color:var(--fg-1); font-size:13px; }
+.scope-filter-note { color:var(--accent-2); font-weight:600; }
+.scope-extras { display:grid; gap:6px; min-width:0; }
+.scope-extras h3 { font-size:15px; color:var(--fg-1); }
+.scope-fold { min-width:0; border:1px solid var(--line); border-radius:var(--r); background:var(--panel); }
+.scope-fold > summary,.scope-extras > details > summary { padding:9px 12px; cursor:pointer; font-weight:650; color:var(--fg-1); }
+.scope-fold-content { padding:10px; display:grid; gap:10px; overflow-x:auto; }
+.scope-fold-content .grid3 { grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); }
+.wb .scope-fold .panel > .ph .grow { white-space:normal; }
+.wb .scope-fold .panel > .pb { overflow-x:auto; }
+@media (max-width:1100px) {
+  .wb .wb-areas { padding:6px 8px; }
+}
+@media (max-width:800px),(max-height:760px) {
+  .wb { height:auto; min-height:100%; }
+  .wb .wb-center { grid-template-rows:auto auto auto; }
+  .wb .tab-body { overflow:visible; min-width:0; }
+}
+@media (max-width:800px) {
+  .scope-metrics { grid-template-columns:1fr 1fr; gap:10px; }
+  .scope-trend { padding-left:0; border:0; }
+  .wb .wb-head { padding:10px; }
+  .scope-snapshot { padding:11px; }
+  .wb .wb-search input { max-width:100%; }
+}
+@media (max-width:580px) {
+  .wb .wb-areas .btn { padding:4px 7px; font-size:13px; }
+  .wb .wb-head .wb-title { max-width:100%; }
+  .wb .wb-head { gap:5px; }
+}

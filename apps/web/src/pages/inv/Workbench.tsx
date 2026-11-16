@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ErrorBox, Loading, Sev } from "../../components/common";
+import { ErrorBox, Loading } from "../../components/common";
 import { UploadModal } from "../../components/UploadModal";
 import { Icon } from "../../components/ui";
 import { useInv, useInvTabs } from "../../context/invContext";
 import { api } from "../../lib/api";
-import { fmtBytes, fmtNum, fmtTime } from "../../lib/format";
+import { fmtBytes, fmtNum, fmtTime, fmtPeriod, getTz } from "../../lib/format";
 import { AnalysisHistoryTab } from "./AnalysisHistoryTab";
 import { SourceContextTab } from "./SourceContextTab";
 import { AttackTab } from "./AttackTab";
@@ -67,20 +67,25 @@ export function Workbench() {
   const tabs = useInvTabs();
   const qc = useQueryClient();
   // One refresh contract: anything that changes the period, data or analysis refreshes every view built on it.
-  const refreshScope = () => ["inv", "scope-summary", "alert-names", "findings", "internal-golden", "checks"]
+  const refreshScope = () => ["inv", "scope-summary", "question-bundles", "field-meanings", "alert-names", "findings", "internal-golden", "checks", "agg", "facets", "raw", "rawcount"]
     .forEach((key) => qc.invalidateQueries({ queryKey: [key, id] }));
   const [upload, setUpload] = useState(false);
   const [closing, setClosing] = useState(false);
   const [siem, setSiem] = useState(false);
-  const [left, setLeft] = useState(() => window.innerWidth >= 1100);
-  const [right, setRight] = useState(() => window.innerWidth >= 1350);
+  const [left, setLeft] = useState(false);
+  const [right, setRight] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState<boolean | null>(null);
+  const searchVisible = searchOpen ?? ctx.tab === "raw";
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [rerunError, setRerunError] = useState<unknown>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [search, setSearch] = useState({ field: "src_ip", op: "is", value: "" });
   const inv = useQuery({ queryKey: ["inv", id], queryFn: () => api.get(`/investigations/${id}`), refetchInterval: 10000 });
   const fq = { filters: ctx.filters, time: ctx.time };
-  const sources = useQuery({ queryKey: ["agg", id, "data_source"], queryFn: () => api.post(`/investigations/${id}/query/aggregate`, { filters: [], agg: { type: "terms", field: "data_source", size: 20 } }) });
+  const sources = useQuery({ queryKey: ["agg", id, "data_source"], enabled: left || areaOf(ctx.tab).key === "investigate", queryFn: () => api.post(`/investigations/${id}/query/aggregate`, { filters: [], agg: { type: "terms", field: "data_source", size: 20 } }) });
   const facets = useQuery({
-    queryKey: ["facets", id, fq],
+    queryKey: ["facets", id, fq], enabled: left,
     queryFn: async () => Object.fromEntries(await Promise.all(FACETS.map(async (f) => [f, (await api.post(`/investigations/${id}/query/aggregate`, { ...fq, agg: { type: "terms", field: f, size: 6 } }))]))),
   });
   useEffect(() => { if (inv.data) tabs.open(id, `${inv.data.display_id} ${inv.data.title}`); }, [inv.data?.display_id, inv.data?.title]); // eslint-disable-line
@@ -112,36 +117,42 @@ export function Workbench() {
           <div className="col" style={{ gap: 2, minWidth: 0 }}>
             <div className="eyebrow" style={{ marginBottom: 0 }}>{i.display_id} · 조사 작업대</div>
             <div className="row wrap" style={{ gap: 10, maxWidth: "100%" }}>
-              <h2 className="ellipsis" style={{ fontSize: 19, maxWidth: 560 }} title={i.title}>{i.title}</h2>
-              <Sev level={i.risk_level} score={i.risk_score} />
+              <h2 className="wb-title" style={{ fontSize: 20, lineHeight: 1.4 }} title={i.title}>{i.title}</h2>
+              {i.risk_level && <span className="badge" title={i.risk_score == null ? undefined : `산출 점수: ${i.risk_score}`}>위험도 {({ critical: "심각", high: "높음", medium: "보통", low: "낮음", info: "정보" } as Record<string,string>)[i.risk_level] || i.risk_level}</span>}
               <span className="badge">{STATUS_KO[i.status] || i.status}{i.verdict ? ` · ${VERDICT_KO[i.verdict] || i.verdict}` : ""}</span>
             </div>
           </div>
           <div className="grow" />
-          <button className="btn sm" onClick={() => setUpload(true)}><Icon name="upload" size={14} /> 증거 추가</button>
+          <button className="btn sm wb-action" onClick={() => setUpload(true)}><Icon name="upload" size={14} /> 증거 추가</button>
+          <button className="btn sm wb-action" aria-expanded={searchVisible} aria-controls="wb-direct-search" onClick={() => setSearchOpen(!searchVisible)}>로그 직접 검색</button>
+          <button className="btn sm ghost wb-action" aria-expanded={toolsOpen} aria-controls="wb-tools" onClick={() => setToolsOpen(!toolsOpen)}>조사 도구 {toolsOpen ? "▴" : "▾"}</button>
+        </div>
+        {toolsOpen && <div className="row wrap wb-tools" role="group" aria-label="조사 도구" id="wb-tools">
           <button className="btn sm" onClick={() => setSiem(true)}>SIEM에서 가져오기</button>
-          <button className="btn sm" onClick={async () => { await api.post(`/investigations/${id}/reanalyze`); refreshScope(); }}>재분석</button>
+          <button className="btn sm" disabled={reanalyzing} onClick={async () => { setReanalyzing(true); setRerunError(null); try { await api.post(`/investigations/${id}/reanalyze`); refreshScope(); } catch (e) { setRerunError(e); } finally { setReanalyzing(false); } }}>{reanalyzing ? "재분석 요청 중…" : "재분석"}</button>
           <Link className="btn sm" to={`/inv/${id}/report`} title="임원 보고용으로 한 장에 정리한 화면 (인쇄·PDF 저장)"><Icon name="report" size={14} /> 보고용 요약</Link>
           <button className="btn sm ghost" aria-expanded={left} aria-controls="workbench-evidence" onClick={() => setLeft(!left)}>{left ? "증거·필터 숨기기" : "증거·필터 보기"}</button>
           <button className="btn sm ghost" aria-expanded={right} aria-controls="workbench-context" onClick={() => setRight(!right)}>{right ? "조사 안내·참고 숨기기" : "조사 안내·참고 보기"}</button>
-          {i.status !== "closed" && <button className="btn sm primary" onClick={() => setClosing(true)}>조사 종결</button>}
-        </div>
-        <div className="row wrap small" role="group" aria-label="조사 범위" style={{ gap: 16, color: "var(--fg-1)" }}>
+          {i.status !== "closed" && <button className="btn sm" onClick={() => setClosing(true)}>조사 종결</button>}
+        </div>}
+        <ErrorBox error={rerunError} />
+        <div className="row wrap wb-scopebar" role="group" aria-label="조사 범위" style={{ gap: 16, color: "var(--fg-1)" }}>
           <span><span className="muted">관계사</span> <b>{i.org_unit || "미지정"}</b></span>
-          <span><span className="muted">조사 기간</span> {i.period_start ? <b>{fmtTime(i.period_start)} ~ {fmtTime(i.period_end)}</b> : <span className="tag warn">미지정</span>}</span>
-          <span><span className="muted">관측 기간</span> {fmtTime(i.time_start)} ~ {fmtTime(i.time_end)}</span>
+          <span><span className="muted">조사 기간</span> {i.period_start ? <b>{fmtPeriod(i.period_start, i.period_end)} {getTz()}</b> : <span className="tag warn">미지정</span>}</span>
+          <span><span className="muted">관측 기간</span> {fmtPeriod(i.time_start, i.time_end)}</span>
           <span><span className="muted">증거</span> {i.evidence.length}건</span>
-          <span><span className="muted">탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
+          <span><span className="muted" title="저장된 탐지 결과 수입니다. 아래의 자동 계산 후보와 별도로 집계합니다.">저장된 탐지</span> {total}건 {["critical", "high", "medium", "low"].filter((k) => fc[k]).map((k) => <span key={k} className={`sev ${k}`} style={{ marginLeft: 6 }}>{({ critical: "심각", high: "높음", medium: "보통", low: "낮음" } as any)[k]} {fc[k]}</span>)}</span>
         </div>
         {(!i.org_unit_id || !i.period_start) && <div role="note" className="small" style={{ color: "var(--warn)" }}>
-          관계사와 조사 기간을 지정하면 모든 통계·검색·확인 요청·골든셋이 그 범위로 묶입니다. {!i.period_start && <ScopePeriodEditor inv={i} onSaved={refreshScope} />}
+          {!i.org_unit_id && <span>조사에 지정된 관계사가 없습니다. </span>}{!i.period_start && <details><summary style={{ cursor: "pointer" }}>조사 기간 미지정 · 기간 설정</summary><ScopePeriodEditor inv={i} onSaved={refreshScope} /></details>}
         </div>}
-        <form className="row wrap small" role="search" aria-label="로그 직접 검색" style={{ gap: 6 }} onSubmit={(e) => {
+        {searchVisible && <form id="wb-direct-search" className="row wrap small wb-search" role="search" aria-label="로그 직접 검색" style={{ gap: 6 }} onSubmit={(e) => {
           e.preventDefault();
           const raw = search.value.trim();
           if (!raw) return;
           const value = NUMERIC_FIELDS.has(search.field) && /^\d+$/.test(raw) ? Number(raw) : raw;
           ctx.addFilter({ field: search.field, op: search.op as any, value });
+          ctx.set({ tab: "raw", selection: null, eventId: null, findingId: null });
           setSearch({ ...search, value: "" });
         }}>
           <span className="muted">직접 검색</span>
@@ -151,21 +162,20 @@ export function Workbench() {
           </select>
           <input className="input" aria-label="검색 값" placeholder="값 입력 후 Enter" value={search.value} onChange={(e) => setSearch({ ...search, value: e.target.value })} style={{ width: 200 }} />
           <button className="btn sm" type="submit">조건 추가</button>
-          <span className="muted">조사 제안과 무관하게 전체 로그에서 찾습니다. 찾은 기록은 원문에서 확인 기록으로 이 조사에 근거로 추가할 수 있습니다.</span>
-        </form>
-        <div className="row wrap small">
-          <span className="muted">필터</span>
+          <span className="muted">현재 범위에 조건을 더해 원문을 찾습니다.</span>
+        </form>}
+        {(ctx.filters.length > 0 || ctx.time || ctx.selection) && <div className="row wrap small">
+          <b>적용한 조건</b>
           {ctx.filters.map((f, k) => (
-            <span key={k} className={`tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
+            <button type="button" key={k} className={`direct-filter tag ${f.op.startsWith("is_not") || f.op === "not_in" ? "bad" : ""}`} style={{ cursor: "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => ctx.removeFilter(k)} title="클릭하여 제거">
               {f.op === "is_not" ? "− " : ""}{f.field === "event_id" && Array.isArray(f.value) ? `선택 근거 ${f.value.length}건`
                 : f.op === "exists" || f.op === "not_exists" ? `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${f.op === "exists" ? "값 있음" : "값 없음"}`
                 : `${(SEARCH_FIELDS.find(([k]) => k === f.field) || [f.field, f.field])[1]} ${({ contains: "포함", prefix: "시작", is_not: "≠", in: "중 하나", not_in: "제외" } as Record<string, string>)[f.op] || "="} ${JSON.stringify(f.value)}`} ×
-            </span>
+            </button>
           ))}
-          {ctx.time && <span className="tag" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)} ×</span>}
-          {!ctx.filters.length && !ctx.time && <span className="muted">없음 — 차트나 값을 클릭해 추가합니다</span>}
+          {ctx.time && <button type="button" className="tag direct-filter" aria-label="선택한 기간 해제" onClick={() => ctx.set({ time: null })} style={{ cursor: "pointer" }}>🕑 {fmtTime(ctx.time.start)} ~ {fmtTime(ctx.time.end)}{ctx.time.end_exclusive ? " 미만" : ""} ×</button>}
           {ctx.selection && <span className="tag" style={{ borderColor: "var(--hl)", color: "var(--hl)" }}>선택: {ctx.selection.type} {ctx.selection.value} <a onClick={() => ctx.addFilter({ field: ({ ip: "src_ip", uri: "uri_template" } as any)[ctx.selection!.type] || ctx.selection!.type, op: "is", value: ctx.selection!.value })}>이 값으로 필터</a> <a onClick={() => ctx.set({ selection: null })}>×</a></span>}
-        </div>
+        </div>}
       </div>
       <div className={`wb-body ${right ? "" : "no-right"} ${left ? "" : "no-left"}`}>
         {left && <aside id="workbench-evidence" className="wb-left" aria-label="증거와 필터">
@@ -211,10 +221,9 @@ export function Workbench() {
           </div>
         </aside>}
         <section className="wb-center">
-          <nav className="row wrap" aria-label="작업 영역" style={{ gap: 6, marginBottom: 6 }}>
+          <nav className="row wrap wb-areas" aria-label="작업 영역">
             {AREAS.map((a) => <button key={a.key} className={`btn sm ${area.key === a.key && ctx.tab !== "entity" ? "primary" : ""}`} aria-pressed={area.key === a.key && ctx.tab !== "entity"} title={a.hint}
               onClick={() => ctx.set({ tab: a.tabs[0][0] })}>{a.label}</button>)}
-            <span className="small muted" style={{ alignSelf: "center" }}>{area.hint}</span>
           </nav>
           <div className="tabs" role="tablist" aria-label={area.label}>
             {[...area.tabs, ...(showAdvanced || area.advanced?.some(([k]) => k === ctx.tab) ? area.advanced || [] : [])].map(([k, l]) => <button key={k} role="tab" aria-selected={ctx.tab === k} disabled={!enabled(k)} title={!enabled(k) ? "PCAP 또는 네트워크 로그 증거가 필요합니다" : undefined} className={ctx.tab === k ? "active" : ""} onClick={() => ctx.set({ tab: k })}>{l}</button>)}

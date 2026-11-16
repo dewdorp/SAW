@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Loading, Panel } from "../../components/common";
 import { PageHeader } from "../../components/ui";
+import "./practice.css";
 
 type PracticeEvidence = {
   id: string; source: string; summary: string;
@@ -36,23 +37,33 @@ const meanings: Record<string, string> = {
   sent_bytes: "장비 기준 송신 바이트", rcvd_bytes: "장비 기준 수신 바이트",
 };
 
+const PREVIEW_ROWS = 3;
+
+function EvidenceRow({ evidence: e }: { evidence: PracticeEvidence }) {
+  return <details className="practice-row">
+    <summary><span className="tag">{e.source}</span> {e.summary}</summary>
+    <p className="small muted">근거 위치: {e.id}</p>
+    {e.fields && <dl>{Object.entries(e.fields).map(([key, value]) => <div key={key}>
+      <dt>{meanings[key] ? `${meanings[key]} (${key})` : key}</dt>
+      <dd>{value == null || value === "" ? "(빈 값)" : String(value)}</dd>
+    </div>)}</dl>}
+  </details>;
+}
+
 function Evidence({ stage }: { stage: PracticeStage }) {
-  return <div className="col">
-    {stage.observation && <p>{stage.observation}</p>}
-    {stage.evidence.map((e, i) => <details key={i} className="panel pb">
-      <summary style={{ cursor: "pointer", overflowWrap: "anywhere" }}>
-        <span className="tag">{e.source}</span>{" "}<span>{e.summary}</span>
-      </summary>
-      <div className="small muted" style={{ margin: "10px 0 4px" }}>근거 위치: {e.id}</div>
-      {e.fields && <dl style={{ margin: 0 }}>
-        {Object.entries(e.fields).map(([key, value]) => <div key={key} className="row wrap" style={{ alignItems: "baseline" }}>
-          <dt className="muted">{meanings[key] ? `${meanings[key]} (${key})` : key}</dt>
-          <dd className="mono" style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", minWidth: 0 }}>
-            {value == null || value === "" ? "(빈 값)" : String(value)}
-          </dd>
-        </div>)}
-      </dl>}
-    </details>)}
+  const [showAll, setShowAll] = useState(false);
+  const remainingId = useId();
+  const extra = stage.evidence.slice(PREVIEW_ROWS);
+  return <div className="practice-evidence">
+    {stage.observation && <p className="practice-observation">{stage.observation}</p>}
+    <b className="practice-row-count">대표 근거 {stage.evidence.length}개</b>
+    {stage.evidence.slice(0, PREVIEW_ROWS).map(e => <EvidenceRow key={e.id} evidence={e} />)}
+    {!!extra.length && <>
+      <div hidden={!showAll} id={remainingId}>{showAll && extra.map(e => <EvidenceRow key={e.id} evidence={e} />)}</div>
+      <button type="button" className="btn sm ghost" aria-controls={remainingId} aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
+        {showAll ? `대표 근거 ${PREVIEW_ROWS}개만 보기` : `남은 대표 근거 ${extra.length}개 모두 보기`}
+      </button>
+    </>}
   </div>;
 }
 
@@ -61,11 +72,23 @@ function Exercise({ item }: { item: PracticeCase }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<number, Answer>>({});
   const [resetKey, setResetKey] = useState(0);
-  const radioGroup = useId();
+  const radioGroup = useId(), questionId = useId();
+  const questionEl = useRef<HTMLHeadingElement>(null), resultEl = useRef<HTMLElement>(null), choicesEl = useRef<HTMLFieldSetElement>(null);
+  const focusAfterChange = useRef<"question" | "result" | "choices" | null>(null);
   const stage = step === 0 ? item.initial : item.followups[step - 1];
   const answer = answers[step] ?? { revealed: false };
   const put = (value: Answer) => setAnswers(old => ({ ...old, [step]: value }));
-  const reset = () => { setStep(0); setAnswers({}); setResetKey(n => n + 1); };
+  const reset = () => { focusAfterChange.current = "question"; setStep(0); setAnswers({}); setResetKey(n => n + 1); };
+  const goToStep = (i: number) => { focusAfterChange.current = "question"; setStep(i); };
+  useEffect(() => {
+    const where = focusAfterChange.current; focusAfterChange.current = null;
+    if (where === "question") questionEl.current?.focus();
+    if (where === "result") resultEl.current?.focus();
+    if (where === "choices") (choicesEl.current?.querySelector<HTMLInputElement>("input:checked") ?? choicesEl.current?.querySelector<HTMLInputElement>("input"))?.focus();
+  }, [step, resetKey, answer.revealed]);
+  const correct = stage.options.find(o => o.id === stage.correctId)!;
+  const chosen = stage.options.find(o => o.id === answer.choice);
+  const others = stage.options.filter(o => o.id !== correct.id && o.id !== chosen?.id);
   const files = `${import.meta.env.BASE_URL}practice-data/v1/${encodeURIComponent(item.id)}/`;
   const showFollowups = !!item.followups.length && (answers[0]?.revealed || step !== 0);
 
@@ -73,7 +96,7 @@ function Exercise({ item }: { item: PracticeCase }) {
     {showFollowups && <Panel>
       <div className="col">
         <label className="row wrap"><b>검토할 자료</b>
-          <select aria-label="검토할 자료" className="input" value={step} onChange={e => setStep(Number(e.target.value))}>
+          <select aria-label="검토할 자료" className="input" value={step} onChange={e => goToStep(Number(e.target.value))}>
             <option value={0}>처음 자료</option>
             {item.followups.map((f, i) => <option key={i} value={i + 1}>{f.title}</option>)}
           </select>
@@ -81,9 +104,13 @@ function Exercise({ item }: { item: PracticeCase }) {
         <div className="small muted">각 추가 자료는 같은 처음 기록에 따로 적용하는 가정입니다. 다른 추가 자료와 합쳐 판단하지 마세요.</div>
       </div>
     </Panel>}
+    <div className="practice-question">
+      <span>이번 질문 · {step === 0 ? "초기 자료" : stage.title}</span>
+      <h2 ref={questionEl} id={questionId} tabIndex={-1}>{stage.question}</h2>
+    </div>
     <Panel title={step === 0 ? "처음 관측한 자료" : stage.title}>
       <div className="col">
-        {step !== 0 && <details><summary>처음 관측한 자료 다시 보기</summary><Evidence stage={item.initial} /></details>}
+        {step !== 0 && <details key={`${step}-prior-${resetKey}`}><summary>처음 관측한 자료 다시 보기</summary><Evidence stage={item.initial} /></details>}
         <Evidence key={`${step}-${resetKey}`} stage={stage} />
         <div className="row wrap small">
           <span className="muted">처음 자료 전체</span>
@@ -92,33 +119,33 @@ function Exercise({ item }: { item: PracticeCase }) {
         </div>
       </div>
     </Panel>
-    <Panel title="판단해 보기">
-      <div className="col">
-        <fieldset className="col" style={{ minWidth: 0, border: 0, padding: 0, margin: 0 }}>
-          <legend style={{ marginBottom: 8 }}><b>{stage.question}</b></legend>
-          {stage.options.map(option => <div key={option.id}>
-            <label className="row" style={{ alignItems: "baseline", cursor: "pointer" }}>
-              <input type="radio" name={radioGroup} checked={answer.choice === option.id}
-                onChange={() => put({ choice: option.id, revealed: false })} />
-              <span>{option.text}</span>
-            </label>
-            {answer.revealed && <div className="row small" style={{ alignItems: "baseline", margin: "3px 0 5px 20px" }}>
-              <span className={`tag ${option.id === stage.correctId ? "ok" : "bad"}`}>{option.id === stage.correctId ? "정답" : "오답"}</span>
-              <span>{option.explanation}</span>
-            </div>}
-          </div>)}
+    <Panel title={answer.revealed ? "판단 해설" : "판단해 보기"}>
+      {answer.revealed ? <section key={step} aria-label="판단 비교" className="practice-result" ref={resultEl} tabIndex={-1}>
+        <p role="status" className="practice-result-status">{chosen ? `내 선택: ${chosen.id === correct.id ? "정답" : "오답"}` : "예제 해설"}</p>
+        <div className={chosen && chosen.id !== correct.id ? "practice-compare with-choice" : "practice-compare"}>
+          {chosen && chosen.id !== correct.id && <div className="practice-choice-missed"><b>내가 고른 판단</b>
+            <p>{chosen.text}</p><p className="practice-why">{chosen.explanation}</p></div>}
+          <div className="practice-choice-supported"><b>권장 판단</b><p>{correct.text}</p>
+            {!stage.rationale.startsWith(correct.explanation) && <p className="practice-why">{correct.explanation}</p>}</div>
+        </div>
+        <dl className="practice-reason"><div><dt>판단 근거</dt><dd>{stage.rationale}</dd></div>
+          {stage.nextCheck && <div><dt>다음 확인</dt><dd>{stage.nextCheck}</dd></div>}</dl>
+        {others.length > 0 && <details className="practice-alternatives"><summary>다른 보기의 해설 {others.length}개</summary>
+          {others.map(o => <div key={o.id}><strong>오답 · {o.text}</strong><p>{o.explanation}</p></div>)}</details>}
+        <div className="row wrap">
+          {step === 0 && item.followups.length > 0 && <button className="btn primary" onClick={() => goToStep(1)}>추가 자료로 판단하기</button>}
+          <button className="btn" onClick={() => { focusAfterChange.current = "choices"; put({ ...answer, revealed: false }); }}>답 다시 고르기</button>
+        </div>
+      </section> : <div className="col">
+        <fieldset className="practice-options" aria-labelledby={questionId} ref={choicesEl}>
+          {stage.options.map(option => <label key={option.id}>
+            <input type="radio" name={radioGroup} checked={answer.choice === option.id} onChange={() => put({ choice: option.id, revealed: false })} />
+            <span>{option.text}</span>
+          </label>)}
         </fieldset>
-        {answer.revealed ? <div className="col" role="status" aria-live="polite">
-          <b>{answer.choice ? `내 선택: ${answer.choice === stage.correctId ? "정답" : "오답"}` : "예제 해설"}</b>
-          <p>{stage.rationale}</p>
-          {stage.nextCheck && <div><b>다음 확인</b> · {stage.nextCheck}</div>}
-          {step === 0 && item.followups.length > 0 &&
-            <div><button className="btn primary" onClick={() => setStep(1)}>추가 자료로 판단하기</button></div>}
-        </div> : <div className="row wrap">
-          <button className="btn primary" onClick={() => put({ ...answer, revealed: true })}>정답·해설 보기</button>
-          <span className="small muted">선택하지 않고 해설만 읽을 수도 있습니다.</span>
-        </div>}
-      </div>
+        <div className="row wrap"><button className="btn primary" onClick={() => { focusAfterChange.current = "result"; put({ ...answer, revealed: true }); }}>정답·해설 보기</button>
+          <span className="small muted">선택하지 않고 해설만 읽을 수도 있습니다.</span></div>
+      </div>}
     </Panel>
     <button className="btn sm" onClick={reset}>처음부터 다시 풀기</button>
   </>;
@@ -151,7 +178,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
   const item = pack?.cases.find(c => c.id === selected);
   const term = search.trim().toLowerCase();
   const shown = pack?.cases.filter(c => `${c.id} ${c.title} ${c.summary ?? ""}`.toLowerCase().includes(term)) || [];
-  return <div className="page">
+  return <div className="page practice-page">
     <div ref={heading} tabIndex={-1}>
       <PageHeader eyebrow="연습용 합성 자료" title={item ? `${item.id} · ${item.title}` : "가상 로그 예제"}
         desc={item ? item.summary : "가상 NDR·FW 기록으로 조사 판단을 연습하세요. 선택한 답은 실제 조사나 골든셋에 저장되지 않습니다."} />

@@ -13,6 +13,8 @@ type InvState = {
   tab: string;
   eventId: string | null;
   findingId: string | null;
+  questionActivity?: string | null;
+  followUpCheck?: { id: string; target_label: string } | null;
 };
 
 type Store = {

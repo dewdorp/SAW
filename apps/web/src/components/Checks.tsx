@@ -186,7 +186,7 @@ function CheckRow({ inv, c, me, canEdit, target }: { inv: string; c: any; me: st
   return (
     <div className="ck-item" style={old ? { opacity: 0.55 } : undefined}>
       <div className="row wrap small">
-        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : c.behavior ? <span className="tag">행위 · {ANSWER_STATES[c.behavior.answer_status] || "확인 기록"}</span> : c.guidance ? <span className="tag">{ANSWER_STATES[c.guidance.answer_status] || "답변 기록"}</span> : <span className="tag ok">직접 확인</span>}
+        {c.kind === "cited" ? <span className="tag">다른 조사 참고</span> : c.behavior ? <span className="tag">행위 · {ANSWER_STATES[c.behavior.answer_status] || "확인 기록"}</span> : c.guidance ? <span className="tag">{ANSWER_STATES[c.guidance.answer_status] || "답변 기록"}</span> : c.coverage === "observation" ? <span className="tag">자동 관측 근거</span> : <span className="tag ok">직접 확인</span>}
         <b>{c.question_labels.join(" · ")}</b>
         {c.judgement ? <span className={`ck ${c.judgement}`}>{c.judgement_ko}</span> : <span className="muted">판단 없음</span>}
         {c.coverage === "sample" && <span className="tag warn">표본 {fmtNum(c.checked)} / {fmtNum(c.total)}건</span>}

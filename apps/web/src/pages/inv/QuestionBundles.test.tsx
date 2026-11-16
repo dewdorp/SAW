@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useInvStore } from "../../context/invContext";
-import { mockApi, renderUI } from "../../test/helpers";
+import { useInv, useInvStore } from "../../context/invContext";
+import { ME, mockApi, renderUI } from "../../test/helpers";
+import { ChecksTab } from "./ChecksTab";
 import { QuestionBundles } from "./QuestionBundles";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -30,32 +31,78 @@ const data = { version: "question-bundles/2", sensitivity: "normal", note: "판�
       description: "조사 기간 전체에서 서로 다른 목적지 10개 이상", parameters: spreadDef.defaults }] };
 
 describe("question bundles", () => {
-  it("separates no data, nothing found and partial computation, and opens evidence in the card's own scope", async () => {
+  it("keeps the triggering window inclusive and creates only a linked draft when requested", async () => {
+    const span = { start: "2026-10-13T02:10:00Z", end: "2026-10-13T02:11:00Z", end_exclusive: false };
+    const candidate = { ...item, title: "10.20.0.2가 1분 동안 10개 포트에 접촉", evidence_time: span };
+    const bundles = [data.bundles[0], { ...data.bundles[1], items: [candidate], id: "spread", title: "D. 확산" },
+      { ...data.bundles[2], id: "periodic" }];
     const events = Array.from({ length: 12 }, (_, i) => ({ event_id: `e${i}` }));
     const api = mockApi({
-      "GET /investigations/i1/question-bundles": [200, data],
+      "GET /auth/me": [200, ME], "GET /investigations/i1/question-bundles": [200, { ...data, bundles }],
       "GET /investigations/i1/question-examples": [200, { items: [], total: 0, catalog_total: 120 }],
       "POST /investigations/i1/query/events": [200, { events }],
-      "POST /investigations/i1/checks": [201, { id: "c1" }],
-    }) as any;
-    renderUI(<QuestionBundles inv="i1" />);
-    expect(await screen.findByText("자료 부족 — 판단 불가")).toBeTruthy();
-    expect(screen.getAllByText(/이 기준에서는 보이지 않음 \(정상 판정 아님\)/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/일부만 계산: 출발지 3개 중 상위 1개만 계산/)).toBeTruthy();
-    expect(screen.getByText(/계산한 그룹 1개 \/ 전체 3개/)).toBeTruthy();
-    expect(screen.getByText("아직 연결 안 됨")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "같은 범위 전체 로그 보기" }));
+      "POST /investigations/i1/checks": [201, { id: "new-c1", target_label: candidate.title }],
+      "GET /investigations/i1/checks": [200, { checks: [] }],
+      "GET /investigations/i1/follow-ups": [200, { items: [] }],
+      "GET /investigations/i1/follow-ups/choices": [200, { users: [], org_units: [] }],
+      "GET /investigations/i1/follow-ups/draft": [200, { question: "이 시간에 승인된 점검이 있었나요?", target: { dst_ports: [443] } }],
+    });
+    function Flow() { const ctx = useInv("i1"); return ctx.tab === "checks" ? <ChecksTab inv="i1" /> : <QuestionBundles inv="i1" />; }
+    renderUI(<Flow />);
+    const activity = await screen.findByRole("button", { name: new RegExp("10개 포트에 접촉") });
+    expect(activity.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("정상 백업")).toBeNull();
+    expect(screen.getByText(/자료 부족 1개/)).toBeTruthy();
+    expect(screen.getByText(/일부 계산 1개/)).toBeTruthy();
+    fireEvent.click(activity);
+    expect(screen.getByText("정상 백업")).toBeTruthy();
+    expect(api.find("POST", "/investigations/i1/checks")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "근거 원문 보기" }));
     const st = useInvStore.getState().byInv.i1;
-    expect(st.tab).toBe("raw");
-    expect(st.filters).toEqual(item.filters);
-    expect(st.time).toEqual(TIME);
-    fireEvent.click(screen.getByRole("button", { name: "확인 기록으로 남기고 확인 요청 작성" }));
-    await waitFor(() => expect(api.find("POST", "/investigations/i1/checks")).toHaveLength(1));
-    expect(api.find("POST", "/investigations/i1/query/events")[0].body.time).toEqual(TIME);
+    expect(st.tab).toBe("raw"); expect(st.filters).toEqual(item.filters); expect(st.time).toEqual(span);
+    fireEvent.click(screen.getByRole("button", { name: "확인 기록 저장·요청 초안 열기" }));
+    await screen.findByDisplayValue("이 시간에 승인된 점검이 있었나요?");
+    expect(api.find("GET", "/investigations/i1/follow-ups/draft")[0].url).toContain("check_id=new-c1");
+    expect(api.find("POST", "/investigations/i1/follow-ups")).toHaveLength(0);
+    expect(api.find("POST", "/investigations/i1/query/events")[0].body.time).toEqual(span);
     const body = api.find("POST", "/investigations/i1/checks")[0].body;
-    expect(body.scope).toMatchObject({ coverage: "all", loaded: 12, query: { filters: item.filters, time: TIME } });
-    expect(body.scope.origin).toMatchObject({ kind: "question", bundle: "transfer", scope: SCOPE, item: { next_questions: item.next_questions } });
+    expect(body.scope).toMatchObject({ coverage: "observation", checked: 0, event_ids: [], query: { filters: item.filters, time: span } });
+    expect(body.scope.origin).toMatchObject({ kind: "question", bundle: "spread", scope: SCOPE, item: { next_questions: item.next_questions } });
+    expect(body.evidence).toEqual(events.map(e => e.event_id)); expect(body.judgement).toBeUndefined();
     expect(body.note).toContain("승인된 업무였는지 / 처리 내용");
+  });
+
+  it("shows a translated observed source, keeps the wider source condition in details, and opens the right editor", async () => {
+    const mixed = { ...item, title: "같은 포트 접촉", filters: [{field:"data_source",op:"in",value:["connection","zeek_conn","firewall","web"]}] };
+    const exact = { ...item, title: "반복 통신", filters: [...mixed.filters, {field:"data_source",op:"is",value:"connection"}] };
+    mockApi({ "GET /investigations/i1/question-bundles": [200, { ...data, bundles: [
+      {...data.bundles[1], id:"spread", items:[mixed]},
+      {...data.bundles[1], id:"periodic", items:[exact]} ] }],
+      "GET /investigations/i1/question-presets": [200, {items:[]}] });
+    renderUI(<QuestionBundles inv="i1" />);
+    const row = await screen.findByRole("button", {name:/같은 포트 접촉/});
+    expect(row.textContent).not.toMatch(/connection|zeek_conn|Zeek|자료 조건|원천:/);
+    expect(screen.getByRole("button", {name:/반복 통신/}).textContent).toContain("원천: 연결 기록");
+    fireEvent.click(row);
+    expect(screen.getByText("연결 기록 · Zeek 연결 · 방화벽 · HTTP 요청(NDR·웹)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:"이 유형의 검색 조건 조정"}));
+    expect(await screen.findByRole("region", {name:"조건 수정"})).toBeTruthy();
+    expect(screen.getByLabelText("관측창")).toBeTruthy();
+  });
+
+  it("distinguishes filtered statistics from candidates when no investigation period is declared", async () => {
+    useInvStore.getState().set("i1", { time: TIME, filters: [{field: "dst_port", op: "is", value: 443}] });
+    mockApi({ "GET /investigations/i1/question-bundles": [200, { ...data, scope: { ...SCOPE, time: null } }] });
+    renderUI(<QuestionBundles inv="i1" />);
+    expect(await screen.findByText(/기간 미지정 · 저장된 자료 기준/)).toBeTruthy();
+    expect(screen.getByText(/자료 통계는 현재 검색 조건을 따르며/)).toBeTruthy();
+  });
+
+  it("never describes a failed request as no matching activity", async () => {
+    mockApi({ "GET /investigations/i1/question-bundles": [500, { detail: "질문 조회 실패" }] });
+    renderUI(<QuestionBundles inv="i1" />);
+    expect((await screen.findByRole("alert")).textContent).toContain("질문 조회 실패");
+    expect(screen.queryByText(/표시할 후보가 없습니다/)).toBeNull();
   });
 
   it("edits a condition with typed inputs, runs it on the current logs and saves it as a versioned condition", async () => {
@@ -71,6 +118,7 @@ describe("question bundles", () => {
       "PUT /investigations/i1/question-presets/p1": [409, { detail: "다른 사람이 먼저 이 조건을 수정했습니다." }],
     }) as any;
     renderUI(<QuestionBundles inv="i1" />);
+    fireEvent.click(await screen.findByText("계산 결과와 조건"));
     fireEvent.click(await screen.findByRole("button", { name: "조건 수정" }));
     fireEvent.change(screen.getByLabelText("관측창"), { target: { value: "10" } });
     fireEvent.change(screen.getByLabelText("서로 다른 목적지 수"), { target: { value: "12" } });
@@ -108,6 +156,9 @@ describe("example specifications", () => {
       "GET /investigations/i1/question-presets": [200, { items: [] }],
     });
     renderUI(<QuestionBundles inv="i1" />);
+    const toggle = await screen.findByText("더 많은 예제 찾기");
+    expect(screen.queryByText("자체 실행기 없음 · 가까운 계산 Q06 연결됨")).toBeNull();
+    fireEvent.click(toggle.closest("summary")!);
     expect(await screen.findByText("자체 실행기 없음 · 가까운 계산 Q06 연결됨")).toBeTruthy();
     expect(screen.getByText("아직 실행 안 함")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "D027" }));
