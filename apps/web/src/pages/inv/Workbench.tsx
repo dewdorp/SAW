@@ -24,6 +24,7 @@ import { NetworkTab } from "./NetworkTab";
 import { NotesTab } from "./NotesTab";
 import { OverviewTab } from "./OverviewTab";
 import { InternalGoldenPanel } from "./InternalGoldenPanel";
+import { GoldenCandidateButton } from "../../components/GoldenCandidateButton";
 import { ScopePeriodEditor, ScopeSummary } from "./ScopeSummary";
 import { RawTab } from "./RawTab";
 import { RelationsTab } from "./RelationsTab";
@@ -229,6 +230,7 @@ export function Workbench() {
             {[...area.tabs, ...(showAdvanced || area.advanced?.some(([k]) => k === ctx.tab) ? area.advanced || [] : [])].map(([k, l]) => <button key={k} role="tab" aria-selected={ctx.tab === k} disabled={!enabled(k)} title={!enabled(k) ? "PCAP 또는 네트워크 로그 증거가 필요합니다" : undefined} className={ctx.tab === k ? "active" : ""} onClick={() => ctx.set({ tab: k })}>{l}</button>)}
             {area.advanced && <button className="ghost" aria-expanded={showAdvanced} onClick={() => setShowAdvanced(!showAdvanced)}>{showAdvanced ? "전문 분석 접기" : `전문 분석 ${area.advanced.length}개 펼치기`}</button>}
             {ctx.tab === "entity" && <button className="active">엔티티</button>}
+            {area.key === "decide" && <span style={{ marginLeft: "auto" }}><GoldenCandidateButton sourceKind="investigation" sourceId={id} /></span>}
           </div>
           <div className="tab-body">
             {ctx.tab === "summary" && <ScopeSummary inv={id} />}

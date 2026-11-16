@@ -209,6 +209,9 @@ table.t tr.hl td { background: var(--hl-bg); }
 .tabs button:hover:not(:disabled) { color: var(--fg); }
 .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
 .tabs button:disabled { color: var(--fg-2); opacity: .5; cursor: default; }
+/* The golden-candidate control sits in the tab row but is an action, not a tab. */
+.tabs .golden-candidate .btn { border: 1px solid var(--line-2); border-radius: var(--r); padding: 4px 10px; color: var(--fg); background: var(--panel); }
+.tabs .golden-candidate .btn.ghost { border-color: transparent; background: none; color: var(--accent-2); }
 .tab-body { overflow: auto; padding: 14px; min-height: 0; }
 .drawer { border-top: 1px solid var(--line-2); background: var(--bg-1); height: 300px; display: grid; grid-template-rows: auto 1fr; }
 .drawer.closed { height: auto; }

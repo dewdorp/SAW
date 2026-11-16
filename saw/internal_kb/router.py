@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from saw.apps.api.deps import AuthContext, auth, db
-from saw.internal_kb import golden, signatures
+from saw.internal_kb import candidates, golden, signatures
 
 router = APIRouter(tags=["internal-knowledge"])
 
@@ -76,3 +76,43 @@ def signature_history(sid: str, ctx: AuthContext = Depends(auth), s: Session = D
 @router.get("/investigations/{inv_id}/alert-names")
 def investigation_alert_names(inv_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
     return signatures.investigation_alerts(s, ctx.principal, inv_id)
+
+
+@router.get("/knowledge/golden-candidates")
+def candidate_list(q: str = Query("", max_length=200), source_kind: str | None = Query(None, pattern="^(casebook|investigation)$"),
+                   status: str | None = Query(None, pattern="^(candidate|saved)$"), source_id: str | None = Query(None, max_length=64),
+                   ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return {"items": candidates.list_items(s, ctx.principal, q=q, source_kind=source_kind, status=status,
+                                           source_id=source_id)}
+
+
+@router.post("/knowledge/golden-candidates", status_code=201)
+def candidate_add(body: candidates.AddIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return candidates.add(s, ctx.principal, body)
+
+
+@router.patch("/knowledge/golden-candidates/{candidate_id}")
+def candidate_update(candidate_id: str, body: candidates.UpdateIn, ctx: AuthContext = Depends(auth),
+                     s: Session = Depends(db, scope="function")):
+    return candidates.update(s, ctx.principal, candidate_id, body)
+
+
+@router.delete("/knowledge/golden-candidates/{candidate_id}", status_code=204)
+def candidate_remove(candidate_id: str, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    candidates.remove(s, ctx.principal, candidate_id)
+
+
+@router.post("/knowledge/golden-candidates/save")
+def candidate_save(body: candidates.IdsIn, ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    return {"items": candidates.save(s, ctx.principal, body)}
+
+
+@router.post("/knowledge/golden-candidates/export")
+def candidate_export(body: candidates.IdsIn, audience: str = Query(..., pattern="^(agent|evaluator)$"),
+                     ctx: AuthContext = Depends(auth), s: Session = Depends(db, scope="function")):
+    from fastapi.responses import Response
+
+    data = candidates.export(s, ctx.principal, body, audience)
+    name = "agent-input.jsonl" if audience == "agent" else "evaluator-answer.jsonl"
+    return Response(data, media_type="application/x-ndjson",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})

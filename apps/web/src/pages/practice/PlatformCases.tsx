@@ -1,11 +1,13 @@
 /// <reference types="vite/client" />
 import { useEffect, useId, useState } from "react";
+import { GoldenCandidateButton } from "../../components/GoldenCandidateButton";
 import "./platformCases.css";
 
 type Summary = { id: string; title: string; classification: string; category?: string; route?: string; keywords?: string };
 type Step = { action: string; finding: string; facts?: { label: string; value: string }[]; rows?: Record<string, unknown>[]; image?: string };
 type Case = Summary & { steps: Step[] };
-type Props = { assetBase?: string; assetUrl?: (filename: string) => string; loadJson?: (filename: string) => Promise<unknown>; onDownload?: (id: string) => void };
+type Props = { assetBase?: string; assetUrl?: (filename: string) => string; loadJson?: (filename: string) => Promise<unknown>; onDownload?: (id: string) => void;
+  /** A case to open first (e.g. from the golden-set candidate inbox). */ initialCase?: string; candidates?: boolean };
 const casePageSize = 9;
 const autoStages = ["조사 범위", "SAW 계산과 선정 근거", "원문 필터와 실제 행", "추가 자료 대조", "판단 예시"];
 
@@ -23,7 +25,7 @@ function StepRows({ rows }: { rows: Record<string, unknown>[] }) {
     <tbody>{rows.map((row, i) => <tr key={i}>{keys.map(k => <td key={k}>{row[k] == null || row[k] === "" ? "—" : String(row[k])}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export function PlatformCases({ assetBase = `${import.meta.env.BASE_URL}reference-data/platform-cases/`, assetUrl, loadJson, onDownload }: Props) {
+export function PlatformCases({ assetBase = `${import.meta.env.BASE_URL}reference-data/platform-cases/`, assetUrl, loadJson, onDownload, initialCase, candidates = false }: Props) {
   const [items, setItems] = useState<Summary[]>([]);
   const [selected, select] = useState("");
   const [query, setQuery] = useState("");
@@ -54,10 +56,13 @@ export function PlatformCases({ assetBase = `${import.meta.env.BASE_URL}referenc
       const index = data as Summary[];
       if (!Array.isArray(index) || !index.length) throw Error("empty index");
       setItems(index);
-      select(previous => previous || (index.find(c => c.route === "pivot") ?? index[0]).id);
+      const wanted = index.findIndex(c => c.id === initialCase);
+      if (wanted >= 0) setListPage(Math.floor(wanted / casePageSize));
+      // A deep link (?worked=W26) wins over an earlier selection; without one the selection is kept.
+      select(previous => wanted >= 0 ? index[wanted].id : previous || (index.find(c => c.route === "pivot") ?? index[0]).id);
     }).catch(() => { if (active) setFailure("index"); });
     return () => { active = false; };
-  }, [assetBase, loadJson, attempt]);
+  }, [assetBase, loadJson, attempt, initialCase]);
 
   useEffect(() => {
     if (!currentId) return;
@@ -96,7 +101,8 @@ export function PlatformCases({ assetBase = `${import.meta.env.BASE_URL}referenc
       {!!visible.length && <nav aria-label="플랫폼 분석 사례" className="pc-cases">{visible.map(c => <button type="button" key={c.id} aria-pressed={currentId === c.id} onClick={() => { select(c.id); setPage(0); }}><small>{c.id}{c.category && ` · ${c.category}`}</small>{c.title}</button>)}</nav>}
     </>}
     {failure && (failure === "index" || failure === currentId) ? <p role="alert">사례 기록을 불러오지 못했습니다. <button type="button" onClick={() => { setFailure(""); retry(n => n + 1); }}>다시 시도</button></p> : items.length && !currentId ? <p>조건에 맞는 사례가 없습니다.</p> : !step || !item ? <p role="status">사례 기록을 불러오는 중…</p> : <article>
-      <div className="pc-title"><h3>{item.id} · {item.title}</h3>{onDownload ? <button type="button" onClick={() => onDownload(item.id)}>이 사례 원본 ZIP 받기</button> : <a href={asset(`${item.id}.zip`)} download={`${item.id}.zip`}>이 사례 원본 ZIP 받기</a>}</div>
+      <div className="pc-title"><h3>{item.id} · {item.title}</h3>{onDownload ? <button type="button" onClick={() => onDownload(item.id)}>이 사례 원본 ZIP 받기</button> : <a href={asset(`${item.id}.zip`)} download={`${item.id}.zip`}>이 사례 원본 ZIP 받기</a>}
+        {candidates && <GoldenCandidateButton sourceKind="casebook" sourceId={item.id} />}</div>
       <nav className="pc-steps" aria-label="분석 단계">{stages.map((stage, i) => <button type="button" key={stage} aria-current={page === i ? "step" : undefined} onClick={() => setPage(i)}>{i + 1}. {stage}</button>)}</nav>
       <section key={`${item.id}-${page}`} aria-label="선택한 분석 단계" className="pc-step"><small>단계 {page + 1} / {stages.length}</small><h4>{stages[page]}</h4>
         <p className="pc-action"><b>화면에서 할 일</b> {step.action}</p>
