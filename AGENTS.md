@@ -1,8 +1,8 @@
 # SAW — 작업자(AI 포함) 안내
 
-## 2026-11-14 자동 위협헌팅 개편(주 메뉴 3개·헌팅 실행·시나리오·자산·AI 조사) — 0.2.6 개발 브랜치, 후보 매체
+## 2026-11-14 자동 위협헌팅 개편(주 메뉴 3개·헌팅 실행·시나리오·자산·AI 조사) — 0.2.6 프리릴리스
 
-- 기준 요구는 `SAW_Claude_Implementation_Prompt_20261113`이다. 브랜치 claude/flow-knowledge-20261112(v0.2.5 PR #13 위, PR #14 casebook-access 병합). 브랜치를 push했고 PR [dewdorp/SAW#15](https://github.com/dewdorp/SAW/pull/15)(기준 PR #14 브랜치)를 만들었다. 후보 매체를 만들었다. **릴리스 게시·병합은 하지 않았다.**
+- 기준 요구는 `SAW_Claude_Implementation_Prompt_20261113`이다. 브랜치 claude/flow-knowledge-20261112(v0.2.5 PR #13 위, PR #14 casebook-access 병합). 브랜치를 push했고 PR [dewdorp/SAW#15](https://github.com/dewdorp/SAW/pull/15)(기준 PR #14 브랜치)를 만들었다. 후보 매체를 만들었다. a21 통과 뒤 사용자 요청으로 프리릴리스 [v0.2.6-pilot.20261114](https://github.com/dewdorp/SAW/releases/tag/v0.2.6-pilot.20261114)(태그 → ac120f8, 자산 6개: ZIP·manifest·해시·운영 업데이트 절차·검증 기록·사용 안내)를 게시했고 원격 크기·SHA-256을 대조했다. Latest는 계속 v0.2.3이다. **병합은 하지 않았다.**
 - 구조(ADR-0020): 주 메뉴는 헌팅 / 시나리오 / 자산·업무이고 나머지는 도구·설정. 기존 주소와 자료는 그대로다. 헌팅은 기존 조사 1건이다.
   - 헌팅 실행(hunt_run): 의심 대상·가설 없이 선택 자료 전체에서 활동을 찾는다. 방법별 계산 결과(후보 있음/조건 일치 없음/자료 부족/일부 처리/실패/미지원)와 실제 읽은 범위를 남긴다. "기본 분석 · AI 미연결"로 표시한다.
   - 활동: 관측 → 확인 이유 → 정상 가능성 → 미확인 → 원문 → 판단. 검토(hunt_review)는 미검토/추가 확인/정상 업무/위협 확인이며 계산 결과와 섞지 않는다.
