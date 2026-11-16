@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
+from collections import Counter
 
 from sqlalchemy.orm import Session
 
@@ -87,15 +89,28 @@ def universal(s: Session, p: Principal, text: str) -> dict:
                 results["payload"] = {"error": str(e)}
     if "log" in auto:
         lg = parse_text(text, investigation_id="adhoc")
-        results["log"] = summarize_log(lg)
+        results["log"] = summarize_log(lg, web_analysis=True)
     res["results"] = results
     res["input_masked"] = mask_text(text).kinds
     return res
 
 
-def summarize_log(lg: dict) -> dict:
+def summarize_log(lg: dict, *, web_analysis: bool = False) -> dict:
+    out = _summary(lg)
+    from saw.analyzers.weblog import FORMAT_KO, error_summary, run_web_detectors, source_summary
+
+    out["format_ko"] = FORMAT_KO.get(lg["parser"] or "")
     evs = lg["events"]
-    from collections import Counter
+    web = [e for e in evs if e.get("data_source") in ("web", "waf")]
+    if web_analysis and web:
+        out["web"] = {"events": len(web), "findings": run_web_detectors(web, "paste-" + uuid.uuid4().hex),
+                      "sources": source_summary(web), "errors": error_summary(web),
+                      "status": dict(Counter(e.get("status_class") or "없음" for e in web))}
+    return out
+
+
+def _summary(lg: dict) -> dict:
+    evs = lg["events"]
 
     def top(field: str, n: int = 5):
         return [{"value": k, "count": v} for k, v in Counter(e.get(field) for e in evs if e.get(field)).most_common(n)]
@@ -129,4 +144,4 @@ def diff(s: Session, p: Principal, requests: list[str]) -> dict:
 
 def log(s: Session, p: Principal, text: str, parser_id: str | None) -> dict:
     _audit(s, p, "log", text)
-    return summarize_log(parse_text(text, parser_id=parser_id))
+    return summarize_log(parse_text(text, parser_id=parser_id), web_analysis=True)

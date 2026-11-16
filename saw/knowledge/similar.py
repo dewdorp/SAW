@@ -17,6 +17,7 @@ from sqlalchemy import JSON, DateTime, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from saw.detection.derived_access import (
+    combined_source_ids,
     require_investigation_results,
     source_ids,
     visible_snapshot,
@@ -130,7 +131,7 @@ def index_investigation(s: Session, inv) -> KnowledgeDoc | None:
         return None
     return _upsert(s, "investigation", inv.id, inv.display_id, inv.title, inv.verdict, from_findings(fs[:10]),
                    inv.verdict_reason or "", {"closed_at": inv.closed_at.isoformat() if inv.closed_at else None,
-                    "_source_investigation_ids": sorted(source_ids(fs))})
+                    "_source_investigation_ids": sorted(combined_source_ids(fs))})
 
 
 def _bm25(query: list[str], docs: list[list[str]], k1: float = 1.2, b: float = 0.75) -> list[float]:

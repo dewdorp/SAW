@@ -83,3 +83,20 @@ def diff(body: DiffIn, ctx: AuthContext = Depends(require_perm("analyze.run")), 
 def log(body: LogIn, ctx: AuthContext = Depends(require_perm("analyze.run")), s: Session = Depends(db, scope="function")):
     _limit(body.text)
     return svc.log(s, ctx.principal, body.text, body.parser_id)
+
+
+@router.get("/log/web-cases")
+def web_log_cases(ctx: AuthContext = Depends(require_perm("analyze.run"))):
+    """Synthetic web server log cases: what each one shows and which result the analysis should give."""
+    from saw.analyzers.weblog_cases import catalog
+
+    return {"items": catalog()}
+
+
+@router.get("/log/web-cases/{case_id}")
+def web_log_case(case_id: str, ctx: AuthContext = Depends(require_perm("analyze.run"))):
+    from saw.analyzers.weblog_cases import CASES, build
+
+    if case_id not in {c["id"] for c in CASES}:
+        raise HTTPException(404, "case_not_found")
+    return {"id": case_id, "text": build(case_id)}
