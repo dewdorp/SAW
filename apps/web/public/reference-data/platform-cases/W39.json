@@ -1,0 +1,184 @@
+{
+  "id": "W39",
+  "title": "컨테이너 프로세스의 원격 페이로드 수신",
+  "classification": "침해 확인",
+  "category": "단말·서버",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "런타임 센서가 이미지에 없는 실행 파일을 보고했다. 조사 대상은 k8s-node39(10.80.39.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W39 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,974건 (FW 65,835 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "노드 출구 주소를 컨테이너 런타임과 소켓 감사의 워크로드 식별자로 역추적한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "런타임 센서가 이미지에 없는 실행 파일을 보고했다. 조사 대상은 k8s-node39(10.80.39.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.39.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "63건"
+        }
+      ],
+      "image": "shots/W39-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "198.51.100.39의 443번 세션을 조사한다. 노드 출구 주소를 컨테이너 런타임과 소켓 감사의 워크로드 식별자로 역추적한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.39.15 / 목적지 포트 같음 443"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-03 05:17:00 ~ 2025-03-03 05:21:33"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "63건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 58,560행",
+          "KST": "2025-03-03T05:19:03+09:00",
+          "출발지": "10.80.39.15:46391",
+          "목적지": "198.51.100.39:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "810",
+          "수신 B": "41984"
+        },
+        {
+          "원본 위치": "fw.csv 58,561행",
+          "KST": "2025-03-03T05:19:32+09:00",
+          "출발지": "10.80.39.15:46392",
+          "목적지": "198.51.100.39:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "610",
+          "수신 B": "2050"
+        }
+      ],
+      "image": "shots/W39-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 서명된 배포 이미지에는 실행 파일이 없고 쓰기 계층에서만 발견됐다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W39-E1",
+          "자료 출처": "컨테이너 런타임",
+          "대조할 값": "시각=2025-03-03T05:18:57+09:00 · subject_host=k8s-node39 · 대상 IP=10.80.39.15 · 계정=app39 · 상대 IP=198.51.100.39 · container=invoice-api-39 / 쓰기 계층에 /tmp/loader 생성 · SHA-256=f87c09cabdfece26fa677b167d484a254eb311ff0759cf37fc82cd94dc7b00bd"
+        },
+        {
+          "근거 ID": "W39-E2",
+          "자료 출처": "eBPF 실행 감사",
+          "대조할 값": "시각=2025-03-03T05:19:03+09:00 · subject_host=k8s-node39 · 대상 IP=10.80.39.15 · 계정=app39 · 상대 IP=198.51.100.39 · 프로세스=애플리케이션 자식이 /tmp/loader 실행 후 원격 소켓 개설"
+        },
+        {
+          "근거 ID": "W39-E3",
+          "자료 출처": "격리 표본 분석",
+          "대조할 값": "시각=2025-03-03T05:34:00+09:00 · subject_host=k8s-node39 · 대상 IP=10.80.39.15 · 계정=app39 · 상대 IP=198.51.100.39 · 판정=동일 표본에서 백도어 명령 처리 루프 재현 · SHA-256=f87c09cabdfece26fa677b167d484a254eb311ff0759cf37fc82cd94dc7b00bd"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "컨테이너 안에서 비인가 백도어가 실행됐다. 호스트 탈출 여부는 별도 조사 대상이다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "동일 이미지 배포본의 쓰기 계층과 호스트 네임스페이스 진입 기록을 확인한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65835,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.39.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 63,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.39.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 443
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-03T05:17:00+09:00",
+      "end": "2025-03-03T05:21:33+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      58560,
+      58561
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

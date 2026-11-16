@@ -55,7 +55,7 @@ export function Home() {
     <div className="page">
       <PageHeader eyebrow="SOC Analysis Workbench" title="무엇을 분석할까요?"
         actions={<div className="row wrap"><button className="btn primary" onClick={() => setUpload({ kind: "auto" })}><Icon name="upload" size={16} /> NDR·FW 로그 분석</button>
-          <Link to="/practice" className="btn" title="가상 NDR·FW 로그로 판단하고 정답과 오답의 근거를 비교합니다"><Icon name="book" size={16} /> 가상 로그 예제</Link></div>}
+          <Link to="/casebook" className="btn" title="사례별 원문 로그, 분석 순서와 근거가 있는 결론을 봅니다"><Icon name="book" size={16} /> 분석 사례집</Link></div>}
         desc="NDR·방화벽 로그는 관계사와 파일을 선택하면 형식을 자동으로 확인합니다. IP나 HTTP 요청 한 건은 아래에서 빠르게 분석할 수 있습니다." />
       <div className="stats">
         <Stat label="진행 중인 조사" value={open.length} onClick={() => nav("/investigations")} />

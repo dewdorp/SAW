@@ -1,0 +1,182 @@
+{
+  "id": "W04",
+  "title": "96 MiB HTTP 응답과 승인된 배포",
+  "classification": "정상 · 확인된 배포 범위",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 관계사와 기간 지정 → 증거 추가",
+      "finding": "이 사례의 원본 ZIP을 받아 fw.csv와 ndr.csv를 같은 시험 조사에 추가합니다. 전체 현황에서 처리 건수를 맞춰 보고, followup.json은 원문을 본 다음 담당자 회신을 대조할 때 엽니다.",
+      "facts": [
+        {
+          "label": "조사 범위",
+          "value": "site-w04 · 2025-07-14 ~ 2025-09-14 (KST, 63일)"
+        },
+        {
+          "label": "처리한 원본",
+          "value": "FW 66,528건 + NDR 41,718건 = 108,246건"
+        },
+        {
+          "label": "시작 화면",
+          "value": "전체 현황 → 검토할 활동"
+        },
+        {
+          "label": "따라 할 수 있는 버전",
+          "value": "0.2.4의 검토할 활동에서 재현 가능"
+        }
+      ]
+    },
+    {
+      "action": "전체 현황 → 검토할 활동 → 대량 전송 → 10.64.8.44의 후보 열기",
+      "finding": "같은 주소 쌍·로그 종류에서 한 방향의 바이트 합계가 50 MiB 이상이면 후보입니다. HTTP 응답은 서버에서 클라이언트 쪽으로 이동하므로 요청 주소의 방향과 구별합니다.",
+      "facts": [
+        {
+          "label": "화면에 표시된 후보",
+          "value": "클라이언트 10.64.8.44 ↔ 서버 10.64.20.12 · 응답 96.0 MiB"
+        },
+        {
+          "label": "SAW가 관측한 값",
+          "value": "12건의 합계: 요청 5.6 KiB · 응답 96.0 MiB. 선택한 기준 50.0 MiB 이상입니다."
+        },
+        {
+          "label": "민감도",
+          "value": "보통 · 기본 조건 사용"
+        }
+      ],
+      "image": "shots/W04-candidate.png"
+    },
+    {
+      "action": "후보 → 근거 12건 보기 → 전체 로그",
+      "finding": "status=206인 분할 응답에서 cs_bytes(요청)와 sc_bytes(응답)를 각각 읽습니다. 이 예제의 큰 값은 서버가 반환한 패키지 조각에 있습니다.",
+      "facts": [
+        {
+          "label": "동일 조건으로 원문을 다시 조회",
+          "value": "NDR 12건"
+        },
+        {
+          "label": "SAW가 넘긴 필터",
+          "value": "로그 종류 connection, firewall, zeek_conn, web / 로그 종류 web / 출발지 10.64.8.44 / 목적지 10.64.20.12"
+        },
+        {
+          "label": "조회 기간",
+          "value": "2025-07-14 00:00:00 ~ 2025-09-15 00:00:00 KST (끝 시각 제외)"
+        }
+      ],
+      "rows": [
+        {
+          "원본 행": "ndr.csv · 40748",
+          "KST": "09-13 13:01:30",
+          "출발지": "10.64.8.44:50000",
+          "목적지": "10.64.20.12:443",
+          "요청": "GET /packages/r17/part-01",
+          "HTTP 상태": "206",
+          "요청 B": "480",
+          "응답 B": "8388608"
+        },
+        {
+          "원본 행": "ndr.csv · 40749",
+          "KST": "09-13 13:02:40",
+          "출발지": "10.64.8.44:50001",
+          "목적지": "10.64.20.12:443",
+          "요청": "GET /packages/r17/part-02",
+          "HTTP 상태": "206",
+          "요청 B": "480",
+          "응답 B": "8388608"
+        },
+        {
+          "원본 행": "ndr.csv · 40764",
+          "KST": "09-13 13:14:20",
+          "출발지": "10.64.8.44:50011",
+          "목적지": "10.64.20.12:443",
+          "요청": "GET /packages/r17/part-12",
+          "HTTP 상태": "206",
+          "요청 B": "480",
+          "응답 B": "8388608"
+        }
+      ],
+      "image": "shots/W04-raw.png"
+    },
+    {
+      "action": "실제 조사에서는 추가 확인 요청에 회신을 기록합니다. 이 예시에서는 원본 ZIP의 followup.json을 대조합니다.",
+      "finding": "REL-418의 대상·시간·릴리스 r17·12개 조각·전체 바이트를 HTTP 응답과 대조합니다. 설치 영수증 INV-419의 패키지 해시는 명세와 일치합니다. 해시 일치의 근거는 이 두 업무 기록입니다.",
+      "facts": [
+        {
+          "label": "회신 출처",
+          "value": "REL-418 사전 승인 배포 명세 · INV-419 수신 단말 설치 영수증"
+        },
+        {
+          "label": "미확인 범위",
+          "value": "확인은 이 배포 명세의 시간·파일·대상 범위에 한정한다."
+        },
+        {
+          "label": "명세 ↔ 설치 영수증",
+          "value": "100,663,296 B · 12개 조각 · SHA-256 일치"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "해당 단말이 승인된 배포 시간에 r17 패키지 12개 조각을 수신했고 설치 영수증이 명세와 일치합니다. 이 12개 응답을 정상 배포로 기록합니다.",
+      "facts": [
+        {
+          "label": "기록할 확인 주제와 판단",
+          "value": "정상 업무 여부 → 정상 (선택한 배포 12건)"
+        },
+        {
+          "label": "다음 조치",
+          "value": "이 판단은 위 배포와 수신 단말에 한정합니다. 다른 시각의 대량 전송에는 별도 근거가 필요합니다."
+        },
+        {
+          "label": "근거 범위",
+          "value": "예시에 표시된 대표 행만 읽었다면 ‘일부만 봤음(표본)’을 선택합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "engine": {
+      "commit": "072c3f13aafe3b5211f564de0678f03f83feec95",
+      "method": "Native English CSV parser → registry.to_ces → SQLiteEventStore → question_bundles.run_one(normal) → SQLiteEventStore.iterate with candidate filters and period → source CSV byte offset verification",
+      "analysis_projection": "full normalized event store",
+      "sensitivity": "normal"
+    },
+    "counts": {
+      "fw": 66528,
+      "ndr": 41718
+    },
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "in",
+        "value": [
+          "connection",
+          "firewall",
+          "zeek_conn",
+          "web"
+        ]
+      },
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.64.8.44"
+      },
+      {
+        "field": "dst_ip",
+        "op": "is",
+        "value": "10.64.20.12"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-07-14T00:00:00+09:00",
+      "end": "2025-09-15T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 12,
+    "source_reference_count": 12,
+    "normalized_extra_count": 0
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "id": "W32",
+  "title": "도메인 컨트롤러의 시간 동기화 질의",
+  "classification": "정상 확인",
+  "category": "단말·서버",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "NTP 송신 빈도 경보가 시간 서버 전환 직후 발생했다. 조사 대상은 dc32(10.80.32.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W32 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,041건 (FW 65,902 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "시간 서비스의 피어 변경 시점에 보조 서버의 NTP 응답을 확인한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "NTP 송신 빈도 경보가 시간 서버 전환 직후 발생했다. 조사 대상은 dc32(10.80.32.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.32.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "130건"
+        }
+      ],
+      "image": "shots/W32-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "10.81.32.8의 123번 세션을 조사한다. 시간 서비스의 피어 변경 시점에 보조 서버의 NTP 응답을 확인한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.32.15 / 목적지 포트 같음 123"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-03 08:10:00 ~ 2025-03-03 08:14:20"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "130건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 58,738행",
+          "KST": "2025-03-03T08:12:03+09:00",
+          "출발지": "10.80.32.15:46321",
+          "목적지": "10.81.32.8:123",
+          "프로토콜": "UDP",
+          "FW 처리": "allow",
+          "송신 B": "90",
+          "수신 B": "90"
+        },
+        {
+          "원본 위치": "fw.csv 58,740행",
+          "KST": "2025-03-03T08:12:19+09:00",
+          "출발지": "10.80.32.15:46322",
+          "목적지": "10.81.32.8:123",
+          "프로토콜": "UDP",
+          "FW 처리": "allow",
+          "송신 B": "90",
+          "수신 B": "90"
+        }
+      ],
+      "image": "shots/W32-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 전환 전후의 상대 서버는 달랐지만 양쪽 모두 승인된 시간 서버였다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W32-E1",
+          "자료 출처": "시간 서비스",
+          "대조할 값": "시각=2025-03-03T08:12:04+09:00 · subject_host=dc32 · 대상 IP=10.80.32.15 · 계정=DC32$ · 상대 IP=10.81.32.8 · 프로세스=W32Time / 동기화 성공"
+        },
+        {
+          "근거 ID": "W32-E2",
+          "자료 출처": "구성 관리",
+          "대조할 값": "시각=2025-03-03T07:42:00+09:00 · subject_host=dc32 · 대상 IP=10.80.32.15 · 계정=DC32$ · 상대 IP=10.81.32.8 · peer=승인된 사내 NTP 보조 서버"
+        },
+        {
+          "근거 ID": "W32-E3",
+          "자료 출처": "시간 서버 감사",
+          "대조할 값": "시각=2025-03-03T08:12:03+09:00 · subject_host=dc32 · 대상 IP=10.80.32.15 · 계정=DC32$ · 상대 IP=10.81.32.8 · request_mode=client mode 3 / 인증 성공"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "보조 시간 서버 전환 뒤의 정상 동기화로 확인했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "정상 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "기본 시간 서버 복구 뒤 선택된 피어와 시간 오프셋을 점검한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65902,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.32.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 130,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.32.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 123
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-03T08:10:00+09:00",
+      "end": "2025-03-03T08:14:20+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      58738,
+      58740
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

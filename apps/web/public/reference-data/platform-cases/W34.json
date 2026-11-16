@@ -1,0 +1,184 @@
+{
+  "id": "W34",
+  "title": "웹 서버 작업 프로세스의 외부 연결",
+  "classification": "침해 확인",
+  "category": "단말·서버",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "웹 무결성 점검에서 승인되지 않은 처리기 파일을 발견했다. 조사 대상은 iis-prod34(10.80.34.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W34 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,982건 (FW 65,843 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "IIS 요청 처리 뒤 외부 연결을 연 자식 프로세스를 추적한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "웹 무결성 점검에서 승인되지 않은 처리기 파일을 발견했다. 조사 대상은 iis-prod34(10.80.34.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.34.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "71건"
+        }
+      ],
+      "image": "shots/W34-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "192.0.2.34의 443번 세션을 조사한다. IIS 요청 처리 뒤 외부 연결을 연 자식 프로세스를 추적한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.34.15 / 목적지 포트 같음 443"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-05 13:12:00 ~ 2025-03-05 13:16:22"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "71건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 61,166행",
+          "KST": "2025-03-05T13:14:03+09:00",
+          "출발지": "10.80.34.15:46341",
+          "목적지": "192.0.2.34:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "640",
+          "수신 B": "760"
+        },
+        {
+          "원본 위치": "fw.csv 61,168행",
+          "KST": "2025-03-05T13:14:21+09:00",
+          "출발지": "10.80.34.15:46342",
+          "목적지": "192.0.2.34:443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "870",
+          "수신 B": "1800"
+        }
+      ],
+      "image": "shots/W34-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 정상 업로드 디렉터리에는 실행 가능한 처리기가 없다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W34-E1",
+          "자료 출처": "웹 무결성",
+          "대조할 값": "시각=2025-03-05T13:13:00+09:00 · subject_host=iis-prod34 · 대상 IP=10.80.34.15 · 계정=IIS APPPOOL/site34 · 상대 IP=192.0.2.34 · file=배포 목록 밖 /site/upload/cache.aspx"
+        },
+        {
+          "근거 ID": "W34-E2",
+          "자료 출처": "IIS 요청 감사",
+          "대조할 값": "시각=2025-03-05T13:14:00+09:00 · subject_host=iis-prod34 · 대상 IP=10.80.34.15 · 계정=IIS APPPOOL/site34 · 상대 IP=192.0.2.34 · request=POST /upload/cache.aspx → 200"
+        },
+        {
+          "근거 ID": "W34-E3",
+          "자료 출처": "서버 EDR",
+          "대조할 값": "시각=2025-03-05T13:14:03+09:00 · subject_host=iis-prod34 · 대상 IP=10.80.34.15 · 계정=IIS APPPOOL/site34 · 상대 IP=192.0.2.34 · process_chain=w3wp.exe가 cache.aspx 요청 처리 중 비인가 셸을 생성하고 외부 접속"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "배포 밖의 처리기가 요청을 받아 셸을 실행한 사실을 확인했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "파일 최초 쓰기 주체와 동일 처리기에 대한 이전 요청을 복원한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65843,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.34.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 71,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.34.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 443
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-05T13:12:00+09:00",
+      "end": "2025-03-05T13:16:22+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      61166,
+      61168
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

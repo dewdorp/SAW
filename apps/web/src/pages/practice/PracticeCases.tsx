@@ -1,29 +1,12 @@
 /// <reference types="vite/client" />
 import { useEffect, useId, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { conclusion, loadBundledPack, type PracticeCase, type PracticePack, type PracticeStage, type PracticeEvidence } from "./casebookData";
+import { notesFor } from "./caseNotes";
 import { Loading, Panel } from "../../components/common";
 import { PageHeader } from "../../components/ui";
+import { PlatformCases } from "./PlatformCases";
 import "./practice.css";
-
-type PracticeEvidence = {
-  id: string; source: string; summary: string;
-  fields?: Record<string, string | number | boolean | null>;
-};
-export type PracticeStage = {
-  id: string; title: string; observation?: string; evidence: PracticeEvidence[]; question: string;
-  options: { id: string; text: string; explanation: string }[];
-  correctId: string; rationale: string; nextCheck?: string;
-};
-type PracticeCase = {
-  id: string; title: string; summary?: string; sources: string[];
-  initial: PracticeStage; followups: PracticeStage[];
-};
-export type PracticePack = { version: string; cases: PracticeCase[] };
-
-// The release contains this module. Loading it does not query or write an investigation.
-async function loadBundledPack(): Promise<PracticePack> {
-  const { default: pack } = await import("./practice-cases.json");
-  return pack as unknown as PracticePack;
-}
 
 const meanings: Record<string, string> = {
   event_time: "관측 시각", _time: "기록 시각", _site: "수집 지점", app: "애플리케이션", _schema: "자료 형식",
@@ -67,99 +50,76 @@ function Evidence({ stage }: { stage: PracticeStage }) {
   </div>;
 }
 
-type Answer = { choice?: string; revealed: boolean };
-function Exercise({ item }: { item: PracticeCase }) {
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, Answer>>({});
-  const [resetKey, setResetKey] = useState(0);
-  const radioGroup = useId(), questionId = useId();
-  const questionEl = useRef<HTMLHeadingElement>(null), resultEl = useRef<HTMLElement>(null), choicesEl = useRef<HTMLFieldSetElement>(null);
-  const focusAfterChange = useRef<"question" | "result" | "choices" | null>(null);
-  const stage = step === 0 ? item.initial : item.followups[step - 1];
-  const answer = answers[step] ?? { revealed: false };
-  const put = (value: Answer) => setAnswers(old => ({ ...old, [step]: value }));
-  const reset = () => { focusAfterChange.current = "question"; setStep(0); setAnswers({}); setResetKey(n => n + 1); };
-  const goToStep = (i: number) => { focusAfterChange.current = "question"; setStep(i); };
-  useEffect(() => {
-    const where = focusAfterChange.current; focusAfterChange.current = null;
-    if (where === "question") questionEl.current?.focus();
-    if (where === "result") resultEl.current?.focus();
-    if (where === "choices") (choicesEl.current?.querySelector<HTMLInputElement>("input:checked") ?? choicesEl.current?.querySelector<HTMLInputElement>("input"))?.focus();
-  }, [step, resetKey, answer.revealed]);
-  const correct = stage.options.find(o => o.id === stage.correctId)!;
-  const chosen = stage.options.find(o => o.id === answer.choice);
-  const others = stage.options.filter(o => o.id !== correct.id && o.id !== chosen?.id);
-  const files = `${import.meta.env.BASE_URL}practice-data/v1/${encodeURIComponent(item.id)}/`;
-  const showFollowups = !!item.followups.length && (answers[0]?.revealed || step !== 0);
-
-  return <>
-    <p className="row wrap small" role="note" style={{ gap: 6 }}>
-      <span className="tag warn">가상 로그</span>
-      <span>합성 자료입니다. 관계사 이름·주소·회신은 모두 가상이며 실제 관계사나 실제 로그가 아닙니다.</span>
-    </p>
-    {showFollowups && <Panel>
-      <div className="col">
-        <label className="row wrap"><b>검토할 자료</b>
-          <select aria-label="검토할 자료" className="input" value={step} onChange={e => goToStep(Number(e.target.value))}>
-            <option value={0}>처음 자료</option>
-            {item.followups.map((f, i) => <option key={i} value={i + 1}>{f.title}</option>)}
-          </select>
-        </label>
-        <div className="small muted">각 추가 자료는 같은 처음 기록에 따로 적용하는 가정입니다. 다른 추가 자료와 합쳐 판단하지 마세요.</div>
-      </div>
-    </Panel>}
-    <div className="practice-question">
-      <span>이번 질문 · {step === 0 ? "초기 자료" : stage.title}</span>
-      <h2 ref={questionEl} id={questionId} tabIndex={-1}>{stage.question}</h2>
-    </div>
-    <Panel title={step === 0 ? "처음 관측한 자료" : stage.title}>
-      <div className="col">
-        {step !== 0 && <details key={`${step}-prior-${resetKey}`}><summary>처음 관측한 자료 다시 보기</summary><Evidence stage={item.initial} /></details>}
-        <Evidence key={`${step}-${resetKey}`} stage={stage} />
-        <div className="row wrap small">
-          <span className="muted">처음 자료 전체</span>
-          {item.sources.filter(s => s === "NDR" || s === "FW").map(s =>
-            <a className="btn sm" key={s} href={`${files}${s.toLowerCase()}.csv`} download={`가상-${item.id}-${s.toLowerCase()}.csv`}>가상 {s} 전체 CSV</a>)}
-        </div>
-      </div>
-    </Panel>
-    <Panel title={answer.revealed ? "판단 해설" : "판단해 보기"}>
-      {answer.revealed ? <section key={step} aria-label="판단 비교" className="practice-result" ref={resultEl} tabIndex={-1}>
-        <p role="status" className="practice-result-status">{chosen ? `내 선택: ${chosen.id === correct.id ? "정답" : "오답"}` : "예제 해설"}</p>
-        <div className={chosen && chosen.id !== correct.id ? "practice-compare with-choice" : "practice-compare"}>
-          {chosen && chosen.id !== correct.id && <div className="practice-choice-missed"><b>내가 고른 판단</b>
-            <p>{chosen.text}</p><p className="practice-why">{chosen.explanation}</p></div>}
-          <div className="practice-choice-supported"><b>권장 판단</b><p>{correct.text}</p>
-            {!stage.rationale.startsWith(correct.explanation) && <p className="practice-why">{correct.explanation}</p>}</div>
-        </div>
-        <dl className="practice-reason"><div><dt>판단 근거</dt><dd>{stage.rationale}</dd></div>
-          {stage.nextCheck && <div><dt>다음 확인</dt><dd>{stage.nextCheck}</dd></div>}</dl>
-        {others.length > 0 && <details className="practice-alternatives"><summary>다른 보기의 해설 {others.length}개</summary>
-          {others.map(o => <div key={o.id}><strong>오답 · {o.text}</strong><p>{o.explanation}</p></div>)}</details>}
-        <div className="row wrap">
-          {step === 0 && item.followups.length > 0 && <button className="btn primary" onClick={() => goToStep(1)}>추가 자료로 판단하기</button>}
-          <button className="btn" onClick={() => { focusAfterChange.current = "choices"; put({ ...answer, revealed: false }); }}>답 다시 고르기</button>
-        </div>
-      </section> : <div className="col">
-        <fieldset className="practice-options" aria-labelledby={questionId} ref={choicesEl}>
-          {stage.options.map(option => <label key={option.id}>
-            <input type="radio" name={radioGroup} checked={answer.choice === option.id} onChange={() => put({ choice: option.id, revealed: false })} />
-            <span>{option.text}</span>
-          </label>)}
-        </fieldset>
-        <div className="row wrap"><button className="btn primary" onClick={() => { focusAfterChange.current = "result"; put({ ...answer, revealed: true }); }}>정답·해설 보기</button>
-          <span className="small muted">선택하지 않고 해설만 읽을 수도 있습니다.</span></div>
-      </div>}
-    </Panel>
-    <button className="btn sm" onClick={reset}>처음부터 다시 풀기</button>
-  </>;
+function responseLabel(stage: PracticeStage) {
+  const first = stage.evidence[0];
+  const fields = first?.fields || {};
+  if (first?.source === "자료 요청 이력") return "회신 미도착";
+  if ("declared_scope" in fields || "approved_by" in fields) return "승인 작업과 일치";
+  if ("job_id" in fields) return "작업 시간 일부만 일치";
+  if ("claimed_window_start" in fields) return "회신과 관측 범위 대조";
+  return first?.source === "담당자 회신" ? "원천 기록으로 확인" : (first?.source || stage.title);
 }
 
+function WorkedExample({ item }: { item: PracticeCase }) {
+  const [branch, setBranch] = useState(0);
+  const initial = item.initial, response = item.followups[branch];
+  const notes = notesFor(item.title);
+  const files = `${import.meta.env.BASE_URL}practice-data/v1/${encodeURIComponent(item.id)}/`;
+  const checksField = item.followups.flatMap(s => s.evidence).find(e => e.fields?.requested_questions)?.fields?.requested_questions;
+  let checks: string[] = [];
+  if (typeof checksField === "string") { try { const v: unknown = JSON.parse(checksField); if (Array.isArray(v)) checks = v.filter((s): s is string => typeof s === "string"); } catch { /* optional detail */ } }
+  if (!checks.length && notes) checks = [notes[1]];
+  const plain = (s: string) => s.split(" 근거 참조:")[0];
+  const why = item.title.endsWith("장비 간 9시간 차이")
+    ? "출발지 포트가 개별 대응하고 시각 차이가 일정하므로 같은 연결을 다른 시간대로 기록했을 가능성이 있다. 시각 설정을 확인하기 전에는 두 기록을 합치지 않는다."
+    : plain(initial.rationale);
+  const scope = initial.observation?.match(/관심 구간 ([^.]+? KST)/)?.[1];
+  const refs = (stage: PracticeStage) => <small className="muted case-refs">대표 근거 위치: {stage.evidence.map(e => e.id).join(" · ")}</small>;
+  return <>
+    <p className="small" role="note"><span className="tag warn">가상 로그</span> 합성 자료로 작성한 모범 분석입니다. 실제 조사 자료와 결론은 별도로 검토하세요.</p>
+    <Panel title="1. 처음 관측한 증적"><Evidence stage={initial} />
+      <div className="row wrap small practice-downloads"><span>배경 기록을 포함한 원본</span>
+        {item.sources.filter(s => s === "NDR" || s === "FW").map(s => <a className="btn sm" key={s} href={`${files}${s.toLowerCase()}.csv`} download={`가상-${item.id}-${s.toLowerCase()}.csv`}>가상 {s} 전체 CSV</a>)}
+      </div>
+    </Panel>
+    <Panel title="2. 모범 분석"><div className="case-reading">
+      <h3>판단에 사용한 근거</h3><p>{why}</p>
+      {notes && <><h3>정상 업무로 설명할 수 있는 경우</h3><p>{notes[0]} 아래 자료를 대조하기 전에는 가설로 남긴다.</p></>}
+      <h3>분석가가 확인할 질문과 자료</h3>
+      {!!checks.length && <ul>{checks.map(q => <li key={q}>{q}</li>)}</ul>}
+      {initial.nextCheck && <p>{initial.nextCheck}</p>}
+      <div className="case-conclusion"><h3>현재 증적으로 쓴 결론 예시</h3>{scope && <small>관측 범위: {scope}</small>}<p>{conclusion(initial, item.title)}</p>{refs(initial)}</div>
+    </div></Panel>
+    {response && <Panel title="3. 다른 후속 자료의 결론"><p>아래는 같은 초기 증적에 서로 다른 자료를 받았다고 가정한 독립 사례입니다. 하나를 골라 그 자료가 바꾸는 판단과 남은 질문을 비교하세요.</p>
+      <div className="row wrap case-branches" role="group" aria-label="후속 자료별 분석 예시">{item.followups.map((s, i) => <button type="button" className={i === branch ? "btn primary" : "btn"} key={s.id} aria-pressed={branch === i} onClick={() => setBranch(i)}>{responseLabel(s)}</button>)}</div>
+      <section className="case-reading case-response" aria-label="선택한 후속 자료의 분석" key={response.id}>
+        <h3>{responseLabel(response)}</h3><Evidence stage={response} />
+        <h3>초기 증적과 대조한 근거</h3><p>{plain(response.rationale)}</p>
+        <div className="case-conclusion"><h3>이 자료를 받았을 때의 결론 예시</h3><p>{conclusion(response, item.title)}</p>{refs(response)}</div>
+        {response.nextCheck && <><h3>남겨 둔 확인 사항</h3><p>{response.nextCheck}</p></>}
+      </section>
+    </Panel>}
+    <details className="case-review"><summary>실제 조사에 적용하는 순서</summary><ol>
+      <li>실제 로그에서 관심 구간과 시간대, 수집 장비, 출발지·목적지·포트를 기록한다. 대표 행과 전체 건수를 구분한다.</li>
+      <li>관측 사실과 업무 가설을 따로 적고, 위 질문에 답할 원천 기록이나 승인 이력을 요청한다.</li>
+      <li>회신의 자산·시각·동작이 실제 로그와 어디까지 일치하는지 대조한다. 일치하지 않거나 자료가 없는 부분은 미확인으로 남긴다.</li>
+      <li>실제 근거 위치, 확인한 범위, 남은 질문을 조사 결론에 함께 적는다.</li>
+    </ol></details>
+  </>;
+}
 export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () => Promise<PracticePack> } = {}) {
   const [pack, setPack] = useState<PracticePack | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const selected = params.get("case");
+  const investigation = params.get("investigation") || "";
+  const returnPath = /^[a-zA-Z0-9_-]{1,128}$/.test(investigation) ? `/inv/${encodeURIComponent(investigation)}` : null;
+  const setSelected = (id: string | null) => setParams(current => {
+    const next = new URLSearchParams(current);
+    if (id) next.set("case", id); else next.delete("case");
+    return next;
+  });
   const [search, setSearch] = useState("");
   const [sector, setSector] = useState("");
   const heading = useRef<HTMLDivElement>(null);
@@ -189,15 +149,25 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
     && `${c.id} ${c.title} ${c.summary ?? ""}`.toLowerCase().includes(term)) || [];
   return <div className="page practice-page">
     <div ref={heading} tabIndex={-1}>
-      <PageHeader eyebrow="연습용 합성 자료" title={item ? `${item.id} · ${item.title}` : "가상 로그 예제"}
-        desc={item ? item.summary : "가상 NDR·FW 기록으로 조사 판단을 연습하세요. 선택한 답은 실제 조사나 골든셋에 저장되지 않습니다."} />
+      <PageHeader eyebrow="NDR · FW 모범 분석" title={item ? `${item.id} · ${item.title}` : "분석 사례집"}
+        desc={item ? item.summary : "가상 로그의 어떤 행에서 질문이 나왔는지, 어떤 자료를 대조했고 어디까지 결론을 낼 수 있는지 읽어 보세요."} />
     </div>
-    {failed ? <div className="col"><p role="alert">가상 예제를 불러올 수 없습니다. 새로고침한 뒤에도 같으면 업데이트 파일을 확인해 주세요.</p>
+    {!selected && <PlatformCases />}
+    {!selected && <Panel title="63일 로그에서 찾은 변화">
+      <p>가상 관계사의 FW·NDR 132,750건을 살펴봅니다. 과거 8주와 마지막 1주를 비교해 매일 조금씩 늘어난 접속과 여러 날에 나눠 전송한 기록을 찾습니다.</p>
+      <div className="row wrap">
+        <a className="btn sm" href={`${import.meta.env.BASE_URL}reference-data/long-window.html`}>63일 분석 과정 보기</a>
+        <a className="btn sm" href={`${import.meta.env.BASE_URL}reference-data/long-window-sample.zip`} download>63일 원본 로그 받기</a>
+      </div>
+    </Panel>}
+    {returnPath && <div><Link className="btn sm" to={returnPath}>실제 조사로 돌아가기</Link></div>}
+    {pack && selected && !item && <p role="status">해당 번호의 사례를 찾을 수 없습니다. 목록에서 사례를 선택하세요.</p>}
+    {failed ? <div className="col"><p role="alert">분석 사례를 불러올 수 없습니다. 새로고침한 뒤에도 같으면 업데이트 파일을 확인해 주세요.</p>
       <div><button className="btn" onClick={() => setRetry(n => n + 1)}>다시 불러오기</button></div></div>
-    : !pack ? <Loading label="가상 예제를 불러오는 중…" />
-    : !item ? <Panel title={`예제 ${pack.cases.length}개 · 추가 자료 ${pack.cases.reduce((n, c) => n + c.followups.length, 0)}가지`}>
+    : !pack ? <Loading label="분석 사례를 불러오는 중…" />
+    : !item ? <Panel title={`사례 ${pack.cases.length}개 · 후속 자료 ${pack.cases.reduce((n, c) => n + c.followups.length, 0)}가지`}>
       <div className="row wrap" style={{ marginBottom: 12, gap: 12 }}>
-        <label className="row wrap">예제 찾기
+        <label className="row wrap">사례 찾기
           <input className="input" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="제목·사례 번호·주제" />
         </label>
         {sectors.length > 1 && <label className="row wrap">업권
@@ -207,7 +177,7 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
         </label>}
         {(term || sector) && <span className="small muted" role="status">{shown.length}개 표시</span>}
       </div>
-      {!shown.length && <p role="status">검색어에 맞는 예제가 없습니다. <button className="btn sm" onClick={() => { setSearch(""); setSector(""); }}>검색 지우기</button></p>}
+      {!shown.length && <p role="status">검색어에 맞는 사례가 없습니다. <button className="btn sm" onClick={() => { setSearch(""); setSector(""); }}>검색 지우기</button></p>}
       <div className="quick" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 235px), 1fr))" }}>
         {shown.map(c => <button key={c.id} onClick={() => choose(c.id)} ref={c.id === lastOpened ? listButton : undefined}>
           <b>{c.id} · {c.title}</b><small>{sectorOf(c) || "가상 로그"} · {c.sources.join(" · ")} · 추가 자료 {c.followups.length}가지</small>
@@ -216,14 +186,14 @@ export function PracticeCases({ loadPack = loadBundledPack }: { loadPack?: () =>
     </Panel>
     : <>
       <div className="row wrap" style={{ marginBottom: 12 }}>
-        <button className="btn" onClick={() => setSelected(null)}>예제 목록</button>
-        <label className="small">연습할 예제{" "}
+        <button className="btn" onClick={() => setSelected(null)}>사례 목록</button>
+        <label className="small">다른 사례{" "}
           <select className="input" style={{ maxWidth: "100%" }} value={item.id} onChange={e => choose(e.target.value)}>
             {pack.cases.map(c => <option key={c.id} value={c.id}>{c.id} · {c.title}</option>)}
           </select>
         </label>
       </div>
-      <Exercise key={item.id} item={item} />
+      <WorkedExample key={item.id} item={item} />
     </>}
   </div>;
 }

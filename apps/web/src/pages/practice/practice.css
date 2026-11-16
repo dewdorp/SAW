@@ -1,39 +1,23 @@
-.practice-page { --practice-copy: var(--fg-1); line-height: 1.55; }
-.practice-page .practice-question { margin-block: 12px 4px; border-inline-start: 4px solid var(--accent); padding: 9px 14px; }
-.practice-question > span, .practice-row-count { font-size: 13px; font-weight: 650; color: var(--fg-1); }
-.practice-question h2 { font-size: clamp(18px, 2vw, 23px); margin: 2px 0 0; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
-.practice-page p { overflow-wrap: anywhere; }
-.practice-evidence { display: grid; gap: 5px; }
+.practice-page { line-height: 1.55; }
+.practice-page p, .practice-page li, .practice-page h3 { overflow-wrap: anywhere; }
+.practice-page .practice-evidence { display: grid; gap: .3rem; }
 .practice-evidence .btn { justify-self: start; }
-.practice-observation { margin: 0 0 4px; max-width: 100ch; }
-.practice-row { border-bottom: 1px solid var(--line); padding: 5px 0; }
-.practice-row summary, .practice-alternatives summary { cursor: pointer; overflow-wrap: anywhere; }
-.practice-row p { margin: 8px 0 4px; }
-.practice-row dl { margin: 0 0 5px; }
-.practice-row dl > div { display: grid; grid-template-columns: minmax(130px, 215px) 1fr; gap: 9px; padding: 3px 0; }
-.practice-row dt { color: var(--practice-copy); overflow-wrap: anywhere; }
-.practice-row dd { font-family: var(--mono); margin: 0; overflow-wrap: anywhere; }
-.practice-options, .practice-result { display: grid; gap: 9px; min-width: 0; }
-.practice-options { border: 0; margin: 0; padding: 0; }
-.practice-options label { display: flex; align-items: baseline; gap: 9px; border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; cursor: pointer; }
-.practice-options label:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-.practice-options label:has(input:checked) { background: var(--accent-weak); }
-.practice-result-status { margin: 0; font-size: 16px; font-weight: 700; }
-.practice-compare { display: grid; gap: 10px; }
-.practice-compare.with-choice { grid-template-columns: repeat(2,minmax(0,1fr)); }
-.practice-compare > div { padding: 10px 12px; border: 1px solid var(--line); border-inline-start: 3px solid var(--fg-2); border-radius: var(--r); }
-.practice-compare .practice-choice-supported { border-inline-start-color: var(--accent); }
-.practice-compare p, .practice-alternatives p { margin: 4px 0 0; }
-.practice-why { color: var(--practice-copy); }
-.practice-reason { margin: 0; }
-.practice-reason > div { display: grid; grid-template-columns: 76px 1fr; gap: 8px; padding: 6px 0; }
-.practice-reason dt { font-weight: 650; color: var(--practice-copy); }
-.practice-reason dd { margin: 0; overflow-wrap: anywhere; }
-.practice-alternatives { border-block: 1px solid var(--line); padding: 7px 0; }
-.practice-alternatives > div { margin: 7px 0 0 10px; }
-.practice-alternatives > div + div { border-top: 1px solid var(--line); padding-block-start: 7px; }
-@media (max-width: 680px) {
- .practice-compare.with-choice, .practice-reason > div { grid-template-columns: 1fr; }
- .practice-row dl > div { grid-template-columns: minmax(90px,42%) 1fr; }
- .practice-reason > div { gap: 2px; }
-}
+.practice-observation { max-width: 95ch; margin: 0 0 .4rem; }
+.practice-row-count { font-size: .84rem; }
+.practice-row { border-bottom: 1px solid var(--line); padding: .3rem 0; }
+.practice-row summary, .case-review summary { cursor: pointer; overflow-wrap: anywhere; }
+.practice-row p, .practice-row dl { margin: .4rem 0; }
+.practice-row dl > div { display: grid; grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr); gap: .6rem; padding: .18rem 0; }
+.practice-row dt { color: var(--fg-1); overflow-wrap: anywhere; }
+.practice-row dd { font-family: var(--mono); overflow-wrap: anywhere; margin: 0; }
+.practice-downloads, .case-branches { margin: .8rem 0; gap: .5rem; }
+.case-reading { max-width: 96ch; }
+.case-reading h3 { margin: 1rem 0 .2rem; font-size: 1rem; }
+.case-reading h3:first-child, .case-reading p, .case-reading ul { margin-top: 0; }
+.case-reading ul, .case-review ol { padding-inline-start: 1.5rem; }
+.case-reading li + li, .case-review li + li { margin-top: .28rem; }
+.case-conclusion { border-inline-start: 3px solid var(--accent); background: var(--accent-weak); padding: .65rem .9rem; margin-top: .7rem; }
+.case-conclusion p { margin: 0; }
+.case-response, .case-review { padding-top: .8rem; border-top: 1px solid var(--line); }
+@media (max-width: 680px) { .practice-row dl > div { grid-template-columns: minmax(0,40%) minmax(0,1fr); } }
+.case-refs { display: block; margin-top: .35rem; overflow-wrap: anywhere; }

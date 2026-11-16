@@ -1,0 +1,179 @@
+{
+  "id": "W55",
+  "title": "해외 접속지로 이어진 원격제어 채널",
+  "classification": "침해 확인",
+  "category": "외부 통신·유출",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "EDR이 03:20 문서 처리 서버 10.80.1.11에서 승인되지 않은 원격제어 모듈을 탐지했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W55 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,967건 (FW 65,828 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "FW에서 서버의 8443 흐름을 찾아 허용된 목적지와 간격을 단말 소켓 소유 프로세스에 대조한다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "EDR이 03:20 문서 처리 서버 10.80.1.11에서 승인되지 않은 원격제어 모듈을 탐지했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.1.11"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "56건"
+        }
+      ],
+      "image": "shots/W55-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "8443 세션의 출발지·목적지·시각을 단말 소켓 감사와 연결한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.1.11 / 목적지 포트 같음 8443"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-07 03:18:00 ~ 2025-03-07 03:22:35"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "56건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 62,715행",
+          "KST": "2025-03-07T03:20:04+09:00",
+          "출발지": "10.80.1.11:49551",
+          "목적지": "203.0.113.83:8443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "560",
+          "수신 B": "770"
+        },
+        {
+          "원본 위치": "fw.csv 62,716행",
+          "KST": "2025-03-07T03:20:34+09:00",
+          "출발지": "10.80.1.11:49552",
+          "목적지": "203.0.113.83:8443",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "640",
+          "수신 B": "940"
+        }
+      ],
+      "image": "shots/W55-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "같은 서버의 443 업무 흐름과 달리 8443은 203.0.113.83으로 반복됐다. 포트와 반복성만으로 도구를 식별할 수 없다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W55-E1",
+          "자료 출처": "EDR 소켓 소유 감사",
+          "대조할 값": "시각=2025-03-07T03:20:04+09:00 · node=10.80.1.11 · peer=203.0.113.83 · 포트=8443 · 프로세스=rc55 · signature=미승인 원격제어 모듈"
+        },
+        {
+          "근거 ID": "W55-E2",
+          "자료 출처": "호스트 프로세스 실행 감사",
+          "대조할 값": "시각=2025-03-07T03:20:35+09:00 · parent=rc55 · command_id=job55 · event=remote job executed · 계정=svc-doc"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "두 허용 세션을 연 프로세스 rc55의 명령 수신·실행 기록과 무단 모듈 판독 결과가 일치해 외부 원격제어를 확인했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "서버 담당자는 rc55가 실행한 자식 프로세스와 파일 변경 시각을 보존해 원격 명령의 영향 범위를 산정한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65828,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.11"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 56,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.1.11"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 8443
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-07T03:18:00+09:00",
+      "end": "2025-03-07T03:22:35+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      62715,
+      62716
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

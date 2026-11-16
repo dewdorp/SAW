@@ -1,0 +1,179 @@
+{
+  "id": "W50",
+  "title": "메일 검사기의 피싱 링크 열람",
+  "classification": "승인된 활동",
+  "category": "외부 통신·유출",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "메일 보안팀이 14:40에 landing.example을 열람한 사내 주소가 있다는 경보를 전달했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W50 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,975건 (FW 65,772 · NDR 41,203)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "NDR에서 호스트를 조회하고 GET의 출발지와 시각을 메일 분석 VM의 작업 기록에 맞춘다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "메일 보안팀이 14:40에 landing.example을 열람한 사내 주소가 있다는 경보를 전달했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 landing.example"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "64건"
+        }
+      ],
+      "image": "shots/W50-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "같은 주소로 보낸 HEAD와 본문을 받은 GET의 주체를 세션별로 확인한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 landing.example / HTTP 메서드 같음 GET"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-05 14:38:00 ~ 2025-03-05 14:42:15"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "64건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 38,353행",
+          "KST": "2025-03-05T14:40:02+09:00",
+          "출발지": "10.80.1.13:49501",
+          "목적지": "198.51.100.82:443",
+          "메서드": "GET",
+          "경로": "/visit",
+          "상태": "200",
+          "응답 B": "14400"
+        },
+        {
+          "원본 위치": "ndr.csv 38,354행",
+          "KST": "2025-03-05T14:40:14+09:00",
+          "출발지": "10.80.1.12:49502",
+          "목적지": "198.51.100.82:443",
+          "메서드": "GET",
+          "경로": "/visit",
+          "상태": "403",
+          "응답 B": "490"
+        }
+      ],
+      "image": "shots/W50-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "같은 VM이 HEAD 뒤에 GET을 실행했다. 사무 단말의 같은 경로 GET은 프록시에서 403이었다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W50-E1",
+          "자료 출처": "메일 격리 분석기",
+          "대조할 값": "시각=2025-03-05T14:40:02+09:00 · job=mail50 · vm=10.80.1.13 · url=https://landing.example/visit · message=msg50"
+        },
+        {
+          "근거 ID": "W50-E2",
+          "자료 출처": "웹 프록시 정책 감사",
+          "대조할 값": "시각=2025-03-05T14:40:14+09:00 · client=10.80.1.12 · url=https://landing.example/visit · rule=phishing-block · decision=deny"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "본문을 받은 주소는 격리 검사 VM이며 작업 mail50에 URL이 등록됐다. 관찰된 사무 단말 요청은 차단됐다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "승인된 활동"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "메일 담당자는 mail50의 최종 URL 판정과 원본 메시지 ID를 대조해 수신자 격리 대상을 확인한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41203
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "landing.example"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 64,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "landing.example"
+      },
+      {
+        "field": "method",
+        "op": "is",
+        "value": "GET"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-05T14:38:00+09:00",
+      "end": "2025-03-05T14:42:15+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      38353,
+      38354
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

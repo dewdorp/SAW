@@ -1,0 +1,184 @@
+{
+  "id": "W28",
+  "title": "운영 도구로 위장한 원격 서비스",
+  "classification": "침해 확인",
+  "category": "내부 이동",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "서버 EDR이 신규 서비스 실행의 직전 원격 관리 접속자를 알렸다. 조사 대상은 ops-ws28(10.80.28.15)이다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W28 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,973건 (FW 65,834 · NDR 41,139)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "관리 공유 파일 쓰기 뒤 서비스를 시작한 호스트에서 7045를 찾는다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "서버 EDR이 신규 서비스 실행의 직전 원격 관리 접속자를 알렸다. 조사 대상은 ops-ws28(10.80.28.15)이다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.28.15"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "62건"
+        }
+      ],
+      "image": "shots/W28-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "10.81.28.8의 445번 세션을 조사한다. 관리 공유 파일 쓰기 뒤 서비스를 시작한 호스트에서 7045를 찾는다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 connection / 출발지 IP 같음 10.80.28.15 / 목적지 포트 같음 445"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-06 15:06:00 ~ 2025-03-06 15:10:30"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "62건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "fw.csv 62,293행",
+          "KST": "2025-03-06T15:08:03+09:00",
+          "출발지": "10.80.28.15:46281",
+          "목적지": "10.81.28.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "148480",
+          "수신 B": "7168"
+        },
+        {
+          "원본 위치": "fw.csv 62,295행",
+          "KST": "2025-03-06T15:08:29+09:00",
+          "출발지": "10.80.28.15:46282",
+          "목적지": "10.81.28.8:445",
+          "프로토콜": "TCP",
+          "FW 처리": "allow",
+          "송신 B": "1792",
+          "수신 B": "1640"
+        }
+      ],
+      "image": "shots/W28-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "위 자료에서 대상 단말, 계정과 시각을 먼저 맞춘 뒤, 프로세스·인증·변경 증적이 같은 활동을 설명하는지 대조합니다. 등록된 배포 도구는 Program Files 아래의 서명된 서비스 이미지를 사용한다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W28-E1",
+          "자료 출처": "대상 서버 5145",
+          "대조할 값": "시각=2025-03-06T15:08:04+09:00 · subject_host=ops-ws28 · 대상 IP=10.80.28.15 · 계정=admin28 · 상대 IP=10.81.28.8 · object_name=ADMIN$\\Temp\\syscache.exe 쓰기 · SHA-256=9a66345887efe63d3e82939d15ed1065fe74b3c72fccf45ece9a229247147d2d"
+        },
+        {
+          "근거 ID": "W28-E2",
+          "자료 출처": "서비스 제어 관리자 7045",
+          "대조할 값": "시각=2025-03-06T15:08:18+09:00 · subject_host=ops-ws28 · 대상 IP=10.80.28.15 · 계정=admin28 · 상대 IP=10.81.28.8 · service_image=SysCache → C:\\Windows\\Temp\\syscache.exe"
+        },
+        {
+          "근거 ID": "W28-E3",
+          "자료 출처": "대상 EDR",
+          "대조할 값": "시각=2025-03-06T15:08:25+09:00 · subject_host=ops-ws28 · 대상 IP=10.80.28.15 · 계정=admin28 · 상대 IP=10.81.28.8 · 판정=서비스 시작 후 자격 증명 탈취 모듈 적재 차단 · SHA-256=9a66345887efe63d3e82939d15ed1065fe74b3c72fccf45ece9a229247147d2d"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "원격 쓰기, 신규 서비스 등록, 서비스의 악성 모듈 적재 시도를 확인했다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "동일 서비스 이름 및 이미지 해시가 있는 다른 서버와 원격 로그온을 조회한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65834,
+      "ndr": 41139
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.28.15"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 62,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "connection"
+      },
+      {
+        "field": "src_ip",
+        "op": "is",
+        "value": "10.80.28.15"
+      },
+      {
+        "field": "dst_port",
+        "op": "is",
+        "value": 445
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-06T15:06:00+09:00",
+      "end": "2025-03-06T15:10:30+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      62293,
+      62295
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

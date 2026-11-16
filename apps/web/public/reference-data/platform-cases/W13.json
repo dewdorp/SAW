@@ -1,0 +1,190 @@
+{
+  "id": "W13",
+  "title": "상담 답변에 저장된 스크립트 실행",
+  "classification": "침해 확인",
+  "category": "웹·API",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "16:01 브라우저 보호 장비가 상담 서비스에서 허용되지 않은 스크립트 실행을 기록했다. 신고 호스트로 조회한다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W13 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,997건 (FW 65,772 · NDR 41,225)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "게시글 생성과 열람 시각을 맞추고 브라우저가 실제로 실행한 코드의 지문을 확인했다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "16:01 브라우저 보호 장비가 상담 서비스에서 허용되지 않은 스크립트 실행을 기록했다. 신고 호스트로 조회한다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 helpdesk.example.test"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "86건"
+        }
+      ],
+      "image": "shots/W13-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 1차 조건을 유지하고 경보 전후의 시간 범위로 좁힘",
+      "finding": "등록과 열람 경로가 달라 전체 호스트를 유지한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 helpdesk.example.test"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-04 15:58:02 ~ 2025-03-04 16:02:44"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "86건 → 3건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 37,760행",
+          "KST": "2025-03-04T16:00:02+09:00",
+          "출발지": "198.51.100.163:42131",
+          "목적지": "10.80.13.20:443",
+          "메서드": "POST",
+          "경로": "/tickets/reply?trace=w13-1",
+          "상태": "201",
+          "응답 B": "130"
+        },
+        {
+          "원본 위치": "ndr.csv 37,762행",
+          "KST": "2025-03-04T16:00:24+09:00",
+          "출발지": "192.0.2.163:42132",
+          "목적지": "10.80.13.20:443",
+          "메서드": "GET",
+          "경로": "/tickets/T13?trace=w13-2",
+          "상태": "200",
+          "응답 B": "6920"
+        },
+        {
+          "원본 위치": "ndr.csv 37,763행",
+          "KST": "2025-03-04T16:00:43+09:00",
+          "출발지": "192.0.2.163:42133",
+          "목적지": "10.80.13.20:443",
+          "메서드": "GET",
+          "경로": "/tickets/T14?trace=w13-3",
+          "상태": "200",
+          "응답 B": "6540"
+        }
+      ],
+      "image": "shots/W13-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "w13-1로 저장한 게시물 T13의 코드 지문 H13이 w13-2로 연 상담원 브라우저 실행 기록과 같다. w13-3의 다른 게시물에는 H13이 없다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W13-E1",
+          "자료 출처": "상담 시스템 변경 이력",
+          "대조할 값": "시각=2025-03-04T16:00:02+09:00 · 추적 ID=w13-1 · ticket=T13 · embedded_script_hash=H13"
+        },
+        {
+          "근거 ID": "W13-E2",
+          "자료 출처": "브라우저 실행 감사",
+          "대조할 값": "시각=2025-03-04T16:00:24+09:00 · 추적 ID=w13-2 · device=B13 · document=T13 · script_hash=H13 · authorized=False · 결과=executed"
+        },
+        {
+          "근거 ID": "W13-E3",
+          "자료 출처": "상담 시스템 응답 검사",
+          "대조할 값": "시각=2025-03-04T16:00:43+09:00 · 추적 ID=w13-3 · document=T14 · embedded_scripts=[]"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "게시물 T13의 저장형 스크립트가 상담원 단말 B13에서 실행됐다. 세션 정보 열람이나 유출 여부는 확인되지 않았다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "원본을 보존한 뒤 T13을 비공개로 전환하고 다른 열람 단말에서 H13 실행을 찾는다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41225
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "helpdesk.example.test"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 86,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "helpdesk.example.test"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-04T15:58:02+09:00",
+      "end": "2025-03-04T16:02:44+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 3,
+    "evidence_rows": [
+      37760,
+      37762,
+      37763
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

@@ -1,0 +1,22 @@
+.worked-case-panel { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-inline-start: 3px solid var(--accent); background: var(--panel); overflow-wrap: anywhere; }
+.worked-case-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; margin-bottom: 6px; }
+.worked-case-heading h3 { margin: 0; font-size: 1.04rem; }
+.worked-case-heading a { font-size: .87rem; }
+.worked-case-picker { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 10px; }
+.worked-case-picker select { min-width: 0; max-width: 100%; }
+.worked-case-panel dl { margin: 6px 0 10px; }
+.worked-case-panel dl > div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 4px 8px; margin: 4px 0; }
+.worked-case-panel dt { color: var(--fg-1); font-weight: 600; }
+.worked-case-panel dd { margin: 0; }
+.worked-case-panel p { margin: 5px 0; }
+.worked-case-panel p:last-child { margin: 8px 0 0; }
+@media (max-width: 600px) { .worked-case-panel dl > div { grid-template-columns: 1fr; gap: 0; margin: 8px 0; } }
+.worked-case-coverage { margin-top: 8px; font-size: .85rem; color: var(--fg-1); }
+.worked-case-coverage summary { cursor: pointer; }
+.worked-case-coverage ul { padding-inline-start: 1.3em; margin: .3em 0; }
+.activity-case-reference { margin-block: .65rem; }
+.activity-case-reference section { margin-block: .5rem; }
+.activity-case-reference select { max-width: 100%; }
+.case-side-by-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: .6rem; margin-block: .65rem; }
+.case-side-by-side > div { padding: .65rem; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.case-side-by-side h4 { margin: 0; }

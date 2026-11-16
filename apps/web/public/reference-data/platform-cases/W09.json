@@ -1,0 +1,184 @@
+{
+  "id": "W09",
+  "title": "첨부 변환기에서 시작한 비인가 프로세스",
+  "classification": "침해 확인",
+  "category": "웹·API",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "15:01 EDR가 변환 서버 10.80.9.20의 작업 프로세스에서 미승인 자식 프로세스를 탐지했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W09 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "107,022건 (FW 65,772 · NDR 41,250)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "서버로 들어온 업로드 중 실제 변환 작업과 연결된 요청을 작업 ID로 찾았다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "15:01 EDR가 변환 서버 10.80.9.20의 작업 프로세스에서 미승인 자식 프로세스를 탐지했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 목적지 IP 같음 10.80.9.20"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "111건"
+        }
+      ],
+      "image": "shots/W09-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 조건을 추가하고 근거 시간 범위로 좁힘",
+      "finding": "작업을 만든 업로드 요청만 추려 큐 기록과 연결한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 목적지 IP 같음 10.80.9.20 / URL 경로(쿼리 제외) 같음 /convert"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-03 14:58:01 ~ 2025-03-03 15:02:43"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "111건 → 2건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 37,069행",
+          "KST": "2025-03-03T15:00:01+09:00",
+          "출발지": "198.51.100.159:42091",
+          "목적지": "10.80.9.20:443",
+          "메서드": "POST",
+          "경로": "/convert?trace=w09-1",
+          "상태": "202",
+          "응답 B": "160"
+        },
+        {
+          "원본 위치": "ndr.csv 37,070행",
+          "KST": "2025-03-03T15:00:18+09:00",
+          "출발지": "198.51.100.159:42092",
+          "목적지": "10.80.9.20:443",
+          "메서드": "POST",
+          "경로": "/convert?trace=w09-2",
+          "상태": "202",
+          "응답 B": "160"
+        }
+      ],
+      "image": "shots/W09-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "변환 큐에서 w09-2는 JOB-92이고 EDR의 부모 작업도 JOB-92다. w09-1은 다른 작업 JOB-91로 정상 완료했다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W09-E1",
+          "자료 출처": "변환 작업 큐",
+          "대조할 값": "시각=2025-03-03T15:00:02+09:00 · 추적 ID=w09-1 · job=JOB-91 · outcome=normal"
+        },
+        {
+          "근거 ID": "W09-E2",
+          "자료 출처": "변환 작업 큐",
+          "대조할 값": "시각=2025-03-03T15:00:18+09:00 · 추적 ID=w09-2 · job=JOB-92 · worker=conv-9"
+        },
+        {
+          "근거 ID": "W09-E3",
+          "자료 출처": "EDR 프로세스 감사",
+          "대조할 값": "시각=2025-03-03T15:00:21+09:00 · job=JOB-92 · 호스트=conv-9 · parent=converter · child=unapproved-runner · event=process_started · policy=deny_by_design"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "15:00:21 변환 서버에서 JOB-92가 허용 목록 밖의 자식 프로세스를 실행했다. 해당 프로세스의 외부 송신 여부는 미확인이다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "침해 확인"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "작업 실행기를 격리하고 JOB-92의 파일 접근 및 자식 프로세스 통신을 조사한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41250
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "dst_ip",
+        "op": "is",
+        "value": "10.80.9.20"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 111,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "dst_ip",
+        "op": "is",
+        "value": "10.80.9.20"
+      },
+      {
+        "field": "url_path",
+        "op": "is",
+        "value": "/convert"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-03T14:58:01+09:00",
+      "end": "2025-03-03T15:02:43+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 2,
+    "evidence_rows": [
+      37069,
+      37070
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}

@@ -1,0 +1,190 @@
+{
+  "id": "W22",
+  "title": "파일 내보내기 작업의 취소 경쟁",
+  "classification": "판단 보류",
+  "category": "웹·API",
+  "route": "pivot",
+  "steps": [
+    {
+      "action": "조사 목록 → 새 조사 만들기 → 증거 추가",
+      "finding": "09:02 보고서 관리자가 대량 내보내기를 취소했지만 다운로드 주소가 생성됐다고 문의했다.",
+      "facts": [
+        {
+          "label": "조사 대상",
+          "value": "W22 · 합성 시험 조사 · 2025.01.06–03.09 KST"
+        },
+        {
+          "label": "원본 처리 건수",
+          "value": "106,964건 (FW 65,772 · NDR 41,192)"
+        },
+        {
+          "label": "파일 구분",
+          "value": "fw.csv와 ndr.csv를 업로드하고 followup.json은 후속 자료 대조 단계에서 엽니다."
+        }
+      ]
+    },
+    {
+      "action": "조사 작업대 → 로그 직접 검색 → 조건 추가 → ③ 전체 로그",
+      "finding": "작업 취소 시각을 파일 생성 및 전달 기록과 구분해 확인했다. 신고된 서비스 호스트로 범위를 잡았다.",
+      "facts": [
+        {
+          "label": "처음 확인한 단서",
+          "value": "09:02 보고서 관리자가 대량 내보내기를 취소했지만 다운로드 주소가 생성됐다고 문의했다."
+        },
+        {
+          "label": "추가한 조회 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 report-export.example.test"
+        },
+        {
+          "label": "63일 범위에서 일치",
+          "value": "53건"
+        }
+      ],
+      "image": "shots/W22-lead.webp"
+    },
+    {
+      "action": "전체 로그에서 1차 조건을 유지하고 경보 전후의 시간 범위로 좁힘",
+      "finding": "작업 생성·취소·상태 조회를 개별 파일 읽기와 구분한다.",
+      "facts": [
+        {
+          "label": "적용 조건",
+          "value": "로그 종류 같음 web / 호스트명 같음 report-export.example.test"
+        },
+        {
+          "label": "근거 시간(KST, 끝 제외)",
+          "value": "2025-03-07 08:58:01 ~ 2025-03-07 09:02:32"
+        },
+        {
+          "label": "1차 → 근거 조회",
+          "value": "53건 → 3건"
+        }
+      ],
+      "rows": [
+        {
+          "원본 위치": "ndr.csv 39,359행",
+          "KST": "2025-03-07T09:00:01+09:00",
+          "출발지": "198.51.100.172:42221",
+          "목적지": "10.80.22.20:443",
+          "메서드": "POST",
+          "경로": "/exports?trace=w22-1",
+          "상태": "202",
+          "응답 B": "150"
+        },
+        {
+          "원본 위치": "ndr.csv 39,360행",
+          "KST": "2025-03-07T09:00:14+09:00",
+          "출발지": "198.51.100.172:42222",
+          "목적지": "10.80.22.20:443",
+          "메서드": "DELETE",
+          "경로": "/exports/22?trace=w22-2",
+          "상태": "202",
+          "응답 B": "105"
+        },
+        {
+          "원본 위치": "ndr.csv 39,361행",
+          "KST": "2025-03-07T09:00:31+09:00",
+          "출발지": "198.51.100.172:42223",
+          "목적지": "10.80.22.20:443",
+          "메서드": "GET",
+          "경로": "/exports/22?trace=w22-3",
+          "상태": "200",
+          "응답 B": "170"
+        }
+      ],
+      "image": "shots/W22-raw.webp"
+    },
+    {
+      "action": "④ 확인 및 판단 → 확인 요청·검토에서 받은 자료를 원문과 대조",
+      "finding": "w22-1의 JOB22는 임시 객체 O22를 생성했고 w22-2가 종료를 요청했다. w22-3은 상태 화면 조회다. 객체 저장소의 해당 구간 읽기 기록은 누락됐다.",
+      "facts": [
+        {
+          "label": "후속 자료",
+          "value": "원본 ZIP의 followup.json에 수록한 합성 감사·운영 기록"
+        }
+      ],
+      "rows": [
+        {
+          "근거 ID": "W22-E1",
+          "자료 출처": "내보내기 작업 큐",
+          "대조할 값": "시각=2025-03-07T09:00:08+09:00 · 추적 ID=w22-1 · job=JOB22 · temporary_object=O22 · signed_url_created=True"
+        },
+        {
+          "근거 ID": "W22-E2",
+          "자료 출처": "작업 제어 감사",
+          "대조할 값": "시각=2025-03-07T09:00:15+09:00 · 추적 ID=w22-2 · job=JOB22 · state=cancelled"
+        },
+        {
+          "근거 ID": "W22-E3",
+          "자료 출처": "객체 저장소 수집 상태",
+          "대조할 값": "시각=2025-03-07T09:01:01+09:00 · bucket=report-temp · gap=09:00-09:05 · missing=object_read_events"
+        }
+      ]
+    },
+    {
+      "action": "전체 로그 → 검색 결과 확인 기록 → 확인 주제·판단·확인 범위 선택",
+      "finding": "JOB22의 임시 파일 생성과 작업 취소는 확인했다. 서명 URL로 실제 파일을 읽었는지는 수집 공백으로 판단할 수 없다.",
+      "facts": [
+        {
+          "label": "사례 판단",
+          "value": "판단 보류"
+        },
+        {
+          "label": "다음 확인·조치",
+          "value": "서명 URL을 폐기하고 저장소 앞단 CDN의 요청 기록 및 객체 수명주기 원장을 확보한다."
+        },
+        {
+          "label": "기록 범위",
+          "value": "원문을 표본으로 검토했다면 표본 건수와 후속 증거 ID를 함께 기록합니다."
+        }
+      ]
+    }
+  ],
+  "run": {
+    "counts": {
+      "fw": 65772,
+      "ndr": 41192
+    },
+    "lead_filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "report-export.example.test"
+      }
+    ],
+    "lead_time": {
+      "start": "2025-01-06T00:00:00+09:00",
+      "end": "2025-03-10T00:00:00+09:00",
+      "end_exclusive": true
+    },
+    "lead_count": 53,
+    "filters": [
+      {
+        "field": "data_source",
+        "op": "is",
+        "value": "web"
+      },
+      {
+        "field": "hostname",
+        "op": "is",
+        "value": "report-export.example.test"
+      }
+    ],
+    "evidence_time": {
+      "start": "2025-03-07T08:58:01+09:00",
+      "end": "2025-03-07T09:02:32+09:00",
+      "end_exclusive": true
+    },
+    "evidence_count": 3,
+    "evidence_rows": [
+      39359,
+      39360,
+      39361
+    ],
+    "method": "SAW English CSV parsers and registry.to_ces; scoped native SQLiteEventStore.search/count. Shared baseline from the previously parsed W01 background, with the original case signal removed."
+  }
+}
