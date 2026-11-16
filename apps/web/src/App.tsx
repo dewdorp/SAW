@@ -25,6 +25,7 @@ function KeyedWorkbench() {
   const { id = "" } = useParams();
   return <Workbench key={id} />;
 }
+const PracticeCases = lazy(() => import("./pages/practice/PracticeCases").then(m => ({ default: m.PracticeCases })));
 const Hunting = lazy(() => import("./pages/Hunting").then((m) => ({ default: m.Hunting })));
 const Detections = lazy(() => import("./pages/Detections").then((m) => ({ default: m.Detections })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then((m) => ({ default: m.Knowledge })));
@@ -77,6 +78,7 @@ export function App() {
         <Route path="/parsers/*" element={<Parsers />} />
         <Route path="/provenance" element={<Provenance />} />
         <Route path="/registry" element={<Registry />} />
+        <Route path="/practice" element={<PracticeCases />} />
         <Route path="/hunting/*" element={<Hunting />} />
         <Route path="/admin" element={<Admin me={me.data} />} />
         <Route path="/admin/data" element={<AdminData me={me.data} />} />

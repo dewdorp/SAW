@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ErrorBox, Loading, Panel } from "../../components/common";
 import { useInv } from "../../context/invContext";
 import { ApiError, api } from "../../lib/api";
@@ -134,6 +135,7 @@ function ExampleSearch({ inv, onOpen }: { inv: string; onOpen: (bundle: string) 
   return (
     <details className="small" style={{ marginTop: 8 }}>
       <summary><b>더 많은 예제 찾기</b> — 명세 {list.data?.catalog_total ?? 120}개(탐지·헌팅·시나리오), 실행 룰이 아님</summary>
+      <p><Link to="/practice">가상 로그 예제</Link>에서 실제 형식의 NDR·FW 로그를 보고 판단과 해설을 비교할 수 있습니다.</p>
       <p className="muted">{list.data?.note}</p>
       <div className="row wrap" style={{ gap: 6 }}>
         <input className="input" aria-label="예제 검색" placeholder="예: 포트, 반복, Q06, D027" value={q} onChange={(e) => setQ(e.target.value)} />

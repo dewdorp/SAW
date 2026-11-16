@@ -19,6 +19,13 @@ beforeEach(() => mockApi({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Home", () => {
+  it("opens built-in practice even when the installation has no investigations", async () => {
+    mockApi({ "GET /investigations": [200, []], "GET /jobs": [200, []], "GET /findings/recent": [200, []] });
+    renderUI(<Home />);
+    expect(await screen.findByText("아직 조사가 없습니다")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "가상 로그 예제" }).getAttribute("href")).toBe("/practice");
+  });
+
   it("summarises open work in stat tiles", async () => {
     renderUI(<Home />);
     expect(await screen.findByText("Potential Web Shell Upload and Use")).toBeTruthy();
