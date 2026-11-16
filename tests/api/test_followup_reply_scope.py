@@ -105,3 +105,71 @@ def test_new_conclusion_states_are_accepted_and_attack_states_ask_for_review(sen
         assert closed.status_code == 200, closed.text
         assert closed.json()["verdict"] == verdict
         assert bool(closed.json()["review_needed"]) is (verdict != "data_quality_limited")
+
+
+def _connection_case(api):
+    org = api.post("/source-context/org-units", json={"display_name": f"Connections {uuid.uuid4().hex[:6]}"}).json()
+    inv = api.post("/investigations", json={"title": "connections", "org_unit_id": org["id"],
+                                           "period_start": "2026-09-29T00:00:00+09:00",
+                                           "period_end": "2026-10-28T23:59:59+09:00"}).json()
+    check = api.post(f"/investigations/{inv['id']}/checks", json={
+        "target_type": "entity", "target_key": "ip:10.31.1.30", "questions": ["nature"], "note": "Two connections"}).json()
+    url = f"/investigations/{inv['id']}/follow-ups"
+    asked = [{"src_ip": "10.31.1.30", "dst_ip": "10.31.0.30", "dst_port": 443},
+             {"src_ip": "10.31.1.30", "dst_ip": "10.31.0.31", "dst_port": 3389}]
+    created = api.post(url, json={
+        "check_id": check["id"], "question": "Were these two connections the assessment?", "reason": "Lists are not enough",
+        "needed_data": ["Work order"], "period": PERIOD,
+        "target": {"org_unit_id": org["id"], "src_ips": ["10.31.1.30"], "dst_ips": ["10.31.0.30", "10.31.0.31"],
+                   "dst_ports": [443, 3389], "connections": asked}})
+    assert created.status_code == 201, created.text
+    assert created.json()["current"]["payload"]["target"]["connections"] == asked
+    return org, url, created.json()
+
+
+def test_a_reply_must_match_each_requested_connection_not_just_the_lists(senior):
+    """Asked A:443 and B:3389, answered A:3389 and B:443: every list matches, no connection does."""
+    org, url, item = _connection_case(senior)
+    scope = {"org_unit_id": org["id"], "start": PERIOD["start"], "end": PERIOD["end"], "src_ips": ["10.31.1.30"],
+             "dst_ips": ["10.31.0.30", "10.31.0.31"], "dst_ports": [443, 3389],
+             "connections": [{"src_ip": "10.31.1.30", "dst_ip": "10.31.0.30", "dst_port": 3389},
+                             {"src_ip": "10.31.1.30", "dst_ip": "10.31.0.31", "dst_port": 443}]}
+    check = _reply(senior, url, item, scope, [])["current"]["payload"]["reply"]["scope_check"]
+    assert check["result"] == "mismatch" and check["components"]["connections"]["detail"].startswith("요청한 연결 2개 중 0개 일치")
+
+
+def test_a_reply_with_lists_only_leaves_each_connection_unconfirmed(senior):
+    org, url, item = _connection_case(senior)
+    scope = {"org_unit_id": org["id"], "start": PERIOD["start"], "end": PERIOD["end"], "src_ips": ["10.31.1.30"],
+             "dst_ips": ["10.31.0.30", "10.31.0.31"], "dst_ports": [443, 3389]}
+    check = _reply(senior, url, item, scope, [])["current"]["payload"]["reply"]["scope_check"]
+    assert check["result"] == "partial" and "개별 연결 미확인" in check["components"]["connections"]["detail"]
+
+
+def test_a_routine_maintenance_reply_without_scope_does_not_make_the_activity_normal(senior):
+    """'정기 점검' with no source, target or time is a claim, not an explanation of the observed connections."""
+    org, inv, url, item = _case(senior)
+    evidence = [_event(inv, "2026-10-13T01:01:00+00:00")]
+    r = senior.post(f"{url}/{item['id']}/reply", json={"expected_version_id": item["current"]["id"],
+                                                       "reason": "Reply received", "note": "정기 점검입니다",
+                                                       "evidence": evidence, "scope": None})
+    assert r.status_code == 200, r.text
+    replied = r.json()
+    assert replied["current"]["payload"]["status"] == "replied"
+    assert replied["current"]["payload"]["reply"]["scope_check"]["result"] == "not_stated"
+    # Received is not verified: the case cannot close as normal on the reply alone.
+    assert _close(senior, inv, "normal").status_code == 400
+    refused = _verify(senior, url, replied, evidence)
+    assert refused.status_code == 400 and "확인됨" in refused.text
+    assert _close(senior, inv, "normal").status_code == 400
+
+
+def test_a_reply_stating_every_requested_connection_matches(senior):
+    org, url, item = _connection_case(senior)
+    scope = {"org_unit_id": org["id"], "start": PERIOD["start"], "end": PERIOD["end"], "src_ips": ["10.31.1.30"],
+             "dst_ips": ["10.31.0.30", "10.31.0.31"], "dst_ports": [443, 3389],
+             "connections": [{"src_ip": "10.31.1.30", "dst_ip": "10.31.0.31", "dst_port": 3389},
+                             {"src_ip": "10.31.1.30", "dst_ip": "10.31.0.30", "dst_port": 443}]}
+    check = _reply(senior, url, item, scope, [])["current"]["payload"]["reply"]["scope_check"]
+    assert check["result"] == "matches", check
+    assert check["components"]["connections"]["detail"] == "요청한 연결 2개 중 2개 일치"

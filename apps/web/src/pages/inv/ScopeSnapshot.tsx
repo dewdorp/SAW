@@ -21,6 +21,21 @@ function sourceCounts(d: any): { label: string; count: number }[] {
   return (d.breakdown.data_source?.buckets || []).map((b:any) => ({label:SOURCE_NAMES[b.key] || String(b.key),count:b.count}));
 }
 
+/** "2026년 9월 5일 ~ 10월 10일" in the investigation's zone. Both ends are inclusive (a declared end is 23:59:59). */
+export function dayRange(start?: string | null, end?: string | null, zone = "Asia/Seoul"): string {
+  const day = (s: string) => {
+    const t = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(s) ? s : s.replace(" ", "T") + "Z").getTime();
+    if (!Number.isFinite(t)) return null;
+    const v = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric", month: "numeric", day: "numeric" })
+      .formatToParts(t).map(x => [x.type, x.value]));
+    return { y: v.year, text: `${Number(v.month)}월 ${Number(v.day)}일` };
+  };
+  const a = start ? day(start) : null, b = end ? day(end) : null;
+  if (!a && !b) return "기간 미확인";
+  if (!a || !b) return `${(a || b)!.y}년 ${(a || b)!.text}`;
+  return `${a.y}년 ${a.text} ~ ${b.y === a.y ? "" : b.y + "년 "}${b.text}`;
+}
+
 type Day = { date: string; count: number };
 // Adjacent days are summed for long periods; no busy day is discarded by downsampling.
 function DailyStrip({ days, filtered, zone, onOpen }: { days: Day[]; filtered: boolean; zone: string; onOpen: () => void }) {
@@ -61,8 +76,20 @@ export function ScopeSnapshot({ data: d, error, openAll, openStats, openDetail }
   const sources = d ? sourceCounts(d) : [];
   const incomplete = d?.analysis?.incomplete?.length ?? 0;
   const status = d?.analysis?.status;
+  const declared = d?.scope.period_declared;
+  const line: string[] | null = !d ? null : [d.scope.org_unit || "관계사 미지정",
+    `${dayRange(declared ? d.scope.period_start : d.scope.observed_start, declared ? d.scope.period_end : d.scope.observed_end, d.scope.timezone)}${declared ? "" : " (기록 기준)"}`,
+    sources.length ? sources.slice(0, 4).map(b => `${b.label} ${fmtNum(b.count)}건`).join(" · ") : null,
+    `전체 ${fmtNum(d.basis.all_events)}건`].filter((x): x is string => !!x);
+  const toActivities = () => {
+    const target = document.getElementById("review-activities");
+    target?.scrollIntoView?.({ block: "start" });
+    target?.focus({ preventScroll: true });
+  };
   return <section className="scope-snapshot" aria-label="자료 현황">
+    {line && <p className="scope-line" aria-label="자료 요약">{line.map((part, i) => <span key={i}>{part}</span>)}</p>}
     <header><h2>자료 현황</h2><div className="row wrap">
+      <button type="button" className="btn sm skip-activities" onClick={toActivities}>검토할 활동으로 이동</button>
       <button type="button" className="btn sm" onClick={openAll}>전체 로그 보기</button>
       <button type="button" className="btn sm ghost" onClick={openStats}>전체 로그 통계</button>
     </div></header>

@@ -38,7 +38,12 @@ def requested_scope(payload: dict, inv_org_unit_id: str | None, inv_period: tupl
             "period_inherited": inherited,
             "src_ips": [str(x) for x in target.get("src_ips") or []],
             "dst_ips": [str(x) for x in target.get("dst_ips") or []],
-            "dst_ports": [str(x) for x in target.get("dst_ports") or []]}
+            "dst_ports": [str(x) for x in target.get("dst_ports") or []],
+            "connections": [_conn(c) for c in target.get("connections") or []]}
+
+
+def _conn(c: dict) -> tuple:
+    return (str(c.get("src_ip") or ""), str(c.get("dst_ip") or ""), "" if c.get("dst_port") is None else str(c.get("dst_port")))
 
 
 EVENT_FIELDS = {"src_ips": "src_ip", "dst_ips": "dst_ip", "dst_ports": "dst_port"}
@@ -103,6 +108,18 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
             put(key, "partial", f"회신이 {label} {', '.join(missing)}를 다루지 않습니다.")
         else:
             put(key, "match", f"회신이 확인 대상 {label}를 모두 다룹니다.")
+    wanted_connections = list(dict.fromkeys(requested.get("connections") or []))
+    if wanted_connections:
+        given = {_conn(c) for c in reply.get("connections") or []}
+        n = len(wanted_connections)
+        if not given:
+            # Lists of addresses and ports can each match while no single connection does.
+            put("connections", "unknown", f"회신에 출발지·목적지·포트의 조합이 없어 요청한 연결 {n}개는 개별 연결 미확인입니다.")
+        else:
+            hit = sum(1 for c in wanted_connections if c in given)
+            detail = f"요청한 연결 {n}개 중 {hit}개 일치"
+            put("connections", "match" if hit == n else "mismatch" if hit == 0 else "partial",
+                detail + ("" if hit == n else f" · 미일치 {n - hit}개는 이 회신으로 설명되지 않습니다."))
     if evidence_events:
         foreign = [e for e in evidence_events if e.get("investigation_id") not in (None, investigation_id)]
         bad, unknown = [], []
@@ -130,7 +147,7 @@ def compare(requested: dict, reply_scope: dict | None, evidence_events: list[dic
     if not parts:
         return {"result": "no_request_scope", "components": {}, "uncovered": [],
                 "summary": "확인 요청과 조사에 대상·기간이 없어 회신 범위를 비교하지 못했습니다."}
-    stated = any(reply.get(k) for k in ("org_unit_id", "src_ips", "dst_ips", "dst_ports", "start", "end"))
+    stated = any(reply.get(k) for k in ("org_unit_id", "src_ips", "dst_ips", "dst_ports", "connections", "start", "end"))
     worst = max(parts.values(), key=lambda part: ORDER[part["status"]])["status"]
     if not stated and worst != "mismatch":
         # Attached records show what was observed, not what the reply covers: a reply that states no

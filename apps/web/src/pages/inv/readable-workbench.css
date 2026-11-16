@@ -63,3 +63,27 @@ button.scope-trend { cursor:pointer; }
   .wb .wb-head .wb-title { max-width:100%; }
   .wb .wb-head { gap:5px; }
 }
+/* One line that says whose data, which period, which sources and how much. */
+.scope-line { display:flex; flex-wrap:wrap; gap:2px 0; margin:0 0 8px !important; font-size:14px; font-weight:600; color:var(--fg); }
+.scope-line > span + span::before { content:"|"; padding:0 8px; color:var(--fg-2); font-weight:400; }
+.skip-activities { display:none; }
+@media (max-width:900px),(max-height:820px) { .skip-activities { display:inline-flex; } }
+/* Laptop height (1366x768): keep the data summary short so the first activity row is on the first screen. */
+@media (max-height:820px) {
+  .scope-snapshot { padding:9px 14px; }
+  .scope-snapshot header { margin-bottom:6px; }
+  .scope-snapshot h2 { font-size:16px; }
+  .scope-metrics { gap:10px; }
+  .scope-count strong { font-size:24px; line-height:1.15; }
+  .scope-run b { font-size:16px; line-height:1.3; }
+  .scope-trend svg { height:18px; margin:2px 0; }
+  .scope-sources, .scope-issues { margin-top:6px; }
+  .scope-issues { padding:3px 10px; }
+  .wb .scope-reading { gap:10px; }
+  .question-worklist > .ph { padding-top:4px; padding-bottom:4px; min-height:0; }
+  .question-worklist > .pb { padding-top:4px; }
+  .question-worklist .queue-scope { margin:1px 0 3px; }
+  .question-worklist .activity-list { margin-top:2px; }
+  .question-worklist .activity-type { margin-top:4px; }
+  .question-worklist .activity-type-head { padding-top:6px; padding-bottom:6px; }
+}

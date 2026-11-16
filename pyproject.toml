@@ -1,6 +1,6 @@
 [project]
 name = "saw"
-version = "0.2.3"
+version = "0.2.4"
 description = "SOC Analysis Workbench - On-Premise SOC Analyst & Threat Hunting Platform"
 requires-python = ">=3.12"
 dependencies = [

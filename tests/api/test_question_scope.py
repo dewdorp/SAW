@@ -90,7 +90,7 @@ def test_editing_the_condition_changes_what_is_computed(senior):
     # A 10-minute window keeps the fast sweep (15 hosts in two minutes) and drops the six-hour one.
     windowed = _preview(senior, inv, "spread", min_targets=10, min_ports=99, window_minutes=10)
     assert [i["entities"][0] for i in windowed["items"]] == ["ip:10.20.5.99"]
-    assert "10분 동안" in windowed["description"] and "10분 안에 목적지 15개" in windowed["items"][0]["title"]
+    assert "10분 동안" in windowed["description"] and "목적지 15개의 포트 4개에 접촉했습니다 (10분 관측창)" in windowed["items"][0]["title"]
     # All 60 fast records happen to fall in the representative matching interval.
     fast = windowed["items"][0]
     assert fast["records"] == 60 and fast["time"]["start"].startswith("2026-10-13T00:00:00")
@@ -275,3 +275,68 @@ def test_example_specifications_keep_execution_data_and_calculation_apart(senior
     assert "NDR 자료 없음" in ndr_only["data_readiness"]["label"]
     found = senior.get(f"/investigations/{inv['id']}/question-examples", params={"q": "Q06", "kind": "hunt"}).json()
     assert found["total"] >= 1 and all(x["kind"] == "hunt" and "Q06" in x["basic_questions"] for x in found["items"])
+
+
+def test_a_large_ndr_request_is_described_as_a_request_not_a_download(senior):
+    """An internal client's large requests to an external server are an outbound transfer candidate."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "ndr.csv", ndr_csv("upload_out"))
+    item = _preview(senior, inv, "transfer")["items"][0]
+    assert "10.20.5.12" in item["title"] and "요청" in item["title"] and "90.0" in item["title"]
+    assert "다운로드" not in item["title"] and "응답 0.0" not in item["title"]
+    # Restricting to the response direction finds nothing large: the size was in the request.
+    assert _preview(senior, inv, "transfer", direction="out")["items"] == []
+
+
+def test_a_window_that_meets_the_port_criterion_is_found_even_when_another_has_more_targets(senior):
+    """The busiest-by-targets window (9 hosts, 1 port) does not hide a later one with 6 ports."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "late.csv", fw_csv("spread_ports_late"))
+    out = _preview(senior, inv, "spread", window_minutes=10, min_targets=10, min_ports=5, match="any")
+    assert [i["entities"] for i in out["items"]] == [["ip:10.20.5.97"]]
+    assert "목적지 3개의 포트 6개에 접촉했습니다" in out["items"][0]["title"]
+    assert "10-13 11:00:00" in out["items"][0]["observed"]
+
+
+def test_a_repeat_group_without_a_port_is_its_own_group_in_count_interval_and_evidence(senior):
+    """Alternating 'no port' and 443 every 10 s: two groups of 8 records each, 20 s apart, opened as such."""
+    inv = _inv(senior)
+    _process(senior, inv["id"], "gap.csv", fw_csv("periodic_port_gap"))
+    out = _preview(senior, inv, "periodic", min_records=8)
+    by = {("포트 미기록" in i["title"]): i for i in out["items"] if "10.20.5.14" in i["title"]}
+    assert set(by) == {True, False}
+    for item in by.values():
+        assert item["records"] == 8 and "약 20초" in item["title"] and "기록 8건" in item["title"]
+        assert len(_events(senior, inv, item["filters"], out["scope"]["time"])) == 8
+    assert any(f == {"field": "dst_port", "op": "not_exists", "value": None} for f in by[True]["filters"])
+
+
+def test_every_computed_candidate_can_be_opened_not_only_the_first_page(senior):
+    inv = _inv(senior)
+    _process(senior, inv["id"], "many.csv", fw_csv("many_spreads"))
+    out = _preview(senior, inv, "spread", min_targets=10, min_ports=99)
+    assert out["found"] == out["shown"] == len(out["items"]) == 12 and out["returned_all"] is True
+
+
+def test_a_request_drafted_from_an_activity_covers_its_whole_group_not_the_kept_sample(senior):
+    inv = _inv(senior, _org(senior))
+    _process(senior, inv["id"], "spread.csv", fw_csv("spread"))
+    run = _preview(senior, inv, "spread", min_targets=10, min_ports=99)
+    item = run["items"][0]
+    page = senior.post(f"/investigations/{inv['id']}/query/events",
+                       json={"filters": item["filters"], "time": run["scope"]["time"], "limit": 20}).json()
+    origin = {"kind": "question", "bundle": "spread", "title": run["title"], "description": run["description"],
+              "parameters": run["parameters"], "scope": run["scope"], "completeness": run["completeness"], "item": item}
+    check = senior.post(f"/investigations/{inv['id']}/checks", json={
+        "target_type": "set", "target_label": item["title"], "questions": ["nature"], "note": item["observed"],
+        "scope": {"coverage": "observation", "checked": 0, "event_ids": [],
+                  "query": {"filters": item["filters"], "time": run["scope"]["time"]}, "origin": origin},
+        "evidence": [e["event_id"] for e in page["events"]]}).json()
+    draft = senior.get(f"/investigations/{inv['id']}/follow-ups/draft", params={"check_id": check["id"]}).json()
+    summary = draft["target_summary"]
+    # 20 references were kept; the request names all 15 destinations, 4 ports and 60 combinations.
+    assert summary["basis"] == "whole_group" and summary["complete"] is True and summary["records"] == 60
+    assert (summary["destinations"], summary["port_count"], summary["connections"]) == (15, 4, 60)
+    assert len(draft["target"]["dst_ips"]) == 15 and len(draft["target"]["connections"]) == 60
+    # The activity sentence is quoted, not glued to a postposition ("…했습니다.에서").
+    assert ".에서" not in draft["question"] and item["title"] in draft["question"]
