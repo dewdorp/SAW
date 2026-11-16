@@ -54,7 +54,8 @@ TITLE_KO = {
     "Potential SSTI / Expression Injection Attempts": "템플릿·표현식 주입 시도", "Potential SSRF / RFI Attempts": "SSRF·원격 파일 포함 시도",
     "Potential Insecure Deserialization Attempts": "역직렬화 공격 시도",
 }
-UA_CLASS_KO = {"browser": "브라우저", "script": "스크립트·도구", "scanner": "스캐너", "empty": "비어 있음", "bot": "검색 로봇", "mobile": "모바일 앱"}
+UA_CLASS_KO = {"browser": "브라우저", "script": "스크립트·도구", "scanner": "스캐너", "empty": "비어 있음", "bot": "검색 로봇", "mobile": "모바일 브라우저",
+               "mobile_app": "모바일 앱", "unknown": "알 수 없음"}
 ERROR_KIND_KO = {"file_not_found": "없는 파일 요청", "access_forbidden": "접근 금지 규칙", "rate_limited": "요청 수 제한",
                  "upstream_failure": "뒤쪽 서버 연결 실패", "auth_failure": "인증 실패", "request_too_large": "너무 큰 요청"}
 
