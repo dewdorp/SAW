@@ -128,7 +128,7 @@ def list_for(s: Session, p: Principal, limit: int = 50, *, org_unit_id: str | No
         return []
     from saw.core.domain.enums import Role
 
-    if Role.SOC_MANAGER not in p.roles:
+    if not (p.roles & {Role.SOC_MANAGER, Role.ADMIN}):
         member_ids = select(InvestigationMember.investigation_id).where(InvestigationMember.user_id == p.user_id)
         q = q.where(or_(Investigation.id.in_(member_ids)))
     return [i for i in s.execute(q).scalars() if not (i.settings or {}).get("data_deletion")]

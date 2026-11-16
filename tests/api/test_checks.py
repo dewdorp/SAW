@@ -208,8 +208,9 @@ def test_evidence_of_a_shared_result_is_only_those_records_masked_and_audited(an
     got = other.get(f"/team-checks/{shared['id']}/evidence").json()
     assert [e["event_id"] for e in got["events"]] == [ev["event_id"]] and "raw_event" not in got["events"][0]
     make_user("adm", ["admin"])
-    assert Api(app, "adm").get(f"/team-checks/{shared['id']}/evidence").status_code == 404   # administrators see no case content
+    assert Api(app, "adm").get(f"/team-checks/{shared['id']}/evidence").status_code == 200   # the administrator can use every function
     with session_scope() as s:
         rows = s.execute(select(AuditEvent).where(AuditEvent.action == "check.evidence_view")).scalars().all()
-        assert len(rows) == 1 and rows[0].actor_name == "a2" and rows[0].investigation_id == a["id"]
+        # Both views are audited, the administrator's too.
+        assert sorted(r.actor_name for r in rows) == ["a2", "adm"] and all(r.investigation_id == a["id"] for r in rows)
         assert s.execute(select(Finding).where(Finding.investigation_id == a["id"])).scalars().first() is not None

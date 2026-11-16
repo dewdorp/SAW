@@ -5,7 +5,7 @@ import io
 import pytest
 
 from saw.core.schemas.query import AggRequest, Filter, GroupMetric
-from saw.core.security.authz import InvestigationAccess, Principal, can
+from saw.core.security.authz import ALL_PERMISSIONS, InvestigationAccess, Principal, can
 from saw.core.domain.enums import Role
 from saw.core.security.masking import mask_text
 from saw.core.security.sanitize import csv_safe, is_safe_member_path, sanitize_filename, visualize_controls
@@ -26,7 +26,12 @@ def test_pdp_matrix():
     assert can(P(Role.SOC_MANAGER), "investigation.read", InvestigationAccess(None))
     assert not can(a, "knowledge.approve")
     assert can(P(Role.SENIOR_ANALYST), "knowledge.approve")
-    assert not can(P(Role.ADMIN), "investigation.read", InvestigationAccess(None))
+    # The administrator and the SOC manager can use every function and open every investigation.
+    assert can(P(Role.ADMIN), "investigation.read", InvestigationAccess(None))
+    assert can(P(Role.ADMIN), "investigation.write", InvestigationAccess(None))
+    for lead in (Role.ADMIN, Role.SOC_MANAGER):
+        assert all(can(P(lead), permission) for permission in ALL_PERMISSIONS)
+    assert not can(P(Role.VIEWER), "investigation.write", InvestigationAccess("owner"))
 
 
 def test_masking():

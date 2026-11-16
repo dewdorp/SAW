@@ -8,6 +8,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from saw import container
@@ -35,7 +36,9 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
         finally:
             container.close(captured)
 
-    app = FastAPI(title="SAW API", version="0.2.5", openapi_url="/api/v1/openapi.json",
+    from saw.version import __version__
+
+    app = FastAPI(title="SAW API", version=__version__, openapi_url="/api/v1/openapi.json",
                   docs_url="/api/v1/docs", lifespan=lifespan)
 
     @app.middleware("http")
@@ -88,6 +91,11 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
     async def notfound(request: Request, exc: NotFound):
         return _problem(404, "Not found", str(exc), request.url.path)
 
+    @app.exception_handler(ValidationError)
+    async def content_invalid(request: Request, exc: ValidationError):
+        # A definition the analyst typed did not fit: say which entry and why, not the library's wording.
+        return _problem(400, "Bad request", _validation_words(exc), request.url.path)
+
     @app.exception_handler(ValueError)
     async def bad_value(request: Request, exc: ValueError):
         return _problem(400, "Bad request", str(exc), request.url.path)
@@ -110,6 +118,35 @@ def create_app(settings: Settings | None = None, synchronous_jobs: bool = False)
 
     _mount_web(app, captured.settings.web_dist)
     return app
+
+
+_ENTRY_KO = {"name": "이름", "label": "단계 이름", "path": "요청 경로", "method": "메서드", "host": "서비스 이름", "value": "조건 값",
+             "threshold": "기준 값", "min_count": "기준 값", "window_seconds": "시간 범위", "count_param": "파라미터 이름", "steps": "단계",
+             "sources": "자료 종류", "conditions": "조건", "contains": "포함 글자", "meaning": "업무 의미", "kind": "찾는 방식"}
+
+
+def _validation_words(exc) -> str:
+    out = []
+    for err in exc.errors()[:5]:
+        loc = [x for x in err.get("loc") or ()]
+        name = next((x for x in reversed(loc) if isinstance(x, str)), "")
+        entry = _ENTRY_KO.get(name, name)
+        index = next((x for x in loc if isinstance(x, int)), None)
+        where = (f"{index + 1}번째 " if index is not None else "") + (f"'{entry}'" if entry else "입력 값")
+        kind, msg = err.get("type") or "", str(err.get("msg") or "")
+        if kind == "value_error":
+            out.append(msg.removeprefix("Value error, "))
+        elif kind in ("string_too_short", "missing", "too_short"):
+            out.append(f"{where}을(를) 적어 주세요.")
+        elif kind in ("string_too_long", "too_long"):
+            out.append(f"{where}이(가) 너무 깁니다.")
+        elif kind == "string_pattern_mismatch":
+            out.append(f"{where}의 형식이 맞지 않습니다" + ("(/로 시작해야 합니다)." if name == "path" else "."))
+        elif kind == "extra_forbidden":
+            out.append(f"{where}은(는) 쓸 수 없는 항목입니다.")
+        else:
+            out.append(f"{where}의 값이 올바르지 않습니다.")
+    return " ".join(dict.fromkeys(out)) or "입력 값이 올바르지 않습니다."
 
 
 def _mount_web(app: FastAPI, dist) -> None:

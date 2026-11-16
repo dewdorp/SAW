@@ -38,10 +38,20 @@ _PERMISSIONS: dict[str, set[Role]] = {
     "audit.read": {Role.ADMIN, Role.SOC_MANAGER},
 }
 
+# The SOC manager and the administrator can use every function: both hold every permission and can open every
+# investigation. Rules that need a second person (an approver other than the author) are not role rules and stay.
+LEAD_ROLES = frozenset({Role.ADMIN, Role.SOC_MANAGER})
+for _roles in _PERMISSIONS.values():
+    _roles |= LEAD_ROLES
+
 ALL_PERMISSIONS = frozenset(_PERMISSIONS)
 
 # Roles that can see every investigation regardless of membership
-_GLOBAL_READERS = {Role.SOC_MANAGER}
+_GLOBAL_READERS = LEAD_ROLES
+
+
+def is_lead(p: "Principal") -> bool:
+    return bool(p.roles & LEAD_ROLES)
 
 
 @dataclass(frozen=True)

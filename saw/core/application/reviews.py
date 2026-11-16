@@ -30,7 +30,7 @@ OUTCOMES = {"approved": "근거가 결론을 지지함", "too_broad": "결론 �
             "changes_requested": "보완 요청"}
 STATUS_KO = {"needed": "검토자 지정 필요", "requested": "검토 대기", "withdrawn": "요청 취소", **OUTCOMES}
 OPEN = ("needed", "requested")
-REVIEWER_ROLES = {Role.ANALYST, Role.SENIOR_ANALYST, Role.SOC_MANAGER}
+REVIEWER_ROLES = {Role.ANALYST, Role.SENIOR_ANALYST, Role.SOC_MANAGER, Role.ADMIN}
 DOWNGRADE = ("benign", "false_positive")
 
 
@@ -97,7 +97,7 @@ def reviewers(s: Session, p: Principal) -> list[dict[str, str]]:
         roles = {Role(r) for r in u.roles}
         if u.id != p.user_id and roles & REVIEWER_ROLES:
             out.append({"id": u.id, "name": u.display_name or u.username, "username": u.username,
-                        "senior": bool(roles & {Role.SENIOR_ANALYST, Role.SOC_MANAGER})})
+                        "senior": bool(roles & {Role.SENIOR_ANALYST, Role.SOC_MANAGER, Role.ADMIN})})
     return out
 
 

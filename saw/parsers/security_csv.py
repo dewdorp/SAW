@@ -337,6 +337,10 @@ class EnNdrHttpCsvParser(_SecurityCsvParser):
             # Cookie values never reach the event store (they stay in the original file); the names stay searchable.
             source["req_cookie_names"] = sorted({part.split("=", 1)[0].strip() for part in cookie.split(";")
                                                  if part.split("=", 1)[0].strip()})[:50]
+            # Linking references (keyed hashes): equal values link requests without the value being stored.
+            from saw.parsers.security_profiles import cookie_refs
+
+            source["req_cookie_refs"] = cookie_refs(cookie)
             source["req_cookie"] = "[\uc6d0\ubcf8 \ud30c\uc77c\uc5d0\ub9cc \ubcf4\uc874]"
         method = source.get("method", "").strip().upper()
         path, query = source.get("path", "").strip(), source.get("query", "").strip()

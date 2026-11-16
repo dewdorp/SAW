@@ -12,14 +12,13 @@ afterEach(() => vi.unstubAllGlobals());
 const app = () => document.querySelector(".app")!;
 
 describe("Shell (sidebar layout)", () => {
-  it("shows grouped Korean menus and hides admin without permission", async () => {
+  it("shows three analyst menus plus tools and settings, and hides admin without permission", async () => {
     renderUI(<Shell me={ME}><div>content</div></Shell>);
     const nav = screen.getByLabelText("주 메뉴");
-    for (const label of ["홈", "빠른 분석", "조사 목록", "작업 상태", "위협 헌팅", "케이스", "SOC 지식", "탐지 룰"]) {
-      expect(within(nav).getByText(label)).toBeTruthy();
-    }
+    const links = within(nav).getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(links).toEqual([["헌팅", "/"], ["시나리오", "/scenarios"], ["자산·업무", "/assets"], ["도구·설정", "/settings"]]);
     expect(within(nav).queryByText("관리·감사")).toBeNull();
-    expect(await within(nav).findByText("2")).toBeTruthy(); // active jobs badge
+    expect(await screen.findByText("작업 2")).toBeTruthy(); // active jobs stay visible in the top bar
     expect(document.querySelector(".sb-user small")!.textContent).toBe("분석가"); // role in Korean
   });
 
@@ -28,12 +27,13 @@ describe("Shell (sidebar layout)", () => {
     expect(screen.getByText("관리·감사")).toBeTruthy();
   });
 
-  it("opens the casebook from the sidebar", () => {
+  it("keeps the hunt menu active on a hunt workbench and names old addresses", () => {
     renderUI(<Shell me={ME}><div /></Shell>, { route: "/inv/abc" });
-    const link = within(screen.getByLabelText("주 메뉴")).getByRole("link", { name: "분석 사례집" });
-    expect(link.getAttribute("href")).toBe("/casebook");
-    fireEvent.click(link);
-    expect(document.querySelector(".crumb")!.textContent).toBe("분석 사례집");
+    const nav = within(screen.getByLabelText("주 메뉴"));
+    expect(nav.getByRole("link", { name: "헌팅" }).className).toContain("active");
+    expect(document.querySelector(".crumb")!.textContent).toBe("헌팅 작업대");
+    fireEvent.click(nav.getByRole("link", { name: "시나리오" }));
+    expect(document.querySelector(".crumb")!.textContent).toBe("시나리오");
   });
 
   it("finds and opens the casebook through menu search", async () => {

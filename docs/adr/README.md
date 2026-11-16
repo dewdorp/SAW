@@ -20,5 +20,7 @@
 | [0016](0016-windows-airgapped-deployment-and-builtin-pcap.md) | Windows 10 LTSC 2019 폐쇄망: 네이티브 설치 + 내장 PCAP 분석기 | Accepted |
 | [0017](0017-adopted-from-codex-comparison.md) | Codex 비교 채택 항목(마이그레이션·ATT&CK·SBOM·멱등성·근거 유형·UI) + PCAP 포렌식 확장 | Accepted |
 | [0018](0018-large-logs-on-analyst-pcs.md) | 저사양 분석가 PC에서 대용량 TXT/CSV 처리(NDR 파서·슬림 인덱스·체크포인트·-LocalOnly) | Accepted |
+| [0020](0020-hunting-platform-structure.md) | 자동 위협헌팅 구조: 주 메뉴 3개, 헌팅 실행, 시나리오, 자산·업무, AI 조사(ADR-0007 갱신) | Accepted |
+| [0019](0019-flow-knowledge-and-state-analysis.md) | 분석가 지식의 자동 적용과 시간 흐름·상태 분석(업무 의미·연결 기준·흐름, 결정적 엔진) | Accepted |
 
 새 ADR은 [template](0000-template.md)을 복사해 작성한다. 결정 변경 시 기존 ADR은 수정하지 않고 `Superseded by ADR-XXXX`로 표시한다.

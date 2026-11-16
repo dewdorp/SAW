@@ -39,6 +39,12 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
             image = f"shots/{case}-{name}"
             assert item["steps"][i]["image"] == image
             expected[f"{case_prefix}/{image}"] = image.encode()
+    # Worked flow cases and the content version are authored files too; their archive is rebuilt from the generator.
+    public_ref = PUBLIC_CASES.parent
+    for rel in ["content-version.json", "flow-cases/index.json", *(f"flow-cases/F{n:02d}.json" for n in range(1, 8))]:
+        expected[f"reference-data/{rel}"] = (public_ref / rel).read_bytes()
+    put(web / "public/reference-data/flow-cases/flow-sample.zip", (public_ref / "flow-cases/flow-sample.zip").read_bytes())
+    put(web / "dist/version.json", b'{"version": "test"}')
     put(web / "src/pages/practice/practice-cases.json",
         json.dumps({"cases": [{"id": f"C{i:03d}"} for i in range(1, 21)]}).encode())
     for rel, content in expected.items():
@@ -74,7 +80,9 @@ def test_offline_web_dist_copies_authoritative_samples_only(tmp_path, monkeypatc
             assert all(info.file_size > 1_000_000 for info in ledgers)
             distinct_inputs.add(tuple(info.CRC for info in ledgers))
     assert len(distinct_inputs) == len(WORKED_IDS)
-    assert shipped == {**expected, "index.html": b"web application", "assets/app.js": b"app()"}
+    assert shipped.pop("reference-data/flow-cases/flow-sample.zip") == (public_ref / "flow-cases/flow-sample.zip").read_bytes()
+    assert shipped == {**expected, "index.html": b"web application", "assets/app.js": b"app()",
+                       "version.json": b'{"version": "test"}'}
 
     stale_index = json.dumps([{"id": case} for case in WORKED_IDS[:-1]]).encode()
     for folder in ("public", "dist"):

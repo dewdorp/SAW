@@ -68,8 +68,8 @@ def test_viewer_cannot_create(app):
     assert Api(app, "v").post("/investigations", json={"title": "x"}).status_code == 403
 
 
-def test_admin_has_no_analysis_by_default(app, admin: Api):
-    assert admin.post("/investigations", json={"title": "x"}).status_code == 403
+def test_admin_can_use_every_function(app, admin: Api):
+    assert admin.post("/investigations", json={"title": "x"}).status_code == 201
     assert admin.get("/admin/users").status_code == 200
 
 

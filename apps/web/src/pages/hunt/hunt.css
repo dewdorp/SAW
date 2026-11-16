@@ -1,0 +1,53 @@
+.ha { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ha-scope { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; padding: 6px 2px; border-bottom: 1px solid var(--line); }
+.ha-stale { border: 1px solid var(--med); border-radius: 6px; padding: 6px 10px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ha-methods summary { cursor: pointer; font-size: 13px; }
+.ha-methods table.t td { height: auto; vertical-align: top; }
+.ha-body { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.ha-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ha-items { display: flex; flex-direction: column; gap: 4px; max-height: 68vh; overflow-y: auto; }
+.ha-item { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.ha-item b { font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.ha-item.sel { border-color: var(--accent); background: var(--accent-weak); }
+.ha-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ha-detail { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+.ha-detail h3 { margin: 0 0 4px; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.ha-section { margin-top: 10px; }
+.ha-section h4 { margin: 0 0 4px; font-size: 13px; color: var(--fg-2); }
+.ha-section h5 { margin: 8px 0 2px; font-size: 12.5px; }
+.ha-section ul { margin: 0; padding-left: 18px; line-height: 1.6; font-size: 13.5px; overflow-wrap: anywhere; }
+.ha-judge textarea { width: 100%; margin: 4px 0; }
+.ha-empty { padding: 16px; }
+.hunts-filters { margin: 8px 0; }
+.hunts-table td { vertical-align: top; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.settings-grid a { display: block; padding: 3px 0; }
+@media (max-width: 900px) { .ha-body { grid-template-columns: 1fr; } .ha-items { max-height: 34vh; } }
+.sc-steps { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; padding: 0; margin: 0 0 10px; }
+.sc-steps li.on .btn { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.sc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 10px; }
+.sc-card { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.sc-said { border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; }
+.sc-said p { margin: 2px 0; }
+.ha-airun { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+.ha-airun ol { padding-left: 20px; overflow-wrap: anywhere; }
+
+.ha-evidence { margin: 4px 0 10px; }
+.ha-evidence .fk-table { max-height: 320px; overflow: auto; }
+.ha-what { max-width: 380px; overflow-wrap: anywhere; }
+
+.cr-scope { gap: 14px; align-items: center; }
+.cr-list { display: flex; flex-direction: column; gap: 10px; }
+.cr-card { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.cr-card.focus { outline: 2px solid var(--accent, #4fd1c5); }
+.cr-card.offed { opacity: .75; }
+.cr-params { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 10px 16px; padding: 8px 0; }
+.cr-changed { border-left: 3px solid var(--warn, #d69e2e); padding-left: 8px; }
+.cr-save { position: sticky; bottom: 0; background: var(--bg, #0b1220); border-top: 1px solid var(--line); padding: 10px 0; }
+.ha-from { margin: 2px 0 8px; }
+.sc-th { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sc-th legend { font-weight: 600; font-size: 13px; padding: 0 6px; }
+.sc-group { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.sc-join { align-self: center; font-weight: 600; font-size: 12px; margin-top: -4px; }
+.sc-word { font-weight: 600; }
+.sc-sub { border-left: 3px solid var(--line); padding-left: 8px; }

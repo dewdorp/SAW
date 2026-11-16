@@ -8,6 +8,7 @@ import { api } from "../../lib/api";
 import { fmtTime } from "../../lib/format";
 import { columnLabel, displayField, PRESETS, profileOf } from "./evidenceView";
 import "./evidenceView.css";
+import { RememberDialog } from "./flows/RememberDialog";
 
 const CHECK_TYPES = ["ip", "domain", "uri", "user", "session", "ja4"];
 const ENT_FIELDS: [string, string][] = [["src_ip", "ip"], ["dst_ip", "ip"], ["uri_template", "uri"], ["user_agent", "user_agent"], ["ja4", "ja4"], ["user", "user"], ["domain", "domain"], ["session_id", "session"]];
@@ -25,6 +26,7 @@ function EventRecord({ inv, eventId }: { inv: string; eventId: string }) {
   const [tab, setTab] = useState("normalized");
   const [reason, setReason] = useState("");
   const [streamOpen, setStreamOpen] = useState(false);
+  const [remember, setRemember] = useState(false);
   const ev = useQuery({ queryKey: ["event", inv, ctx.eventId], queryFn: () => api.get(`/investigations/${inv}/events/${ctx.eventId}`), enabled: !!ctx.eventId });
   const lines = useQuery({ queryKey: ["ctxlines", inv, ctx.eventId], queryFn: () => api.get(`/investigations/${inv}/events/${ctx.eventId}/context?lines=20`), enabled: !!ctx.eventId && tab === "context" });
   const unmask = useMutation({ mutationFn: () => api.post(`/investigations/${inv}/events/${ctx.eventId}/unmask`, { reason }) });
@@ -49,6 +51,8 @@ function EventRecord({ inv, eventId }: { inv: string; eventId: string }) {
         <button disabled title={eventId}>기록 상세</button>
         {([["normalized", "핵심 필드"], ["raw", "원문"], ["entities", "주소·계정"], ["findings", "관련 탐지"], ["context", "전후 로그"], ["linked", `연결된 기록${nLinked ? ` ${nLinked}` : ""}`], ["checks", `확인${nChecks ? ` ${nChecks}` : ""}`]] as [string, string][]).map(([t, l]) => <button key={t} className={tab === t ? "active" : ""} aria-pressed={tab === t} onClick={() => setTab(t)}>{l}</button>)}
         <div className="grow" />
+        {e && e.uri && e.hostname && <button className="btn sm" onClick={() => setRemember(true)} title="이 요청의 업무 의미를 저장해 다음 자료부터 자동으로 적용합니다">메모하고 기억하기</button>}
+        {e && e.alert_name && <a className="btn ghost sm" href="/registry" title="이 장비 공격명의 해석을 등록합니다">공격명 해석 저장</a>}
         {hasPackets && (
           <button className="btn ghost sm" onClick={() => setStreamOpen(true)} title="재조립한 세션 내용 보기 (Follow TCP Stream, 감사 기록)">⇄ 스트림 보기</button>
         )}
@@ -62,6 +66,8 @@ function EventRecord({ inv, eventId }: { inv: string; eventId: string }) {
         <button className="btn ghost sm" aria-label="기록 상세 닫기" onClick={() => ctx.set({ eventId: null })}>✕</button>
       </div>
       {streamOpen && ctx.eventId && <StreamModal inv={inv} eventId={ctx.eventId} onClose={() => setStreamOpen(false)} />}
+      {remember && e && <RememberDialog inv={inv} seed={{ host: String(e.hostname).toLowerCase(), method: e.method || "", path: String(e.uri).split("?")[0], eventIds: [e.event_id], source: "event" }}
+        onClose={() => setRemember(false)} onSaved={() => { setRemember(false); ctx.set({ tab: "flows" }); }} />}
       <div className="scroll" style={{ padding: 8 }}>
         {e && (e.ext?.zeek?.capture_gap || e.ext?.zeek?.missed_bytes > 0) && (
           <div className="error small" role="alert" style={{ marginBottom: 6 }}>⚠ 패킷 빠짐 — 이 세션은 캡처에서 일부 패킷이 빠져 있습니다{e.ext.zeek.missed_bytes > 0 ? ` (${Number(e.ext.zeek.missed_bytes).toLocaleString()} B)` : ""}. 요청·응답 짝, 응답 코드, 추출 파일·해시가 실제와 다를 수 있으니 판단 근거로 쓰기 전에 스트림 보기로 직접 확인하세요.</div>

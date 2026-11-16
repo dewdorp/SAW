@@ -7,15 +7,16 @@ import { api } from "../lib/api";
 import { getTz, setTz } from "../lib/format";
 import { PasswordDialog } from "./PasswordDialog";
 import { Icon } from "./ui";
+import "../pages/inv/flows/flows.css";
 
 type NavItem = [to: string, label: string, icon: string];
+// Three places an analyst works in. Everything else (tools, dictionaries, evaluation, administration) is under "도구·설정".
 const NAV_GROUPS: [string, NavItem[]][] = [
-  ["분석", [["/", "홈", "home"], ["/analyze", "빠른 분석", "analyze"], ["/investigations", "조사 목록", "folder"], ["/board", "현황판", "board"], ["/jobs", "작업 상태", "clock"], ["/provenance", "처리 기록", "report"]]],
-  ["조사·대응", [["/hunting", "위협 헌팅", "target"], ["/cases", "케이스", "briefcase"]]],
-  ["지식·탐지", [["/knowledge", "SOC 지식", "book"], ["/casebook", "분석 사례집", "book"], ["/golden-candidates", "골든셋 후보함", "book"], ["/registry", "관계사·공격명 관리", "book"], ["/detections", "탐지 룰", "shield"], ["/parsers", "파서 관리", "parser"], ["/content-packages", "오프라인 룰·파서", "shield"]]],
+  ["", [["/", "헌팅", "target"], ["/scenarios", "시나리오", "book"], ["/assets", "자산·업무", "folder"]]],
 ];
-const SECTION: [string, string][] = [["/analyze", "빠른 분석"], ["/investigations", "조사 목록"], ["/board", "현황판"], ["/inv/", "조사 작업대"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"],
-  ["/casebook", "분석 사례집"], ["/practice", "분석 사례집"], ["/golden-candidates", "골든셋 후보함"], ["/hunting", "위협 헌팅"], ["/cases", "케이스"], ["/knowledge", "SOC 지식"], ["/registry", "관계사·공격명 관리"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
+const SECTION: [string, string][] = [["/inv/", "헌팅 작업대"], ["/hunts", "헌팅"], ["/scenarios", "시나리오"], ["/assets", "자산·업무"], ["/settings", "도구·설정"],
+  ["/analyze", "붙여넣기 분석"], ["/investigations", "조사 목록(이전 화면)"], ["/board", "현황판(이전 화면)"], ["/home", "이전 홈"], ["/jobs", "작업 상태"], ["/provenance", "처리 기록"],
+  ["/casebook", "분석 사례집"], ["/practice", "분석 사례집"], ["/golden-candidates", "골든셋 후보함"], ["/hunting", "수동 질의"], ["/cases", "사건 묶음"], ["/knowledge/flows", "업무 의미·흐름"], ["/knowledge", "SOC 지식"], ["/registry", "관계사·공격명 사전"], ["/detections", "탐지 룰"], ["/parsers", "파서 관리"], ["/content-packages", "오프라인 룰·파서"], ["/admin/local-models", "로컬 모델"], ["/admin", "관리"]];
 const ROLE_KO: Record<string, string> = { analyst: "분석가", senior_analyst: "선임 분석가", soc_manager: "관제 매니저", viewer: "조회자", admin: "관리자" };
 
 /** null = no explicit choice: the sidebar then collapses itself on the (space-hungry) investigation workbench. */
@@ -36,6 +37,14 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
   const [pref, setPref] = useState<boolean | null>(readCollapsed);
   const [, force] = useState(0);
   const jobs = useQuery({ queryKey: ["jobs", "active"], queryFn: () => api.get("/jobs?active=true"), refetchInterval: 5000 });
+  // An open tab keeps running the bundle it loaded: after a server update it must say so instead of showing old screens.
+  const versions = useQuery({ queryKey: ["system-versions"], queryFn: () => api.get("/system/versions"), refetchInterval: 60000, retry: false });
+  const loaded = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "";
+  const loadedBuild = typeof __APP_BUILT_AT__ === "string" ? __APP_BUILT_AT__ : "";
+  const serverBuild = versions.data?.web_bundle?.built_at || "";
+  // The same version can be rebuilt (a fix during a trial): the build stamp tells an old tab from the files served now.
+  const rebuilt = !!loadedBuild && !!serverBuild && serverBuild !== loadedBuild;
+  const outdated = !!versions.data && !!loaded && (versions.data.app_version !== loaded || rebuilt);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((v) => !v); }
@@ -57,7 +66,7 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
     setPref(v);
     try { localStorage.setItem("saw.sidebar", v ? "collapsed" : "open"); } catch { /* ignore */ }
   };
-  const section = SECTION.find(([p]) => loc.pathname.startsWith(p))?.[1] || "홈";
+  const section = SECTION.find(([p]) => loc.pathname.startsWith(p))?.[1] || "헌팅";
   const canModels = me.permissions.includes("ai.models.manage");
   const isAdmin = me.permissions.includes("admin.users") || me.permissions.includes("audit.read") || canModels;
   return (
@@ -73,24 +82,25 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
         <nav className="sb-nav">
           {NAV_GROUPS.map(([group, items]) => (
             <div key={group} className="sb-group">
-              <div className="sb-label">{group}</div>
+              {group && <div className="sb-label">{group}</div>}
               {items.map(([to, label, icon]) => (
-                <NavLink key={to} to={to} end={to === "/"} title={label} className={({ isActive }) => (isActive ? "active" : "")}>
+                <NavLink key={to} to={to} end={false} title={label} className={({ isActive }) => (isActive && to !== "/" || to === "/" && (loc.pathname === "/" || loc.pathname.startsWith("/inv/") || loc.pathname.startsWith("/hunts")) ? "active" : "")}>
                   <Icon name={icon} /><span className="sb-text">{label}</span>
                   {to === "/jobs" && jobs.data?.length ? <span className="sb-count">{jobs.data.length}</span> : null}
                 </NavLink>
               ))}
             </div>
           ))}
-          {isAdmin && (
-            <div className="sb-group">
-              <div className="sb-label">관리</div>
-              <NavLink to="/admin" end title="관리" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">관리·감사</span></NavLink>
-              {canModels && <NavLink to="/admin/local-models" title="로컬 모델" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">로컬 모델</span></NavLink>}
-            </div>
-          )}
+          <div className="sb-group">
+            <div className="sb-label">설정</div>
+            <NavLink to="/settings" title="도구·설정" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">도구·설정</span></NavLink>
+            {isAdmin && <NavLink to="/admin" end title="관리" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">관리·감사</span></NavLink>}
+            {canModels && <NavLink to="/admin/local-models" title="로컬 모델" className={({ isActive }) => (isActive ? "active" : "")}><Icon name="settings" /><span className="sb-text">로컬 모델</span></NavLink>}
+          </div>
         </nav>
         <div className="sb-foot">
+          {versions.data && <div className="sb-version small muted" title="앱 · 분석 사례집 콘텐츠 버전">
+            <span className="sb-text">SAW {versions.data.app_version}{versions.data.casebook?.declared?.version ? ` · 사례 ${versions.data.casebook.declared.version}` : ""}</span></div>}
           <div className="sb-user" title={me.username}>
             <Icon name="user" />
             <span className="sb-text"><b>{me.display_name}</b><small>{me.roles.map((r) => ROLE_KO[r] || r).join(", ")}</small></span>
@@ -122,6 +132,10 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
           </button>
           <NavLink to="/jobs" className="btn ghost sm" title="처리 중인 작업"><Icon name="clock" size={15} /> {jobs.data?.length ? `작업 ${jobs.data.length}` : "작업"}</NavLink>
         </header>
+        {outdated && <div className="app-update" role="alert">{versions.data.app_version !== loaded ? <>서버가 <b>{versions.data.app_version}</b> 버전으로 업데이트됐습니다. 이 화면은 이전 버전({loaded})이라 새 메뉴와 사례가 보이지 않습니다.</>
+          : <>화면 파일이 새로 설치됐습니다. 이 창은 이전 화면 파일로 열려 있어 새로 추가된 단추와 기능이 보이지 않습니다.</>}
+          <button className="btn sm primary" onClick={() => location.reload()}>새로 고침</button></div>}
+        {!outdated && versions.data?.notes?.length > 0 && <div className="app-update" role="alert">{versions.data.notes.join(" ")}</div>}
         <main className="main">{children}</main>
       </div>
       {palette && <Palette onClose={() => setPalette(false)} />}
@@ -138,9 +152,10 @@ function Palette({ onClose }: { onClose: () => void }) {
     ["빠른 분석: 붙여넣기 (Universal)", () => nav("/analyze")], ["빠른 분석: HTTP 요청", () => nav("/analyze/http")],
     ["빠른 분석: 페이로드 디코딩", () => nav("/analyze/payload")], ["빠른 분석: 요청 비교 (Diff)", () => nav("/analyze/diff")],
     ["빠른 분석: IOC", () => nav("/analyze/ioc")], ["빠른 분석: 로그", () => nav("/analyze/log")],
+    ["헌팅", () => nav("/")], ["시나리오", () => nav("/scenarios")], ["자산·업무", () => nav("/assets")], ["도구·설정", () => nav("/settings")],
     ["조사 목록", () => nav("/investigations")], ["작업 상태", () => nav("/jobs")], ["케이스", () => nav("/cases")],
     ["오프라인 룰·파서", () => nav("/content-packages")], ["SOC 지식", () => nav("/knowledge")], ["분석 사례집", () => nav("/casebook")], ["탐지 룰", () => nav("/detections")], ["위협 헌팅", () => nav("/hunting")],
-    ...((invs.data || []) as any[]).map((i) => [`조사 ${i.display_id} ${i.title}`, () => nav(`/inv/${i.id}`)] as [string, () => void]),
+    ...((invs.data || []) as any[]).map((i) => [`조사 ${i.display_id} ${i.title}`, () => nav(`/inv/${i.id}?tab=activities`)] as [string, () => void]),
   ];
   const list = cmds.filter(([l]) => l.toLowerCase().includes(q.toLowerCase())).slice(0, 12);
   return (

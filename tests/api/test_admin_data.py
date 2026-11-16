@@ -52,15 +52,16 @@ def execute(admin, p, **extra):
         "reason": "synthetic cleanup", "confirmation": p["confirmation"], "preview_fingerprint": p["fingerprint"], **extra})
 
 
-def test_admin_metadata_does_not_grant_raw_read(analyst, admin):
+def test_admin_metadata_listing_shows_no_raw_names(analyst, admin):
     inv, ev = target(analyst)
     assert analyst.get("/admin/data").status_code == 403
     r = admin.get("/admin/data")
     assert r.status_code == 200
     assert "private synthetic title" not in r.text and "private-name.log" not in r.text
     assert "object_key" not in r.text
-    assert admin.get(f"/investigations/{inv['id']}").status_code == 403
-    assert admin.get(f"/evidence/{ev['evidence_id']}").status_code == 403
+    # Since 0.2.6 the administrator can use every function, so the investigation itself opens for them.
+    assert admin.get(f"/investigations/{inv['id']}").status_code == 200
+    assert admin.get(f"/evidence/{ev['evidence_id']}").status_code == 200
 
 
 def test_bundle_deletion_removes_events_and_bytes_but_keeps_audit(analyst, admin):
@@ -232,7 +233,8 @@ def test_read_denial_is_preserved_during_failed_cleanup(analyst, admin, senior, 
     monkeypatch.setattr(container.get().legacy_events, "delete_by_investigation", lambda *_: (_ for _ in ()).throw(RuntimeError("fail")))
     assert execute(admin, preview(admin, "investigation", inv["id"])).json()["state"] == "FAILED"
     assert senior.get(f"/investigations/{inv['id']}").status_code == 403
-    assert admin.get(f"/investigations/{inv['id']}").status_code == 403
+    # The administrator holds every permission, but an investigation being deleted stays closed to everyone.
+    assert admin.get(f"/investigations/{inv['id']}").status_code == 409
 
 
 def test_new_hold_before_retry_blocks_remaining_file_deletion(analyst, admin, monkeypatch):
