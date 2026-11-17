@@ -1,6 +1,7 @@
 ## 2026-11-17 웹 서버 로그 붙여넣기 분석·대형 조사 스토리 한도 수정 — 개발 브랜치
 
-- 브랜치 claude/weblog-paste-20261117(main 3fd4d73, v0.2.6 정식 위). 새 매체·릴리스는 만들지 않았다.
+- 브랜치 claude/weblog-paste-20261117(main 3fd4d73, v0.2.6 정식 위). 사용자 요청으로 PR [dewdorp/SAW#16](https://github.com/dewdorp/SAW/pull/16)을 main에 병합했다(ef3c6b7).
+- **0.2.7 후보 매체**(브랜치 claude/release-0.2.7-20261117, 6eca6b2 빌드): SAW-0.2.7-pilot.20261117-model-free-win-x64.zip 1,571,969,074바이트, SHA-256 a1b0cd21a36f8dbeff789739f9962a99d719c95387f23e2fc6f9b0fe02f7f599, manifest a1b081c9…, schema 0029(변경 없음), 파일 1,350개. 독립 해제 재검증 통과. 운영 업데이트 절차 docs/OPERATIONS-UPDATE-v0.2.7.md. 자산 모음은 .release/release-0.2.7-assets. 합성 리허설 a22(이전 0.2.6 → 0.2.7) 57단계 한 번에 통과(계획한 차단 실패 1 + PASS 56, 88.0분), 포트 닫힘. 사용자 요청으로 프리릴리스 [v0.2.7-pilot.20261117](https://github.com/dewdorp/SAW/releases/tag/v0.2.7-pilot.20261117)(태그 → 6eca6b2, 자산 6개: ZIP·manifest·해시·운영 업데이트 절차·검증 기록·사용 안내)를 게시했고 원격 크기·SHA-256을 대조했다. 운영 설치용 정식(Latest)은 계속 v0.2.6이다. 버전 변경 브랜치는 main에 병합하지 않았다.
 - 스토리 출처 한도: 10만 행 업로드에서 공격 스토리 단계가 `derived_source_scope_limit`로 실패하던 원인은 모든 탐지 결과를 한 값으로 훑은 것이다. 기록마다 따로 훑고 합친 출처는 기존 500개 한도로 묶었다(`combined_source_ids`·`graph_source_ids`). 유사 사례 색인도 같이 고쳤다. 결과 1,000개 조사로 RED → GREEN. 실제 10만 행 업로드 재실행은 하지 않았다.
 - 웹 서버 로그: 새 파서 5개(vhost_combined, HAProxy HTTP, JSON 접근 로그(Nginx JSON·Caddy), Apache 오류 로그(ModSecurity → waf), Nginx 오류 로그). 기존 combined/common(Apache·Nginx·Tomcat·WebtoB·JEUS)·IIS는 그대로. OpenSearch 고정 이름에 haproxy·web_json 추가.
 - 붙여넣기 분석(`/analyze/log`): 웹 기록을 요청 동안만 쓰는 메모리 SQLite에 넣고 조사와 같은 웹 탐지기 10종을 돌린다. 결과마다 한글 제목·판단 근거·다음 확인·근거 줄 번호. 오류 기록 묶음·출발지별 요약. 저장하지 않는다.
